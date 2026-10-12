@@ -3,7 +3,7 @@
 :root{--ok:#2f8a4d;--ok-50:#eef8f1;--warn:#b36e25;--warn-50:#fff7ed;--warn-line:#fac78f;--danger:#b70f28;--danger-50:#fdf0f1}
 
 /* 공통 */
-#auth.page,#docmask.page,#sell.page,#detail.page,#deals.page,#receive.page{max-width:1220px;padding:32px 28px 56px}
+#auth.page,#signup.page,#docmask.page,#sell.page,#detail.page,#deals.page,#receive.page{max-width:1220px;padding:32px 28px 56px}
 .sc-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
 .sc-head h1{margin:6px 0;font-size:28px;letter-spacing:-1.6px}
 .sc-head p{margin:0;color:#8f9198;font-size:13px}
@@ -53,27 +53,47 @@
 .sc-list.no li:before{content:'×';background:#c4c7cc}
 
 /* 1. 인증 */
-.au{display:grid;grid-template-columns:1.1fr 1fr;gap:0;min-height:560px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(22,23,29,.08)}
-.au-brand{position:relative;padding:48px 44px;background:#e6f3ef url('/images/hero-laptop-passport.png') right bottom/cover no-repeat;display:flex;flex-direction:column;justify-content:space-between}
-.au-brand:before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#e6f3ef 38%,rgba(235,249,247,.2))}
-.au-brand>*{position:relative}
-.au-brand h1{margin:14px 0 12px;font-size:38px;line-height:1.15;letter-spacing:-2.4px;color:#353741}
-.au-brand p{max-width:330px;margin:0;font-size:15px;line-height:1.6;color:#5f6166}
-.au-points{display:grid;gap:8px;max-width:330px}
-.au-points span{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:700;color:#0b4a41}
-.au-points span:before{content:'✓';width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;display:grid;place-items:center}
-.au-form{padding:44px 48px;display:flex;flex-direction:column;justify-content:center}
-.au-tabs{display:flex;gap:24px;margin-bottom:26px;border-bottom:1px solid var(--line)}
-.au-tabs button{position:relative;padding:0 0 12px;font-size:17px;font-weight:700;color:#a0a3a9}
-.au-tabs button.active{color:var(--ink)}
-.au-tabs button.active:after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--blue)}
-.au-pane{display:none}.au-pane.active{display:block}
-.au-rules{display:flex;gap:10px;flex-wrap:wrap;margin:-6px 0 14px}
-.au-rules span{font-size:11px;color:var(--muted)}
-.au-rules span.ok{color:var(--ok)}
-.au-rules span:before{content:'○ '}.au-rules span.ok:before{content:'● '}
-.au-sub{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
-.au-sub button{color:var(--blue);font-weight:700}
+.au{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:32px;max-width:980px;margin:24px auto 0}
+.au-side{display:flex;flex-direction:column;justify-content:flex-start;padding:64px 40px 40px;background:var(--blue-50);border:1px solid var(--line);border-radius:8px}
+.au-side h2{margin:0 0 6px;font-size:20px;letter-spacing:-.5px;color:var(--ink)}
+.au-side>p{margin:0 0 22px;font-size:13px;line-height:1.55;color:#5f6166}
+.au-pp{background:#fff;border:1px solid var(--line);border-radius:6px}
+.au-pp-h{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.au-pp-h b{font-size:15px;color:var(--ink)}.au-pp-h span{font-size:11px;color:var(--muted)}
+.au-pp ol{margin:0;padding:4px 18px;list-style:none}
+.au-pp li{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--soft);font-size:13px;color:var(--ink)}
+.au-pp li:last-child{border-bottom:0}
+.au-pp time{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.au-pp li em{padding:3px 8px;border-radius:3px;background:var(--blue-50);font-style:normal;font-size:11px;font-weight:700;color:var(--blue)}
+.au-pp-f{padding:12px 18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.au-form{padding:36px 36px 30px;background:#fff;border:1px solid var(--line);border-radius:8px}
+.au-h{margin:0 0 26px;font-size:24px;letter-spacing:-.8px;color:var(--ink)}
+.au .sc-field{margin-bottom:16px}
+.au .sc-field input{height:48px}
+.au-rules{display:flex;gap:12px;flex-wrap:wrap;margin:-8px 0 16px}
+.au-rules span{font-size:12px;color:var(--muted)}
+.au-rules span.ok{color:var(--ink)}
+.au-rules span:before{content:'· '}
+.au .sc-btn.block{height:50px;margin-top:4px;font-size:15px}
+.au-opts{display:flex;gap:18px;margin:-2px 0 18px;font-size:13px;color:var(--ink)}
+.au-opts label{display:flex;align-items:center;gap:7px;cursor:pointer}
+.au-opts input{width:16px;height:16px;margin:0;accent-color:var(--blue)}
+.au-links{display:flex;justify-content:center;gap:0;margin-top:20px;font-size:13px;color:var(--muted)}
+.au-links>*{padding:0 14px;line-height:1}
+.au-links>*+*{border-left:1px solid var(--line)}
+.au-links button{font-weight:700;color:var(--ink)}
+.au-agree{margin:2px 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:4px;display:grid;gap:10px;font-size:13px;color:var(--ink)}
+.au-agree label{display:flex;align-items:center;gap:8px;cursor:pointer}
+.au-agree label.all{padding-bottom:10px;border-bottom:1px solid var(--line);font-weight:700}
+.au-agree input{width:16px;height:16px;margin:0;accent-color:var(--blue)}
+.au-agree em{font-style:normal;color:var(--muted)}
+.au-steps{margin:0;padding:0;list-style:none;display:grid;gap:12px}
+.au-steps li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px;padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:6px}
+.au-steps b{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-size:13px}
+.au-steps strong{display:block;margin-bottom:3px;font-size:14px;color:var(--ink)}
+.au-steps span{font-size:12px;line-height:1.55;color:var(--muted)}
+.au-sub{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
+.au-sub button{margin-left:6px;color:var(--ink);font-weight:700;text-decoration:underline;text-underline-offset:3px}
 
 /* 2. 문서 마스킹 검토 */
 .dm{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:20px;align-items:start}
@@ -272,13 +292,13 @@
   .sl{grid-template-columns:1fr}.sl-side{position:static}
 }
 @media(max-width:860px){
-  .au{grid-template-columns:1fr}.au-brand{min-height:260px;padding:30px 24px}.au-brand h1{font-size:28px}.au-form{padding:30px 22px}
+  .au{grid-template-columns:minmax(0,1fr);margin-top:8px}.au-side{display:none}.au-form{padding:26px 20px 24px}
   .dm{grid-template-columns:1fr}
   .rc{grid-template-columns:1fr}
   .dl{grid-template-columns:1fr;height:auto}.dl-list{max-height:260px;border-right:0;border-bottom:1px solid var(--line)}.dl-chat{min-height:520px}
 }
 @media(max-width:640px){
-  #auth.page,#docmask.page,#sell.page,#detail.page,#deals.page,#receive.page{padding:22px 16px 40px}
+  #auth.page,#signup.page,#docmask.page,#sell.page,#detail.page,#deals.page,#receive.page{padding:22px 16px 40px}
   .sc-head{flex-direction:column;align-items:flex-start}.sc-head h1{font-size:22px}
   .sc-steps li{font-size:11px;gap:4px}.sc-steps li span{display:none}
   .sl-product{grid-template-columns:72px 1fr}.sl-product .sc-btn{grid-column:1/3}
