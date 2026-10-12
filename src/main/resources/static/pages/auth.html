@@ -1,0 +1,39 @@
+<div class="au">
+  <section class="au-brand">
+    <div>
+      <span class="landing-eyebrow">기록상회 제품 여권</span>
+      <h1>기록이 남아<br>더 안심되는 거래</h1>
+      <p>제품의 구매·수리·소유 이력을 한곳에 모으고, 다음 주인에게 그대로 이어주세요.</p>
+    </div>
+    <div class="au-points">
+      <span>개인정보는 가린 문서 사본만 보관해요</span>
+      <span>이전 소유자의 기록까지 이어받아요</span>
+      <span>AI는 기록 기준으로만 답해요</span>
+    </div>
+  </section>
+
+  <section class="au-form">
+    <div class="au-tabs" role="tablist">
+      <button class="active" role="tab" data-tab="login">로그인</button>
+      <button role="tab" data-tab="signup">회원가입</button>
+    </div>
+
+    <form class="au-pane active" data-pane="login" onsubmit="return false">
+      <div class="sc-note danger" style="margin-bottom:16px"><i>!</i><span>이메일 또는 비밀번호가 올바르지 않아요. 다시 확인해 주세요.</span></div>
+      <label class="sc-field"><span>이메일</span><input type="email" placeholder="name@example.com" autocomplete="username"></label>
+      <label class="sc-field"><span>비밀번호</span><input type="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password"></label>
+      <button class="sc-btn primary block" style="height:48px;font-size:15px">로그인</button>
+      <div class="au-sub">아직 계정이 없나요? <button type="button" data-tab="signup">회원가입</button></div>
+    </form>
+
+    <form class="au-pane" data-pane="signup" onsubmit="return false">
+      <label class="sc-field err"><span>이메일<em>*</em></span><input type="email" value="kim@example" autocomplete="username"><small>이메일 형식이 올바르지 않아요. 예) name@example.com</small></label>
+      <label class="sc-field"><span>비밀번호<em>*</em></span><input type="password" value="record1234" autocomplete="new-password"></label>
+      <div class="au-rules"><span class="ok">8자 이상</span><span class="ok">영문 포함</span><span class="ok">숫자 포함</span><span>특수문자 포함</span></div>
+      <label class="sc-field"><span>닉네임<em>*</em></span><input placeholder="2~12자" maxlength="12"><small>거래 상대에게는 닉네임만 보여요.</small></label>
+      <div class="sc-note info" style="margin-bottom:16px"><i>i</i><span>가입 후 이메일로 인증 링크를 보내드려요. 인증을 마치면 가입이 완료돼요.</span></div>
+      <button class="sc-btn primary block" style="height:48px;font-size:15px">인증 메일 받고 가입하기</button>
+      <div class="au-sub">이미 계정이 있나요? <button type="button" data-tab="login">로그인</button></div>
+    </form>
+  </section>
+</div>

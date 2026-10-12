@@ -1,0 +1,91 @@
+<div class="sc-head">
+  <div><span class="eyebrow">기록상회 마켓</span><h1>판매글 작성</h1><p>작성 중인 내용은 임시저장해도 다른 사람에게 보이지 않아요.</p></div>
+  <span class="sc-badge">임시저장본 · 비공개</span>
+</div>
+
+<ol class="sc-steps">
+  <li class="done"><span>제품 선택</span></li>
+  <li class="now"><span>내용 작성</span></li>
+  <li><span>미리보기 · 게시</span></li>
+</ol>
+
+<div class="sl">
+  <div class="sl-stack">
+    <section class="sc-card">
+      <h2>판매할 제품</h2>
+      <p class="sub">제품 정보와 사양은 자동으로 채워져요.</p>
+      <div class="sl-product">
+        <div class="laptop"></div>
+        <div><span class="eyebrow">제품 여권 인증 완료</span><h3>MacBook Pro 14″ M3 Pro</h3><p>Apple · 2024.02 구매 · 이력 4건</p></div>
+        <button class="sc-btn sm">제품 변경</button>
+      </div>
+    </section>
+
+    <section class="sc-card">
+      <h2>판매 정보</h2>
+      <p class="sub">제목·가격·상태 등급·설명을 입력해 주세요.</p>
+      <label class="sc-field"><span>제목<em>*</em></span><input value="MacBook Pro 14 M3 Pro 18GB/512GB 판매합니다" maxlength="60"></label>
+      <label class="sc-field sl-price"><span>판매 가격<em>*</em></span><input value="2,150,000" inputmode="numeric"></label>
+      <div class="sc-field"><span>제품 상태 등급<em>*</em></span>
+        <div class="sl-grade" role="radiogroup" aria-label="제품 상태 등급">
+          <button data-grade><b>1등급</b><span>매우 나쁨</span></button>
+          <button data-grade><b>2등급</b><span>나쁨</span></button>
+          <button data-grade><b>3등급</b><span>보통</span></button>
+          <button data-grade class="on"><b>4등급</b><span>좋음</span></button>
+          <button data-grade><b>5등급</b><span>최상</span></button>
+        </div>
+      </div>
+      <label class="sc-field"><span>상세 설명</span><textarea>실사용으로 깨끗하게 관리한 제품입니다. 2024년 8월 공식 서비스센터에서 배터리를 교체했습니다.</textarea><small>0 / 2,000자</small></label>
+    </section>
+
+    <section class="sc-card sl-ai">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div><h2>AI 제목·본문 제안</h2><p class="sub">저장된 내용과 등록된 이력으로 만들어요. 사용 기간이나 고장 여부는 추측하지 않아요.</p></div>
+        <button class="sc-btn sm">다시 제안받기</button>
+      </div>
+      <div class="sl-ai-sug"><b>M3 Pro MacBook Pro 14″, 배터리 교체 이력 확인된 제품</b>2024년 2월 구매 후 보증 기간이 남아 있는 제품입니다. 2024년 8월 공식 서비스센터에서 배터리를 교체한 기록이 있고, 정기 점검 이력이 함께 등록되어 있어요.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="sc-btn primary sm">제안문 적용하기</button><span style="font-size:12px;color:var(--muted)">적용은 화면만 바꿔요. 저장하려면 임시저장을 눌러 주세요.</span></div>
+    </section>
+
+    <section class="sc-card">
+      <h2>공개할 사진</h2>
+      <p class="sub">대표 사진 1장을 정하고 끌어서 순서를 바꿔요. 영수증·보증서 같은 증빙은 올라가지 않아요.</p>
+      <div class="sl-photos">
+        <div class="sl-photo main"><em>대표</em><i>1</i><div class="laptop"></div></div>
+        <div class="sl-photo"><i>2</i><div class="laptop"></div></div>
+        <div class="sl-photo"><i>3</i><div class="laptop"></div></div>
+        <div class="sl-photo off"><i>＋</i><div class="laptop"></div></div>
+      </div>
+    </section>
+
+    <div class="sl-bar">
+      <span class="saved">마지막 임시저장 <b>14:02</b></span>
+      <button class="sc-btn">임시저장</button>
+      <button class="sc-btn">미리보기</button>
+      <button class="sc-btn primary">게시하기</button>
+    </div>
+  </div>
+
+  <aside class="sl-side">
+    <section class="sc-card">
+      <h2>게시하면 이렇게 공개돼요</h2>
+      <dl class="sl-open">
+        <dt>누적 핵심 이력 4건</dt>
+        <dd>이전 소유자가 등록한 기록까지 모두 공개돼요. 개별 이력은 빼거나 숨길 수 없어요.</dd>
+        <dt>현재 판매 가격과 제품 사양</dt>
+        <dd>구매·수리 날짜와 사실이 보여요.</dd>
+        <dt>증빙은 “증빙 있음”만 표시</dt>
+        <dd>사진과 다운로드 링크는 공개되지 않아요.</dd>
+      </dl>
+    </section>
+    <section class="sc-card">
+      <h2>공개되지 않는 정보</h2>
+      <ul class="sc-list no" style="margin-top:8px">
+        <li>시리얼 번호 전체·일부</li>
+        <li>과거 구매금액·수리비</li>
+        <li>이름·연락처 등 개인정보</li>
+      </ul>
+    </section>
+    <div class="sc-note warn"><i>!</i><span>예약이 되면 가격·설명·사진·사양을 바꾸거나 새 이력을 등록할 수 없어요.</span></div>
+  </aside>
+</div>

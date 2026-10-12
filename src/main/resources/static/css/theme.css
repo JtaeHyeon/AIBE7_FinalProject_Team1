@@ -1,0 +1,58 @@
+/* K Car 스타일 테마: 폰트 / 라운드 / 그림자 (색상 토큰은 base.css :root) */
+body{font-family:"Spoqa Han Sans Neo",-apple-system,BlinkMacSystemFont,"Malgun Gothic",Roboto,"Helvetica Neue",Arial,sans-serif;letter-spacing:-.4px;-webkit-font-smoothing:antialiased}
+h1,h2,h3,strong,.price{font-weight:700;letter-spacing:-.6px}
+.sum,.product,.workspace,.register,.docs,.market-card,.trade,.info-card,.form-card,.upload-card,.timeline,.checklist,.trade-summary,.doc-row{border-color:var(--line);border-radius:8px}
+.sum,.product,.market-card,.trade,.register,.workspace,.docs{box-shadow:0 2px 4px 0 rgba(22,23,29,.04),0 0 1px 0 rgba(22,23,29,.2)}
+.button,.option button,.product-action button,.search,.field input,.alert,.doc-preview,.score{border-radius:4px}
+.button.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
+.button.primary:hover{background:#0a5247;border-color:#0a5247}
+.button:not(.primary):hover,.product-action button:hover{border-color:var(--ink);color:var(--ink)}
+.product:hover{border-color:var(--ink)}
+.field input:focus,.search:focus{outline:0;border-color:var(--ink)}
+.nav button.active,.side-menu button.active,.nav-drop button.active{background:var(--blue-50);color:var(--blue);font-weight:700}
+.eyebrow{color:var(--blue)}
+.step.active .num,.progress-step.done:before{background:var(--blue);border-color:var(--blue)}
+
+/* 컬러: 틸(신뢰) + K Car 잉크/중립색 + 레드 포인트(가격·강조) */
+:root{--accent:#b70f28;--accent-50:#fdf0f1}
+.landing-price,.price{color:var(--accent)}
+.landing-badge,.alert-dot{background:var(--accent);color:#fff}
+.landing-eyebrow{color:var(--blue)}
+
+/* 상단 메뉴: 전체메뉴 버튼 + 메뉴 hover 밑줄 */
+.landing-nav{gap:28px}
+.nav-all{display:flex;align-items:center;gap:8px;height:100%;padding-right:22px;border-right:1px solid var(--line);font-size:15px;font-weight:700;color:var(--ink)}
+.nav-all .burger{width:16px;height:12px;background:linear-gradient(var(--ink) 0 0) top/100% 2px no-repeat,linear-gradient(var(--ink) 0 0) center/100% 2px no-repeat,linear-gradient(var(--ink) 0 0) bottom/100% 2px no-repeat}
+.nav-all.open{color:var(--blue)}
+.nav-all.open .burger{background:linear-gradient(var(--blue) 0 0) top/100% 2px no-repeat,linear-gradient(var(--blue) 0 0) center/100% 2px no-repeat,linear-gradient(var(--blue) 0 0) bottom/100% 2px no-repeat}
+.landing-nav .nav-item>button{position:relative;height:100%}
+.landing-nav .nav-item>button:after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--blue);transform:scaleX(0);transition:transform .18s ease}
+.nav-item:hover>button:after,.nav-item:focus-within>button:after,.landing-nav .nav-item>button.active:after{transform:scaleX(1)}
+.nav-drop{border-radius:8px;box-shadow:0 2px 12px 0 rgba(22,23,29,.1)}
+.nav-drop button{border-radius:4px}
+.nav-drop b{color:var(--ink)}
+.nav-drop button:hover b{color:var(--blue)}
+
+/* 전체메뉴 패널 */
+.site-header{position:sticky}
+.mega{position:absolute;top:100%;left:0;right:0;background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line);box-shadow:0 12px 24px rgba(22,23,29,.08);max-height:calc(100vh - 140px);overflow:auto;z-index:25}
+.mega[hidden]{display:none}
+.mega-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 40px;padding:28px 0 32px}
+.mega-col{display:flex;flex-direction:column;min-width:0}
+.mega-col button{display:block;text-align:left;width:100%}
+.mega-title{font-size:16px;font-weight:700;padding:0 0 12px;margin-bottom:6px;border-bottom:2px solid var(--ink)}
+.mega-col button:not(.mega-title){padding:9px 0;border-radius:4px}
+.mega-col b{display:block;font-size:13px;font-weight:700;color:var(--ink)}
+.mega-col small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
+.mega-col button:not(.mega-title):hover b{color:var(--blue)}
+
+/* 메인 바로가기: 아이콘 hover */
+.shortcut i{transition:background .15s,color .15s,border-color .15s}
+.shortcut:hover i{background:var(--blue);border-color:var(--blue);color:#fff}
+.landing-product{border-radius:8px}
+
+@media(max-width:780px){
+  .nav-all{padding-right:14px;font-size:13px;flex:none}
+  .mega-grid{grid-template-columns:1fr 1fr;gap:4px 18px;padding:18px 0 22px}
+}
+@media(max-width:480px){.mega-grid{grid-template-columns:1fr}}
