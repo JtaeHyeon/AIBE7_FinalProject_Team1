@@ -1,5 +1,5 @@
 // 각 화면의 HTML은 /pages/{id}.html 에 있고, 여기서 같은 id의 section에 채워 넣는다. (trade는 js/trade.js에서 렌더링)
-['landing', 'home', 'passport', 'register', 'documents', 'market'].forEach((id) => {
+['landing', 'home', 'passport', 'register', 'documents', 'market', 'sell', 'auth', 'docmask', 'detail', 'deals', 'receive'].forEach((id) => {
   fetch(`/pages/${id}.html`)
     .then((response) => {
       if (!response.ok) throw new Error(`${response.status}`);

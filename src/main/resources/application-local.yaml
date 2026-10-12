@@ -16,6 +16,9 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+
 app:
   jwt:
     secret: ${JWT_SECRET:change-this-local-jwt-secret-at-least-32-bytes}

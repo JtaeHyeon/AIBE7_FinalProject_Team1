@@ -17,7 +17,7 @@ document.querySelector('#trade').innerHTML=`
         <section class="handover-panel">
           <h2>일회성 인계 QR</h2>
           <div class="qr-box" aria-label="소유권 이전 QR 코드">
-            <svg viewBox="0 0 150 150" width="112" height="112" aria-hidden="true"><rect width="150" height="150" fill="#fff"/><g fill="#17253b"><path d="M10 10h38v38H10zM17 17h24v24H17zM24 24h10v10H24zM102 10h38v38h-38zM109 17h24v24h-24zM116 24h10v10h-10zM10 102h38v38H10zM17 109h24v24H17zM24 116h10v10H24zM62 12h10v11H62zM78 20h11v10H78zM56 35h12v12H56zM74 42h10v10H74zM88 54h12v12H88zM56 62h10v10H56zM70 66h12v12H70zM88 74h10v10H88zM106 58h11v11h-11zM122 66h10v10h-10zM56 86h12v12H56zM72 94h10v10H72zM88 90h12v12H88zM106 86h12v12h-12zM122 102h10v12h-10zM56 110h10v10H56zM72 118h12v12H72zM92 110h10v12H92zM108 122h10v10h-10z"/></g></svg>
+            <svg viewBox="0 0 150 150" width="112" height="112" aria-hidden="true"><rect width="150" height="150" fill="#fff"/><g fill="#25262d"><path d="M10 10h38v38H10zM17 17h24v24H17zM24 24h10v10H24zM102 10h38v38h-38zM109 17h24v24h-24zM116 24h10v10h-10zM10 102h38v38H10zM17 109h24v24H17zM24 116h10v10H24zM62 12h10v11H62zM78 20h11v10H78zM56 35h12v12H56zM74 42h10v10H74zM88 54h12v12H88zM56 62h10v10H56zM70 66h12v12H70zM88 74h10v10H88zM106 58h11v11h-11zM122 66h10v10h-10zM56 86h12v12H56zM72 94h10v10H72zM88 90h12v12H88zM106 86h12v12h-12zM122 102h10v12h-10zM56 110h10v10H56zM72 118h12v12H72zM92 110h10v12H92zM108 122h10v10h-10z"/></g></svg>
           </div>
           <div class="qr-copy">30분 후 만료 · 1회 사용<br><button class="button small" style="margin-top:7px">QR 코드 다시 생성</button></div>
         </section>
