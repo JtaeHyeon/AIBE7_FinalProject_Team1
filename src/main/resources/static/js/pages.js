@@ -7,6 +7,7 @@
     })
     .then((html) => {
       document.querySelector(`#${id}`).innerHTML = html;
+      document.dispatchEvent(new CustomEvent('pastport:page-loaded', { detail: { id } }));
     })
     .catch((error) => console.error(`페이지를 불러오지 못했습니다: ${id}`, error));
 });

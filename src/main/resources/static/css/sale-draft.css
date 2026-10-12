@@ -1,0 +1,23 @@
+#sell [hidden]{display:none!important}
+#sell .sl-product{grid-template-columns:96px 1fr}
+#sell .sl-specs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px;margin:16px 0 0}
+#sell .sl-specs>div{display:flex;justify-content:space-between;gap:12px;font-size:12px}
+#sell .sl-specs dt{color:#73767d}
+#sell .sl-specs dd{margin:0;text-align:right;overflow-wrap:anywhere}
+#sell [data-sale-error]{margin-bottom:16px}
+#sell .sl-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#sell .sl-photo-choice{min-width:0}
+#sell .sl-photo{width:100%;padding:0;overflow:hidden;cursor:pointer}
+#sell .sl-photo img{width:100%;height:100%;object-fit:cover}
+#sell .sl-photo:not(.selected){opacity:.65}
+#sell .sl-photo.selected{border-color:var(--blue);opacity:1}
+#sell .sl-photo:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+#sell .sl-photo-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin-top:8px}
+#sell .sl-photo-controls button{padding:4px 7px;border:1px solid var(--line);border-radius:4px;background:#fff;font-size:11px}
+#sell .sl-photo-controls button:disabled{opacity:.4;cursor:default}
+#sell .sl-photo-caption,#sell .sl-photo-empty{font-size:12px;color:#73767d;line-height:1.6}
+#sell .sl-grade button:disabled{opacity:.5;cursor:default}
+#sell .sl-grade button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+#sell .sl-bar .saved{line-height:1.6}
+#sell input:disabled,#sell textarea:disabled{background:var(--soft)}
+@media(max-width:480px){#sell .sl-specs{grid-template-columns:1fr}#sell .sl-product{grid-template-columns:72px 1fr}#sell .sl-bar .sc-btn{flex:1;padding:0 10px}}
