@@ -1,0 +1,21 @@
+/* 문서 마스킹 화면(docmask) 전용 스타일. 기존 .dm-*, .sc-* 클래스를 보완한다. */
+#docmask .dm-field{display:grid;gap:6px;margin:0 0 14px;font-size:13px;font-weight:700}
+#docmask .dm-field input{height:40px;padding:0 12px;border:1px solid var(--line);border-radius:4px;font-size:14px}
+#docmask .dm-field input:focus{outline:2px solid var(--blue);outline-offset:1px}
+#docmask .dm-drop{display:grid;gap:6px;place-items:center;padding:36px 16px;border:2px dashed #c4cdd9;border-radius:8px;background:var(--soft,#f6f8fa);text-align:center;cursor:pointer}
+#docmask .dm-drop:hover,#docmask .dm-drop.over,#docmask .dm-drop:focus-within{border-color:var(--blue);background:#eef7f5}
+#docmask .dm-drop input{position:absolute;width:1px;height:1px;opacity:0}
+#docmask .dm-drop b{font-size:15px}
+#docmask .dm-drop span{font-size:12px;color:#62646b}
+#docmask .dm-live{min-height:18px;margin:0 0 8px;font-size:12px;color:#62646b}
+#docmask .dm-count{margin-left:auto;font-size:12px;font-weight:700;color:#62646b}
+#docmask .dm-canvas-wrap{position:relative;max-width:100%;margin:0 auto;line-height:0;touch-action:none;user-select:none;-webkit-user-select:none}
+#docmask .dm-canvas-wrap canvas{display:block;width:100%;height:auto;background:#fff;box-shadow:0 8px 24px rgba(22,23,29,.1)}
+#docmask .dm-canvas-wrap canvas[data-dm-overlay]{position:absolute;inset:0;background:transparent;box-shadow:none;cursor:crosshair}
+#docmask .dm-canvas-wrap.remove canvas[data-dm-overlay]{cursor:pointer}
+#docmask .dm-stage img{display:block;max-width:100%;margin:0 auto;box-shadow:0 8px 24px rgba(22,23,29,.1)}
+#docmask .dm-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px}
+#docmask .dm-check{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:13px;line-height:1.5}
+#docmask .dm-check input{margin-top:3px;width:16px;height:16px;accent-color:var(--blue)}
+#docmask .dm-steps-list{margin:0;padding-left:18px;font-size:13px;line-height:1.8;color:#44464a}
+#docmask .sc-note[hidden]{display:none}
