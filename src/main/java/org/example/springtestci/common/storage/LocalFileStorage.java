@@ -2,10 +2,18 @@ package org.example.springtestci.common.storage;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.HexFormat;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.io.Resource;
@@ -16,27 +24,34 @@ import org.springframework.stereotype.Component;
 @Profile({"local", "test"})
 public class LocalFileStorage implements FileStorage {
 
-  private final Path root;
+  public static final String TEMPORARY_URL_PATH = "/local-files";
 
-  public LocalFileStorage(@Value("${app.storage.local-root}") String root) {
+  private final Path root;
+  private final byte[] signingKey;
+  private final Clock clock;
+
+  public LocalFileStorage(
+      @Value("${app.storage.local-root}") String root,
+      @Value("${app.storage.signing-secret}") String signingSecret,
+      Clock clock) {
     this.root = Path.of(root).toAbsolutePath().normalize();
+    this.signingKey = signingSecret.getBytes(StandardCharsets.UTF_8);
+    this.clock = clock;
   }
 
   @Override
   public String store(String originalFilename, InputStream content) throws IOException {
     Files.createDirectories(root);
     String key = UUID.randomUUID() + "-" + safeFilename(originalFilename);
-    Path destination = resolve(key);
-    try {
-      Files.copy(content, destination, StandardCopyOption.REPLACE_EXISTING);
-    } catch (IOException exception) {
-      try {
-        Files.deleteIfExists(destination);
-      } catch (IOException cleanupException) {
-        exception.addSuppressed(cleanupException);
-      }
-      throw exception;
-    }
+    copy(key, content);
+    return key;
+  }
+
+  @Override
+  public String store(String directory, String extension, InputStream content) throws IOException {
+    String key = directory + "/" + UUID.randomUUID() + "." + extension;
+    Files.createDirectories(resolve(key).getParent());
+    copy(key, content);
     return key;
   }
 
@@ -48,6 +63,53 @@ public class LocalFileStorage implements FileStorage {
   @Override
   public void delete(String key) throws IOException {
     Files.deleteIfExists(resolve(key));
+  }
+
+  @Override
+  public String createTemporaryUrl(String key, Instant expiresAt) {
+    long expires = expiresAt.getEpochSecond();
+    return TEMPORARY_URL_PATH
+        + "?key="
+        + URLEncoder.encode(key, StandardCharsets.UTF_8)
+        + "&expires="
+        + expires
+        + "&sig="
+        + sign(key, expires);
+  }
+
+  /** 임시 URL의 서명과 만료 시각을 확인한다. */
+  public boolean isValidTemporaryUrl(String key, long expires, String signature) {
+    if (signature == null || Instant.now(clock).getEpochSecond() > expires) {
+      return false;
+    }
+    return MessageDigest.isEqual(
+        sign(key, expires).getBytes(StandardCharsets.UTF_8),
+        signature.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private String sign(String key, long expires) {
+    try {
+      Mac mac = Mac.getInstance("HmacSHA256");
+      mac.init(new SecretKeySpec(signingKey, "HmacSHA256"));
+      return HexFormat.of()
+          .formatHex(mac.doFinal((key + "\n" + expires).getBytes(StandardCharsets.UTF_8)));
+    } catch (java.security.GeneralSecurityException exception) {
+      throw new IllegalStateException("Failed to sign temporary url", exception);
+    }
+  }
+
+  private void copy(String key, InputStream content) throws IOException {
+    Path destination = resolve(key);
+    try {
+      Files.copy(content, destination, StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException exception) {
+      try {
+        Files.deleteIfExists(destination);
+      } catch (IOException cleanupException) {
+        exception.addSuppressed(cleanupException);
+      }
+      throw exception;
+    }
   }
 
   private Path resolve(String key) {
