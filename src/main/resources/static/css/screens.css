@@ -350,6 +350,10 @@
 .lg-join{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
 .lg-join button{padding:7px 14px;border:1px solid var(--blue);border-radius:6px;font-weight:700;color:var(--blue);transition:background .15s,color .15s}
 .lg-join button:hover{background:var(--blue);color:#fff}
+.au-msg{margin:0 0 16px;padding:11px 14px;border-radius:6px;background:#fdf0f1;border:1px solid #f0c4ca;font-size:13px;line-height:1.5;color:var(--accent)}
+.au-msg[data-kind="info"]{background:var(--blue-50);border-color:#c5e3db;color:var(--blue)}
+.au-msg[hidden]{display:none}
+.au.split .sc-btn[disabled]{box-shadow:none}
 .au.split .sc-btn.primary:active{transform:translateY(1px);box-shadow:0 2px 6px rgba(14,106,92,.22)}
 @media(max-width:860px){
   .au.split{grid-template-columns:minmax(0,1fr);margin-top:8px;border-radius:10px}

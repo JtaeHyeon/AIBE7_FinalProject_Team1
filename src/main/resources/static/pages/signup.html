@@ -79,18 +79,19 @@
     <p class="lg-eyebrow">JOIN</p>
     <h1 class="au-h">회원가입</h1>
     <p class="lg-sub">가입하고 내 노트북의 기록을 쌓기 시작하세요.</p>
-    <form onsubmit="return false">
-      <label class="sc-field"><span>이메일<em>*</em></span><input type="email" placeholder="name@example.com" autocomplete="username"></label>
-      <label class="sc-field"><span>비밀번호<em>*</em></span><input type="password" placeholder="비밀번호를 입력하세요" autocomplete="new-password"></label>
-      <div class="au-rules"><span>8자 이상</span><span>영문 포함</span><span>숫자 포함</span><span>특수문자 포함</span></div>
-      <label class="sc-field"><span>비밀번호 확인<em>*</em></span><input type="password" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password"></label>
-      <label class="sc-field"><span>닉네임<em>*</em></span><input placeholder="2~12자" maxlength="12"><small>거래 상대에게는 닉네임만 보여요.</small></label>
+    <form data-auth-form="signup" novalidate>
+      <p class="au-msg" role="alert" hidden></p>
+      <label class="sc-field"><span>이메일<em>*</em></span><input name="email" type="email" placeholder="name@example.com" autocomplete="username" maxlength="254" required></label>
+      <label class="sc-field"><span>비밀번호<em>*</em></span><input name="password" type="password" placeholder="비밀번호를 입력하세요" autocomplete="new-password" maxlength="64" required></label>
+      <div class="au-rules"><span data-rule="length">8자 이상</span><span data-rule="letter">영문 포함</span><span data-rule="digit">숫자 포함</span><span data-rule="special">특수문자 포함</span></div>
+      <label class="sc-field"><span>비밀번호 확인<em>*</em></span><input name="passwordConfirm" type="password" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password" maxlength="64" required></label>
+      <label class="sc-field"><span>닉네임<em>*</em></span><input name="nickname" placeholder="2~12자" maxlength="12" required><small>거래 상대에게는 닉네임만 보여요.</small></label>
       <div class="au-agree">
-        <label class="all"><input type="checkbox"> 전체 동의</label>
-        <label><input type="checkbox"> 이용약관 동의 <em>(필수)</em></label>
-        <label><input type="checkbox"> 개인정보 수집·이용 동의 <em>(필수)</em></label>
+        <label class="all"><input type="checkbox" data-agree-all> 전체 동의</label>
+        <label><input type="checkbox" data-agree-required> 이용약관 동의 <em>(필수)</em></label>
+        <label><input type="checkbox" data-agree-required> 개인정보 수집·이용 동의 <em>(필수)</em></label>
       </div>
-      <button class="sc-btn primary block">가입하기</button>
+      <button type="submit" class="sc-btn primary block">가입하기</button>
       <div class="au-sub">이미 계정이 있나요?<button type="button" data-page="auth">로그인</button></div>
     </form>
   </section>

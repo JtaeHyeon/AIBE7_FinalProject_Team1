@@ -73,11 +73,12 @@
     <p class="lg-eyebrow">WELCOME BACK</p>
     <h1 class="au-h">로그인</h1>
     <p class="lg-sub">이메일로 로그인하고 내 제품 여권을 이어서 확인하세요.</p>
-    <form onsubmit="return false">
-      <label class="sc-field"><span>이메일</span><input type="email" placeholder="name@example.com" autocomplete="username"></label>
-      <label class="sc-field"><span>비밀번호</span><input type="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password"></label>
-      <div class="au-opts"><label><input type="checkbox"> 로그인 상태 유지</label><label><input type="checkbox"> 이메일 저장</label></div>
-      <button class="sc-btn primary block">로그인</button>
+    <form data-auth-form="login" novalidate>
+      <p class="au-msg" role="alert" hidden></p>
+      <label class="sc-field"><span>이메일</span><input name="email" type="email" placeholder="name@example.com" autocomplete="username" maxlength="254" required></label>
+      <label class="sc-field"><span>비밀번호</span><input name="password" type="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password" maxlength="64" required></label>
+      <div class="au-opts"><label><input type="checkbox"> 로그인 상태 유지</label><label><input name="saveEmail" type="checkbox"> 이메일 저장</label></div>
+      <button type="submit" class="sc-btn primary block">로그인</button>
       <div class="au-links"><span>이메일 찾기</span><span>비밀번호 찾기</span></div>
     </form>
     <div class="lg-join">아직 계정이 없나요?<button type="button" data-page="signup">회원가입</button></div>
