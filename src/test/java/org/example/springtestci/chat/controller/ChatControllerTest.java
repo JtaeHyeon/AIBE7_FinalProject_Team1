@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import org.example.springtestci.chat.domain.ChatListingStatus;
 import org.example.springtestci.chat.dto.ChatMessageResponse;
 import org.example.springtestci.chat.dto.ChatPageResponse;
 import org.example.springtestci.chat.dto.ChatPageResponse.PageMetadata;
@@ -66,7 +67,8 @@ class ChatControllerTest {
   @Test
   void listsRoomsWithPagingParameters() throws Exception {
     ChatRoomSummaryResponse room =
-        new ChatRoomSummaryResponse(11L, 7L, "counterparty", "laptop", "hello", NOW, true);
+        new ChatRoomSummaryResponse(
+            11L, 7L, "counterparty", "laptop", ChatListingStatus.ACTIVE, "hello", NOW, true);
     when(chatService.listMyRooms(ACTOR_ID, 1, 10))
         .thenReturn(new ChatPageResponse<>(List.of(room), new PageMetadata(1, 10, 12, 2, false)));
 
@@ -78,6 +80,7 @@ class ChatControllerTest {
                 .param("size", "10"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.items[0].roomId").value(11))
+        .andExpect(jsonPath("$.data.items[0].listingStatus").value("ACTIVE"))
         .andExpect(jsonPath("$.data.page.number").value(1))
         .andExpect(jsonPath("$.data.page.hasNext").value(false));
 

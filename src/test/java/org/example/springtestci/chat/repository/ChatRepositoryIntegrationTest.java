@@ -1,9 +1,14 @@
 package org.example.springtestci.chat.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.example.springtestci.chat.domain.ChatMessage;
 import org.example.springtestci.chat.domain.ChatReadPosition;
 import org.example.springtestci.chat.domain.ChatRoom;
@@ -23,6 +28,7 @@ class ChatRepositoryIntegrationTest {
   @Autowired private ChatRoomRepository roomRepository;
   @Autowired private ChatMessageRepository messageRepository;
   @Autowired private ChatReadPositionRepository readPositionRepository;
+  @Autowired private EntityManager entityManager;
 
   @Test
   void storesRoomsMessagesAndPersonalReadPositions() {
@@ -53,6 +59,27 @@ class ChatRepositoryIntegrationTest {
     assertEquals(sellerMessage.messageId(), position.lastReadMessageId());
     assertTrue(
         messageRepository.findRoomIdsWithUnreadMessages(List.of(room.roomId()), 20L).isEmpty());
+
+    entityManager.flush();
+    entityManager.clear();
+
+    assertEquals(room.roomId(), roomRepository.findById(room.roomId()).orElseThrow().roomId());
+    assertEquals(
+        sellerMessage.messageId(),
+        messageRepository.findById(sellerMessage.messageId()).orElseThrow().messageId());
+    assertEquals(
+        sellerMessage.messageId(),
+        readPositionRepository
+            .findByRoomIdAndUserId(room.roomId(), 20L)
+            .orElseThrow()
+            .lastReadMessageId());
+
+    messageRepository.append(room.roomId(), 10L, "new reply");
+
+    assertTrue(
+        messageRepository
+            .findRoomIdsWithUnreadMessages(List.of(room.roomId()), 20L)
+            .contains(room.roomId()));
   }
 
   @Test
@@ -67,5 +94,46 @@ class ChatRepositoryIntegrationTest {
             .toList();
 
     assertEquals(List.of(olderRoom.roomId(), activeRoom.roomId()), roomIds);
+  }
+
+  @Test
+  void pagesMessagesWithoutDuplicatesOrGaps() {
+    ChatRoom room = roomRepository.create(200L, 10L, 20L);
+    ChatMessage first = messageRepository.append(room.roomId(), 20L, "first");
+    ChatMessage second = messageRepository.append(room.roomId(), 10L, "second");
+    ChatMessage third = messageRepository.append(room.roomId(), 20L, "third");
+    Sort sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+
+    var firstPage = messageRepository.findByRoomId(room.roomId(), PageRequest.of(0, 2, sort));
+    var nextPage = messageRepository.findByRoomId(room.roomId(), PageRequest.of(1, 2, sort));
+
+    assertEquals(
+        List.of(third.messageId(), second.messageId()), messageIds(firstPage.getContent()));
+    assertEquals(List.of(first.messageId()), messageIds(nextPage.getContent()));
+    assertTrue(firstPage.hasNext());
+    assertFalse(nextPage.hasNext());
+    assertEquals(3, firstPage.getTotalElements());
+  }
+
+  @Test
+  void findsActualLatestMessageForEachRoom() {
+    ChatRoom firstRoom = roomRepository.create(300L, 10L, 20L);
+    ChatRoom secondRoom = roomRepository.create(301L, 10L, 20L);
+    messageRepository.append(firstRoom.roomId(), 20L, "old");
+    ChatMessage firstLatest = messageRepository.append(firstRoom.roomId(), 10L, "first latest");
+    ChatMessage secondLatest = messageRepository.append(secondRoom.roomId(), 20L, "second latest");
+
+    Map<Long, ChatMessage> latestByRoom =
+        messageRepository
+            .findLatestByRoomIds(List.of(firstRoom.roomId(), secondRoom.roomId()))
+            .stream()
+            .collect(Collectors.toMap(ChatMessage::roomId, Function.identity()));
+
+    assertEquals(firstLatest.messageId(), latestByRoom.get(firstRoom.roomId()).messageId());
+    assertEquals(secondLatest.messageId(), latestByRoom.get(secondRoom.roomId()).messageId());
+  }
+
+  private List<Long> messageIds(List<ChatMessage> messages) {
+    return messages.stream().map(ChatMessage::messageId).toList();
   }
 }

@@ -2,8 +2,13 @@ package org.example.springtestci.chat.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,10 +34,13 @@ import org.example.springtestci.common.error.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultChatServiceTest {
@@ -105,11 +113,44 @@ class DefaultChatServiceTest {
   void rejectsOutsiderFromListingMessages() {
     when(roomRepository.findById(ROOM_ID)).thenReturn(Optional.of(room()));
 
-    CommonException exception =
+    CommonException listException =
         assertThrows(
             CommonException.class, () -> service.listMessages(ROOM_ID, OUTSIDER_ID, 0, 20));
+    CommonException sendException =
+        assertThrows(
+            CommonException.class, () -> service.sendMessage(ROOM_ID, OUTSIDER_ID, "blocked"));
+    CommonException readException =
+        assertThrows(
+            CommonException.class, () -> service.updateMyReadPosition(ROOM_ID, OUTSIDER_ID, 60L));
 
-    assertEquals(ErrorCode.ACCESS_DENIED, exception.errorCode());
+    assertEquals(ErrorCode.ACCESS_DENIED, listException.errorCode());
+    assertEquals(ErrorCode.ACCESS_DENIED, sendException.errorCode());
+    assertEquals(ErrorCode.ACCESS_DENIED, readException.errorCode());
+    verify(messageRepository, never()).append(ROOM_ID, OUTSIDER_ID, "blocked");
+    verify(messageRepository, never()).findById(60L);
+    verify(readPositionRepository, never()).update(ROOM_ID, OUTSIDER_ID, 60L);
+  }
+
+  @ParameterizedTest(name = "existing room remains available when listing is {0}")
+  @EnumSource(value = ChatListingStatus.class, names = "ACTIVE", mode = EnumSource.Mode.EXCLUDE)
+  void existingParticipantsCanReuseReadAndSendForInactiveListings(ChatListingStatus status) {
+    ChatRoom room = room();
+    ChatMessage saved = new ChatMessage(60L, ROOM_ID, SELLER_ID, "reply", NOW);
+    ChatListingSnapshot inactiveListing =
+        new ChatListingSnapshot(LISTING_ID, SELLER_ID, 1L, SELLER_ID, status, "not active");
+    lenient().when(listingReader.findById(LISTING_ID)).thenReturn(Optional.of(inactiveListing));
+    when(roomRepository.findByListingIdAndInquirerId(LISTING_ID, BUYER_ID))
+        .thenReturn(Optional.of(room));
+    when(roomRepository.findById(ROOM_ID)).thenReturn(Optional.of(room));
+    when(messageRepository.findByRoomId(eq(ROOM_ID), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of()));
+    when(messageRepository.append(ROOM_ID, SELLER_ID, "reply")).thenReturn(saved);
+
+    assertEquals(ROOM_ID, service.openRoom(LISTING_ID, BUYER_ID).roomId());
+    assertTrue(service.listMessages(ROOM_ID, BUYER_ID, 0, 20).items().isEmpty());
+    assertEquals(SELLER_ID, service.sendMessage(ROOM_ID, SELLER_ID, "reply").senderId());
+    assertNotEquals(ChatListingStatus.ACTIVE, status);
+    verify(listingReader, never()).findById(LISTING_ID);
   }
 
   @Test
@@ -167,6 +208,7 @@ class DefaultChatServiceTest {
 
     assertEquals("판매자", summary.counterpartyNickname());
     assertEquals("노트북", summary.listingTitle());
+    assertEquals(ChatListingStatus.ACTIVE, summary.listingStatus());
     assertEquals("답장", summary.latestMessagePreview());
     assertTrue(summary.hasUnreadMessages());
   }
@@ -198,6 +240,7 @@ class DefaultChatServiceTest {
 
     assertFalse(summary.hasUnreadMessages());
     assertEquals("사용자 #10", summary.counterpartyNickname());
+    assertNull(summary.listingStatus());
   }
 
   private ChatRoom room() {

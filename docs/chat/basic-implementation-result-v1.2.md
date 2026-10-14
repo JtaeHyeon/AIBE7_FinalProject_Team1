@@ -4,11 +4,11 @@
 
 ## 1. 이번 실행
 
-완료한 단계: 기존 골격 분석, 채팅 Service·JPA 저장 어댑터·V2 Migration 구현, 단위·H2 통합 검증
+완료한 단계: 기존 골격 분석, 채팅 Service·JPA 저장 어댑터·V2 Migration 구현, 더블체크 보강, 단위·H2 통합 검증
 
 다음에 시작할 단계: 실제 판매글·회원 모듈의 조회 어댑터 연결 후 기능 플래그 활성화와 JWT·PostgreSQL HTTP 통합 검증
 
-실행 환경과 외부 모듈의 실제/Fake 여부: Java 17, H2 PostgreSQL 모드. 채팅 저장소는 실제 JPA/H2를 사용했고 Service의 판매글·회원 경계는 Mockito를 사용했다. 일반 실행용 Fake는 추가하지 않았다.
+실행 환경과 외부 모듈의 실제/Fake 여부: Java 17, H2 PostgreSQL 모드. Repository 통합 테스트는 Hibernate create-drop 스키마의 실제 JPA/H2를 사용했고, Migration 테스트는 별도 H2에 Flyway V1~V2를 적용했다. 두 검증을 Flyway+JPA validate 통합 검증으로 합산하지 않는다. Service의 판매글·회원 경계는 Mockito를 사용했으며 일반 실행용 Fake는 추가하지 않았다.
 
 ## 2. 변경 파일
 
@@ -29,7 +29,7 @@
 | 기능 | 실제 Method·URI | 코드 구현 | 실제 DB 연결 | 기본 테스트 | 남은 연결 |
 |---|---|---|---|---|---|
 | 방 생성·재사용 | POST `/api/v1/market/listings/{listingId}/chat-rooms` | 완료 | 채팅방 저장 완료 | 통과(계층별) | 실제 판매글 Reader |
-| 내 방 목록 | GET `/api/v1/chat-rooms` | 완료 | 방·최근 메시지·읽음 벌크 조회 완료 | 통과(계층별) | 실제 제목·닉네임 Reader |
+| 내 방 목록 | GET `/api/v1/chat-rooms` | 완료 | 방·최근 메시지·읽음 벌크 조회 완료 | 통과(계층별) | 실제 제목·상태·닉네임 Reader |
 | 메시지 목록 | GET `/api/v1/chat-rooms/{roomId}/messages` | 완료 | DB 페이지 조회 완료 | 통과 | 실제 HTTP/JWT |
 | 메시지 전송 | POST `/api/v1/chat-rooms/{roomId}/messages` | 완료 | DB 저장 완료 | 통과 | 실제 HTTP/JWT |
 | 본인 확인 위치 | PUT `/api/v1/chat-rooms/{roomId}/read-position` | 완료 | 사용자별 upsert 완료 | 통과 | 실제 HTTP/JWT |
@@ -38,16 +38,25 @@
 
 | 체크리스트 ID | 명령·테스트 경로 | 실구현 / Mock | 상태 | 근거·오류 |
 |---|---|---|---|---|
-| F01 | `gradlew test --tests org.example.springtestci.chat.*` | 혼합 | 통과 | 채팅 테스트 26개, 실패 0; 전체 테스트 31개, 실패 0 |
+| F01 | `gradlew test --tests org.example.springtestci.chat.*` | 혼합 | 통과 | 채팅 31개·전체 54개, 실패·오류·건너뜀 0 |
 | F02 | `ChatMigrationTest` | 실구현 | 통과 | 격리 H2에 V1~V2 적용, 채팅 테이블 3개 확인 |
-| F03~F04 | `DefaultChatServiceTest`, `ChatRepositoryIntegrationTest` | 계층별 | 통과 | 생성·동일 조합 재사용과 저장 확인 |
-| F05 | `DefaultChatServiceTest` | Mock | 통과(Mock) | 양 참여자 정책, 상대 정보·목록 DTO 확인 |
-| F06~F07 | `DefaultChatServiceTest`, `ChatRepositoryIntegrationTest` | 계층별 | 통과 | 서버 발신자와 메시지 저장·재조회 확인 |
-| F08~F09 | Service·Repository·Controller 테스트 | 혼합 | 통과 | DB 페이지·최신 메시지·목록 응답 확인 |
-| F10~F11 | Service·Repository 테스트 | 혼합 | 통과 | 개인 위치 저장과 상대 새 메시지 계산 확인 |
-| F12 | `ChatRepositoryIntegrationTest` | 실구현 | 통과 | 실제 EntityManager·H2 재조회 확인 |
+| F03 | Service·Repository 테스트 | 계층별 | 통과 | 생성 조건과 방 저장을 각각 확인. 실제 HTTP 연동은 대기 |
+| F04 | `DefaultChatServiceTest` | Mock | 통과(Mock) | 동일 listing+inquirer 기존 방 반환과 신규 생성 미호출 확인 |
+| F05 | `DefaultChatServiceTest` | Mock | 부분 통과 | 문의자 목록 DTO·상대 정보·판매글 상태 확인. 양측 실제 목록은 대기 |
+| F06 | Service·Repository 테스트 | 계층별 | 통과 | 인증 사용자를 발신자로 저장하고 재조회 |
+| F07 | Repository 테스트 | 실구현 | 부분 통과 | 판매자 발신 저장 확인. 실제 판매자 HTTP→구매자 조회는 대기 |
+| F08 | `ChatRepositoryIntegrationTest` | 실구현 | 통과 | 메시지 3개를 size=2의 첫/다음 페이지로 조회, hasNext·중복·누락 확인 |
+| F09 | Service·Repository 테스트 | 계층별 | 통과 | 실제 방별 최신 메시지 쿼리와 목록 DTO 매핑을 각각 확인 |
+| F10 | `ChatRepositoryIntegrationTest` | 실구현 | 통과 | 본인 위치 저장 후 unread 해제 확인 |
+| F11 | `ChatRepositoryIntegrationTest` | 실구현 | 통과 | 확인 위치 갱신 뒤 상대 새 메시지 저장 시 unread 재등장 확인 |
+| F12 | `ChatRepositoryIntegrationTest` | 실구현 | 통과 | flush/clear 후 방·메시지·확인 위치 재조회 |
 | G01 | 실제 SecurityFilterChain HTTP 테스트 | 미실행 | 차단 | 판매글·회원 Reader 빈 미연결로 API 비활성 |
-| G02~G07 | 정책·Service·Controller 테스트 | 혼합 | 통과 | 비참여자, 자기 글, 상태, 소유권, 입력·대상 검증 |
+| G02 | `DefaultChatServiceTest` | Mock | 통과(Mock) | 비참여자의 목록·전송·확인 위치 변경 모두 거부, 저장 미호출 확인 |
+| G03 | `ChatAccessPolicyTest` | 단위 | 통과 | 자기 판매글 신규 방 차단 |
+| G04 | `ChatAccessPolicyTest` | 단위 | 통과 | RESERVED·SOLD·CANCELLED 신규 방 차단 |
+| G05 | `DefaultChatServiceTest` | Mock | 통과(Mock) | 비활성 상태별 기존 방 재사용·조회·전송 유지 확인 |
+| G06 | 정책 테스트 | 단위 | 부분 통과 | 고정 참여자 접근은 확인. 실제 소유권 변경 fixture 연동은 대기 |
+| G07 | Service·Controller 테스트 | 혼합 | 통과 | 공백 전송과 다른 방 메시지 확인 위치 지정 거부 |
 | G08 | `ChatControllerTest` | Mock | 부분 통과 | 인증 principal 전달 확인. 실제 Bearer JWT는 미실행 |
 | I01 | 실제 HTTP→Service→PostgreSQL | 미실행 | 차단 | 공유 판매글·회원 모듈 미구현 |
 | I02 | DTO·로그·의존성 코드 검토 | 실구현 | 통과 | 본문 로그 차단, 상대 읽음 비공개 |
@@ -60,14 +69,23 @@
 |---|---|---|---|---|
 | URI·성공 코드 | 기존 `ChatController` 5개 경로와 200 응답 | 그대로 유지 | 기존값 | API 확정 시 Controller |
 | 목록 정렬·페이지 | page 0, size 20, 최대 100 | 방은 최근 활동순, 메시지는 생성시각·ID 내림차순 | 잠정안 | JPA 쿼리·Service sort |
-| 확인 위치·새 메시지 | 기존 DTO·Repository 계약만 존재 | 위치 없음은 0, 이후 상대 메시지 존재 여부 | 잠정안 | Message 쿼리·Service |
+| 확인 위치·새 메시지 | 기존 DTO·Repository 계약만 존재 | 확인 위치 레코드가 없으면 미확인, 이후 상대 메시지 존재 여부 | 잠정안 | Message 쿼리·Service |
 | 텍스트 입력 | `@NotBlank`, 길이 미정 | 공백 거부, 원문 그대로 저장, 길이 제한 없음 | 잠정안 | 요청 DTO·Migration |
+
+### 공통 보안·응답 차이
+
+| 항목 | v1.2 이관 기준 | 현재 공통 구현·출처 | 이번 선택 | 승인 상태·검증 |
+|---|---|---|---|---|
+| 인증 | HttpOnly 쿠키의 Access/Refresh Token | `SecurityConfig`: Bearer JWT Resource Server | 공유 구현 유지 | 실제 JWT HTTP 검증 대기 |
+| CSRF | `X-CSRF-Token` | `SecurityConfig`: CSRF 비활성 | 공유 설정 미변경 | 공통 보안 승인 확인 필요 |
+| 응답 | 단건 `data`, 목록 `data+page` | `ApiResponse`, `ChatPageResponse`: `success+data.items+data.page` | 기존 골격 유지 | Controller Mock 검증 |
+| 성공 코드 | 기존 정의 우선, 부재 시 201/204 잠정안 | 기존 Controller 200 | 기존 정의 우선 | API 확정 시 재검토 |
 
 ## 6. 남은 일
 
 | 항목 | 이유 | 영향받는 기능 | 필요한 연결 | 독립적으로 가능한 다음 작업 |
 |---|---|---|---|---|
-| `ChatListingReader` 구현 | 판매글 Entity·물리 스키마 없음 | 방 생성, 목록 제목 | listing·product·ownership 모듈 | 확정 Entity 기준 어댑터와 테스트 작성 |
+| `ChatListingReader` 구현 | 채팅과 승인된 판매글 조회 어댑터 미연결 | 방 생성, 목록 제목·상태 | listing·product·ownership 모듈 | 확정 Entity 기준 어댑터와 벌크 조회 테스트 작성 |
 | `ChatUserReader` 구현 | 회원 Entity·닉네임 정의 없음 | 목록 상대 닉네임 | auth/user 모듈 | 벌크 닉네임 조회 어댑터 작성 |
 | 공유 FK 추가 여부 | 공유 테이블 물리명 미확정 | DB 무결성 | users/listings Migration | 후속 신규 Migration으로만 추가 |
 | 실제 HTTP·JWT·PostgreSQL 검증 | 위 두 Reader 미연결 | 5개 API 전체 | 개발 fixture와 JWT | 플래그 활성화 후 F03~F11 재실행 |
@@ -75,7 +93,7 @@
 
 고급 경합, 재전송, 부하, 장애 복구, 실시간 전파와 운영 배포는 이번 범위에서 제외했다.
 
-검증 중 최초 `spotlessCheck`는 새 Java 파일의 줄바꿈 형식 차이로 실패했다. `spotlessApply` 후 재실행한 `spotlessCheck`, 전체 `test`, `build`는 모두 성공했다.
+검증 과정의 `spotlessCheck`는 새 파일 줄바꿈과 테스트 체이닝 포맷을 지적했다. `spotlessApply` 후 최종 실행한 `spotlessCheck`, 전체 `test`, `build`는 모두 성공했다.
 
 ## 7. 다음 Codex 실행용 인계
 

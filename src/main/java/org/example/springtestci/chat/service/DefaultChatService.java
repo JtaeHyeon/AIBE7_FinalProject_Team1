@@ -165,6 +165,7 @@ public class DefaultChatService implements ChatService {
         room.listingId(),
         nicknames.getOrDefault(counterpartyId, "사용자 #" + counterpartyId),
         listing == null ? "판매글 #" + room.listingId() : listing.title(),
+        listing == null ? null : listing.status(),
         latestMessage == null ? null : latestMessage.content(),
         latestMessage == null ? null : latestMessage.createdAt(),
         hasUnread);
