@@ -6,6 +6,11 @@ public enum ErrorCode {
   INVALID_INPUT(HttpStatus.BAD_REQUEST, "COMMON_001", "요청 값이 올바르지 않습니다."),
   UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "AUTH_001", "인증이 필요합니다."),
   ACCESS_DENIED(HttpStatus.FORBIDDEN, "AUTH_002", "접근 권한이 없습니다."),
+  DUPLICATE_EMAIL(HttpStatus.CONFLICT, "AUTH_003", "이미 가입된 이메일입니다."),
+  DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "AUTH_004", "이미 사용 중인 닉네임입니다."),
+  INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_005", "이메일 또는 비밀번호가 올바르지 않습니다."),
+  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_006", "다시 로그인해 주세요."),
+  INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "AUTH_007", "비밀번호가 올바르지 않습니다."),
   RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_002", "요청한 리소스를 찾을 수 없습니다."),
   DRAFT_CONFLICT(
       HttpStatus.CONFLICT, "SALE_DRAFT_001", "다른 저장본이 있거나 저장 후 내용이 변경되었습니다. 최신 저장본을 확인해 주세요."),
