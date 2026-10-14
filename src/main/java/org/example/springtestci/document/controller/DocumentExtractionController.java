@@ -5,8 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.response.ApiResponse;
+import org.example.springtestci.document.dto.ExtractionConfirmRequest;
 import org.example.springtestci.document.dto.ExtractionCreateRequest;
 import org.example.springtestci.document.dto.ExtractionResponse;
+import org.example.springtestci.document.service.DocumentExtractionReviewService;
 import org.example.springtestci.document.service.DocumentExtractionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DocumentExtractionController {
 
   private final DocumentExtractionService extractionService;
+  private final DocumentExtractionReviewService reviewService;
 
   /** 외부 AI 분석을 요청한다. 접수만 하고 202로 응답하며, 결과는 조회 API로 확인한다. */
   @PostMapping
@@ -57,6 +60,27 @@ public class DocumentExtractionController {
       @PathVariable Long extractionId) {
     return ApiResponse.success(
         ExtractionResponse.from(extractionService.get(documentId, extractionId, userId(jwt))));
+  }
+
+  /** 사용자가 검토·수정한 값으로 확정한다. AI 후보값은 사용하지 않는다. */
+  @PostMapping("/{extractionId}/confirm")
+  ApiResponse<ExtractionResponse> confirm(
+      @AuthenticationPrincipal Jwt jwt,
+      @PathVariable Long documentId,
+      @PathVariable Long extractionId,
+      @Valid @RequestBody ExtractionConfirmRequest request) {
+    return ApiResponse.success(
+        ExtractionResponse.from(
+            reviewService.confirm(documentId, extractionId, userId(jwt), request.reviewedData())));
+  }
+
+  @PostMapping("/{extractionId}/reject")
+  ApiResponse<ExtractionResponse> reject(
+      @AuthenticationPrincipal Jwt jwt,
+      @PathVariable Long documentId,
+      @PathVariable Long extractionId) {
+    return ApiResponse.success(
+        ExtractionResponse.from(reviewService.reject(documentId, extractionId, userId(jwt))));
   }
 
   /** JWT subject를 사용자 ID로 사용한다. 인증 도메인이 확정되면 공통 컴포넌트로 옮긴다. */
