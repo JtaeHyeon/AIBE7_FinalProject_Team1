@@ -50,6 +50,6 @@ class ChatAccessPolicyTest {
 
   private ChatListingSnapshot listing(
       ChatListingStatus status, long sellerId, long currentOwnerId) {
-    return new ChatListingSnapshot(1L, sellerId, 2L, currentOwnerId, status);
+    return new ChatListingSnapshot(1L, sellerId, 2L, currentOwnerId, status, "노트북");
   }
 }
