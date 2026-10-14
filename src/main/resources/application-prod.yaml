@@ -15,6 +15,11 @@ spring:
   flyway:
     enabled: true
 
+app:
+  product:
+    serial:
+      fingerprint-secret: ${SERIAL_FINGERPRINT_SECRET}
+
 logging:
   level:
     root: INFO

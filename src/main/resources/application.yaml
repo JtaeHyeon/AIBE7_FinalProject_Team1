@@ -1,8 +1,10 @@
 spring:
   application:
     name: aibe7-final-project-team1
+  config:
+    import: optional:file:.env[.properties]
   profiles:
-    default: local
+    active: ${SPRING_PROFILES_ACTIVE:local}
   flyway:
     enabled: true
   jpa:
@@ -24,6 +26,9 @@ app:
     secret: ${JWT_SECRET}
   storage:
     local-root: ${LOCAL_STORAGE_ROOT:./storage}
+  product:
+    serial:
+      fingerprint-secret: ${SERIAL_FINGERPRINT_SECRET}
 
 logging:
   pattern:

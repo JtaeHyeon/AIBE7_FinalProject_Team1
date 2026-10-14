@@ -1,14 +1,14 @@
 spring:
   datasource:
-    url: ${DB_URL:jdbc:h2:mem:aibe7;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
-    driver-class-name: ${DB_DRIVER:org.h2.Driver}
-    username: ${DB_USERNAME:sa}
-    password: ${DB_PASSWORD:}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/aibe7}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:aibe7}
+    password: ${DB_PASSWORD}
   flyway:
-    enabled: ${FLYWAY_ENABLED:false}
+    enabled: true
   jpa:
     hibernate:
-      ddl-auto: ${DDL_AUTO:create-drop}
+      ddl-auto: validate
     show-sql: false
   data:
     redis:
@@ -19,6 +19,9 @@ spring:
 app:
   jwt:
     secret: ${JWT_SECRET:change-this-local-jwt-secret-at-least-32-bytes}
+  product:
+    serial:
+      fingerprint-secret: ${SERIAL_FINGERPRINT_SECRET:change-this-local-serial-secret-at-least-32-bytes}
 
 logging:
   level:

@@ -14,5 +14,8 @@ spring:
 app:
   jwt:
     secret: ${TEST_JWT_SECRET}
+  product:
+    serial:
+      fingerprint-secret: ${TEST_SERIAL_FINGERPRINT_SECRET:change-this-test-serial-secret-at-least-32-bytes}
   storage:
     local-root: ${TEST_STORAGE_ROOT:${java.io.tmpdir}/aibe7-test-storage}
