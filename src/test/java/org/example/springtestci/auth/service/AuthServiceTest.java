@@ -203,6 +203,43 @@ class AuthServiceTest {
     verifyNoInteractions(refreshTokenStore);
   }
 
+  @Test
+  void withdrawDeletesTheUserAndRevokesTheRefreshToken() throws Exception {
+    User user = user(7L, "user@example.com", "hashed");
+    when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("Passw0rd!", "hashed")).thenReturn(true);
+
+    authService.withdraw(7L, "Passw0rd!", "token");
+
+    verify(userRepository).delete(user);
+    verify(refreshTokenStore).revoke("token");
+  }
+
+  @Test
+  void withdrawWithAWrongPasswordKeepsTheUser() throws Exception {
+    when(userRepository.findById(7L))
+        .thenReturn(Optional.of(user(7L, "user@example.com", "hashed")));
+    when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+
+    CommonException exception =
+        assertThrows(CommonException.class, () -> authService.withdraw(7L, "wrong", "token"));
+
+    assertEquals(ErrorCode.INVALID_PASSWORD, exception.errorCode());
+    verify(userRepository, never()).delete(any());
+    verifyNoInteractions(refreshTokenStore);
+  }
+
+  @Test
+  void withdrawForAnAlreadyDeletedUserIsUnauthorized() {
+    when(userRepository.findById(7L)).thenReturn(Optional.empty());
+
+    CommonException exception =
+        assertThrows(CommonException.class, () -> authService.withdraw(7L, "Passw0rd!", null));
+
+    assertEquals(ErrorCode.UNAUTHORIZED, exception.errorCode());
+    verify(userRepository, never()).delete(any());
+  }
+
   private static User user(long id, String email, String passwordHash) throws Exception {
     User user = new User(email, passwordHash, "기록왕", UserRole.USER);
     Field idField = User.class.getDeclaredField("id");

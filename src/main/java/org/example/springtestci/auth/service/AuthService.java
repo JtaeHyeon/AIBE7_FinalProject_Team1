@@ -106,6 +106,21 @@ public class AuthService {
         .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
   }
 
+  /** 비밀번호로 본인을 확인한 뒤 계정을 삭제하고, 이 기기의 Refresh Token을 폐기한다. */
+  @Transactional
+  public void withdraw(long userId, String password, String refreshToken) {
+    User user =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
+    if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+      throw new CommonException(ErrorCode.INVALID_PASSWORD);
+    }
+    userRepository.delete(user);
+    userRepository.flush();
+    logout(refreshToken);
+  }
+
   private AuthTokens issueTokens(User user) {
     return new AuthTokens(
         jwtTokenProvider.createAccessToken(user),

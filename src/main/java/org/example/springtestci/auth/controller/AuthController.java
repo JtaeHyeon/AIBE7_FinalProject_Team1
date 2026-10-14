@@ -7,6 +7,7 @@ import org.example.springtestci.auth.dto.LoginRequest;
 import org.example.springtestci.auth.dto.LoginResponse;
 import org.example.springtestci.auth.dto.SignupRequest;
 import org.example.springtestci.auth.dto.UserResponse;
+import org.example.springtestci.auth.dto.WithdrawRequest;
 import org.example.springtestci.auth.service.AuthService;
 import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.common.security.JwtProperties;
@@ -17,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +71,17 @@ public class AuthController {
   @GetMapping("/me")
   public ApiResponse<UserResponse> me(@AuthenticationPrincipal Jwt jwt) {
     return ApiResponse.success(authService.getMe(Long.parseLong(jwt.getSubject())));
+  }
+
+  @DeleteMapping("/me")
+  public ResponseEntity<Void> withdraw(
+      @AuthenticationPrincipal Jwt jwt,
+      @Valid @RequestBody WithdrawRequest request,
+      @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
+    authService.withdraw(Long.parseLong(jwt.getSubject()), request.password(), refreshToken);
+    return ResponseEntity.noContent()
+        .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
+        .build();
   }
 
   private ResponseEntity<ApiResponse<LoginResponse>> withRefreshCookie(AuthTokens tokens) {

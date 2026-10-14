@@ -1,0 +1,41 @@
+<div class="page-title"><div><h1>마이페이지</h1><p>내 계정 정보와 자주 쓰는 메뉴를 한곳에서 확인하세요.</p></div></div>
+
+<div class="mp-guest sc-card" data-mp="guest" hidden>
+  <h2>로그인이 필요해요</h2>
+  <p>로그인하면 내 계정 정보를 볼 수 있어요.</p>
+  <button type="button" class="sc-btn primary" data-page="auth">로그인하기</button>
+</div>
+
+<div data-mp="member" hidden>
+  <section class="sc-card mp-profile" aria-label="내 계정">
+    <span class="mp-avatar" data-mp-field="initial" aria-hidden="true"></span>
+    <div class="mp-who">
+      <strong data-mp-field="nickname"></strong>
+      <span data-mp-field="email"></span>
+    </div>
+    <button type="button" class="sc-btn" data-auth-logout>로그아웃</button>
+  </section>
+
+  <section class="mp-menu" aria-label="바로가기">
+    <button type="button" class="sc-card mp-link" data-page="home"><b>내 제품</b><small>등록한 제품과 여권을 확인해요</small></button>
+    <button type="button" class="sc-card mp-link" data-page="documents"><b>문서 보관함</b><small>영수증·보증서·수리 문서를 모아봐요</small></button>
+    <button type="button" class="sc-card mp-link" data-page="deals"><b>내 거래 · 채팅</b><small>문의부터 예약까지 한눈에 봐요</small></button>
+    <button type="button" class="sc-card mp-link" data-page="sell"><b>판매글 작성</b><small>제품 여권과 함께 판매글을 올려요</small></button>
+  </section>
+
+  <section class="sc-card mp-danger" aria-label="회원 탈퇴">
+    <div class="mp-danger-head">
+      <div><b>회원 탈퇴</b><small>탈퇴하면 계정 정보가 삭제되며 복구할 수 없어요.</small></div>
+      <button type="button" class="sc-btn" data-mp-withdraw-open>회원 탈퇴</button>
+    </div>
+    <form class="mp-withdraw" data-mp-withdraw-form novalidate hidden>
+      <p class="au-msg" role="alert" hidden></p>
+      <label class="sc-field"><span>비밀번호 확인<em>*</em></span><input name="password" type="password" placeholder="현재 비밀번호를 입력하세요" autocomplete="current-password" maxlength="64" required></label>
+      <label class="mp-confirm"><input type="checkbox" name="confirm"> 계정이 삭제되고 되돌릴 수 없다는 점을 확인했어요.</label>
+      <div class="mp-withdraw-actions">
+        <button type="button" class="sc-btn" data-mp-withdraw-cancel>취소</button>
+        <button type="submit" class="sc-btn mp-danger-btn">탈퇴하기</button>
+      </div>
+    </form>
+  </section>
+</div>
