@@ -27,6 +27,12 @@ public enum ErrorCode {
       HttpStatus.CONFLICT, "DOC_007", "개인정보 재마스킹이 필요한 증빙은 교체하기 전까지 열람할 수 없습니다."),
   DOCUMENT_STORAGE_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "DOC_008", "파일 저장소를 아직 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+  PRODUCT_DUPLICATE_SERIAL(HttpStatus.CONFLICT, "PRODUCT_001", "이미 등록된 일련번호입니다."),
+  INVALID_PRODUCT_IMAGE(
+      HttpStatus.BAD_REQUEST, "PRODUCT_002", "JPG, PNG, WEBP 형식의 올바른 이미지만 업로드할 수 있습니다."),
+  PRODUCT_IMAGE_TOO_LARGE(
+      HttpStatus.CONTENT_TOO_LARGE, "PRODUCT_003", "이미지는 최대 5MB까지 업로드할 수 있습니다."),
+  PRODUCT_IMAGE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "PRODUCT_004", "제품당 이미지는 최대 10장까지 등록할 수 있습니다."),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON_999", "서버 오류가 발생했습니다.");
 
   private final HttpStatus status;

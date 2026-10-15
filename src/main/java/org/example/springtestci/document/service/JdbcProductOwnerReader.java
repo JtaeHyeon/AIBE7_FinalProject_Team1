@@ -17,10 +17,7 @@ public class JdbcProductOwnerReader implements ProductOwnerReader {
   @Override
   public Optional<Long> findOwnerId(Long productId) {
     return jdbcTemplate
-        .query(
-            "select current_owner_id from products where id = ?",
-            (rs, i) -> rs.getLong(1),
-            productId)
+        .query("select owner_id from products where id = ?", (rs, i) -> rs.getLong(1), productId)
         .stream()
         .findFirst();
   }
