@@ -7,6 +7,10 @@ spring:
     default: local
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   jpa:
     open-in-view: false
     hibernate:
@@ -26,6 +30,7 @@ app:
     secret: ${JWT_SECRET}
   storage:
     local-root: ${LOCAL_STORAGE_ROOT:./storage}
+    signing-secret: ${STORAGE_SIGNING_SECRET:${app.jwt.secret}}
 
 logging:
   pattern:
