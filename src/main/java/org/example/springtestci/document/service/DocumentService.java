@@ -11,6 +11,8 @@ import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.document.dto.FileUrlResponse;
 import org.example.springtestci.document.entity.Document;
+import org.example.springtestci.document.entity.DocumentExtraction;
+import org.example.springtestci.document.entity.ExtractionStatus;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
 import org.example.springtestci.document.repository.DocumentRepository;
 import org.slf4j.Logger;
@@ -84,6 +86,57 @@ public class DocumentService {
     } catch (RuntimeException exception) {
       deleteStoredFile(objectKey);
       throw exception;
+    }
+  }
+
+  /**
+   * 재마스킹한 사본으로 파일을 교체한다. 문서 ID와 이력 연결은 유지하고, 이전 파일은 커밋 뒤에 지운다. 이전 사본을 분석한 AI 후보값은 더 이상 유효하지 않으므로 검토
+   * 대기 중인 추출은 반려 처리한다.
+   */
+  @Transactional
+  public Document replace(
+      Long documentId,
+      Long userId,
+      boolean maskingConfirmed,
+      String uploadedFilename,
+      String contentType,
+      byte[] content) {
+    if (!maskingConfirmed) {
+      throw new CommonException(ErrorCode.MASKING_NOT_CONFIRMED);
+    }
+    // 같은 문서를 동시에 교체하거나 추출하지 못하도록 행을 잠근다.
+    Document document =
+        documentRepository
+            .findByIdForUpdate(documentId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    Long ownerId = productOwnerReader.findOwnerId(document.getProductId()).orElse(null);
+    if (!userId.equals(ownerId)) {
+      // 다른 사람의 문서가 존재하는지 알려 주지 않는다.
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+    DocumentFileValidator.FileKind kind =
+        fileValidator.validate(uploadedFilename, contentType, content);
+
+    String oldObjectKey = document.getObjectKey();
+    String newObjectKey = store(document.getProductId(), kind.extension(), content);
+    try {
+      document.replaceFile(newObjectKey, kind.contentType(), content.length, clock.instant());
+      documentRepository.save(document);
+      rejectPendingExtractions(documentId);
+    } catch (RuntimeException exception) {
+      deleteStoredFile(newObjectKey);
+      throw exception;
+    }
+    deleteStoredFileAfterCommit(oldObjectKey);
+    return document;
+  }
+
+  private void rejectPendingExtractions(Long documentId) {
+    for (DocumentExtraction extraction :
+        extractionRepository.findByDocumentIdOrderByIdDesc(documentId)) {
+      if (extraction.getStatus() == ExtractionStatus.EXTRACTED) {
+        extraction.reject();
+      }
     }
   }
 

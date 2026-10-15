@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -58,6 +59,31 @@ public class DocumentController {
             content);
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.success(DocumentResponse.from(document, userId)));
+  }
+
+  /** 재마스킹한 사본으로 같은 문서의 파일을 교체한다. 문서 ID와 이력 연결은 유지된다. */
+  @PutMapping(path = "/documents/{documentId}/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  ApiResponse<DocumentResponse> replace(
+      @AuthenticationPrincipal Jwt jwt,
+      @PathVariable Long documentId,
+      @RequestParam boolean maskingConfirmed,
+      @RequestPart("file") MultipartFile file) {
+    byte[] content;
+    try {
+      content = file.getBytes();
+    } catch (IOException exception) {
+      throw new CommonException(ErrorCode.INVALID_DOCUMENT_FILE);
+    }
+    Long userId = userId(jwt);
+    var document =
+        documentService.replace(
+            documentId,
+            userId,
+            maskingConfirmed,
+            file.getOriginalFilename(),
+            file.getContentType(),
+            content);
+    return ApiResponse.success(DocumentResponse.from(document, userId));
   }
 
   @GetMapping("/products/{productId}/documents")
