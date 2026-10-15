@@ -133,6 +133,15 @@ const auth = (() => {
     }
   };
 
+  // Refresh Token은 1회용이라 동시에 두 번 갱신하면 한쪽이 실패한다. 진행 중인 갱신이 있으면 그 결과를 같이 기다린다.
+  let refreshing = null;
+  const refresh = () => {
+    refreshing ??= request('/api/auth/refresh')
+      .then((data) => { setSession(data); return data; })
+      .finally(() => { refreshing = null; });
+    return refreshing;
+  };
+
   // 탈퇴는 로그인 상태에서만 가능하다. Access Token이 만료됐으면(401) 한 번 갱신한 뒤 다시 시도한다.
   const requestWithToken = async (path, options) => {
     const send = () => request(path, { ...options, headers: { Authorization: `Bearer ${accessToken}` } });
@@ -140,10 +149,30 @@ const auth = (() => {
       return await send();
     } catch (error) {
       if (error.status !== 401) throw error;
-      setSession(await request('/api/auth/refresh'));
+      await refresh();
       return send();
     }
   };
+
+  // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. Authorization 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
+  const authFetch = async (url, options = {}) => {
+    const send = () => {
+      const headers = new Headers(options.headers || {});
+      if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+      return fetch(url, { ...options, headers });
+    };
+    // 새로고침 직후 세션 복구가 진행 중이면 먼저 끝나기를 기다린다.
+    if (!accessToken && refreshing) await refreshing.catch(() => {});
+    const response = await send();
+    if (response.status !== 401) return response;
+    try {
+      await refresh();
+    } catch {
+      return response; // 세션이 끝났으면 원래 401을 그대로 돌려준다.
+    }
+    return send();
+  };
+  window.PastportApi = { fetch: authFetch };
 
   const handleWithdraw = async (form) => {
     const password = form.elements.password.value;
@@ -268,7 +297,7 @@ const auth = (() => {
   restoreEmail.observe(document.body, { childList: true, subtree: true });
 
   // 새로고침 후 HttpOnly refresh 쿠키가 남아 있으면 세션을 복구한다.
-  request('/api/auth/refresh').then(setSession).catch(() => {});
+  refresh().catch(() => {});
 
   return { get accessToken() { return accessToken; }, get user() { return user; } };
 })();
