@@ -15,11 +15,18 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
 
 server:
   address: ${SERVER_ADDRESS:127.0.0.1}
 
 app:
+  product:
+    serial-secret: ${PRODUCT_SERIAL_SECRET:change-this-local-product-serial-secret-32-bytes}
+  features:
+    chat-api:
+      enabled: ${CHAT_API_ENABLED:false}
   jwt:
     secret: ${JWT_SECRET:change-this-local-jwt-secret-at-least-32-bytes}
     refresh-cookie-secure: false

@@ -8,6 +8,8 @@ spring:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: ${REDIS_SSL_ENABLED:false}
   jpa:
     show-sql: false
     hibernate:
@@ -19,3 +21,7 @@ logging:
   level:
     root: INFO
     org.example.springtestci: INFO
+
+app:
+  product:
+    serial-secret: ${PRODUCT_SERIAL_SECRET}

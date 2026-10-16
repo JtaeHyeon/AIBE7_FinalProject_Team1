@@ -40,7 +40,7 @@
 | `chat/service/ChatListingReader.java` | 판매글·판매자·제품 소유자·상태·제목 조회 경계 |
 | `chat/service/ChatUserReader.java` | 상대 사용자 닉네임 벌크 조회 경계 |
 | `chat/repository/jpa/*` | 채팅방·메시지·확인 위치 JPA 저장 어댑터 |
-| `db/migration/V2__create_chat_tables.sql` | 채팅 전용 테이블·제약·인덱스 |
+| `db/migration/V2026101302__create_chat_tables.sql` | 채팅 전용 테이블·제약·인덱스 |
 
 공유 사용자·제품·판매글 테이블의 물리 스키마가 아직 없으므로 `seller_id`, `inquirer_id`, `listing_id`에는 외부 FK를 임의로 추가하지 않았다. 채팅 내부의 메시지·확인 위치 FK와 `(listing_id, inquirer_id)`, `(room_id, user_id)` UNIQUE 제약은 적용했다.
 

@@ -36,6 +36,17 @@ class GlobalExceptionHandlerTest {
   }
 
   @Test
+  void returnsBadRequestWhenAPathValueHasTheWrongType() {
+    org.springframework.beans.TypeMismatchException exception =
+        new org.springframework.beans.TypeMismatchException("abc", Long.class);
+
+    ResponseEntity<ErrorResponse> response = handler.handleUnexpected(exception, request);
+
+    assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    assertEquals(ErrorCode.INVALID_INPUT.code(), response.getBody().code());
+  }
+
+  @Test
   void preservesOtherBuiltInClientErrorStatuses() {
     HttpMediaTypeNotSupportedException exception =
         new HttpMediaTypeNotSupportedException(

@@ -16,5 +16,7 @@ server:
   port: 18081
 
 app:
+  product:
+    serial-secret: demo-product-serial-secret-at-least-32-bytes-long
   storage:
     local-root: ${java.io.tmpdir}/pastport-sale-draft-r01-images

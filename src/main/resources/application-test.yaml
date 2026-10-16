@@ -12,6 +12,8 @@ spring:
     show-sql: false
 
 app:
+  product:
+    serial-secret: ${TEST_PRODUCT_SERIAL_SECRET:test-product-serial-secret-at-least-32-bytes}
   jwt:
     secret: ${TEST_JWT_SECRET}
   storage:
