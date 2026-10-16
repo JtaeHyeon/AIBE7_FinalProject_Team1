@@ -1,0 +1,145 @@
+<div class="mk-head">
+  <div>
+    <h1>중고 노트북 <small>총 8개</small></h1>
+    <p>제품 여권에 기록이 남아 있는 상품만 모았어요.</p>
+  </div>
+  <button class="button primary" data-page="sell">판매하기</button>
+</div>
+
+<div class="mk-cats" role="group" aria-label="브랜드">
+  <button class="chip-btn active" data-chip>전체</button>
+  <button class="chip-btn" data-chip>MacBook</button>
+  <button class="chip-btn" data-chip>LG gram</button>
+  <button class="chip-btn" data-chip>Galaxy Book</button>
+  <button class="chip-btn" data-chip>ThinkPad</button>
+  <button class="chip-btn" data-chip>기타</button>
+</div>
+
+<div class="mk-layout">
+  <aside class="mk-filter" aria-label="상품 필터">
+    <section>
+      <h3>가격</h3>
+      <div class="mk-range"><input placeholder="최소" aria-label="최소 가격"><span>~</span><input placeholder="최대" aria-label="최대 가격"></div>
+    </section>
+    <section>
+      <h3>상태 등급</h3>
+      <label><input type="checkbox"> 5등급 <em>2</em></label>
+      <label><input type="checkbox" checked> 4등급 <em>4</em></label>
+      <label><input type="checkbox"> 3등급 이하 <em>2</em></label>
+    </section>
+    <section>
+      <h3>이력 조건</h3>
+      <label><input type="checkbox"> 보증 기간 남음</label>
+      <label><input type="checkbox"> 수리·교체 이력 있음</label>
+      <label><input type="checkbox"> 증빙 있음</label>
+    </section>
+    <section>
+      <h3>제조사</h3>
+      <label><input type="checkbox"> Apple <em>4</em></label>
+      <label><input type="checkbox"> 삼성 <em>1</em></label>
+      <label><input type="checkbox"> LG <em>1</em></label>
+      <label><input type="checkbox"> Lenovo <em>2</em></label>
+    </section>
+    <button class="mk-reset">필터 초기화</button>
+  </aside>
+
+  <div class="mk-main">
+    <div class="mk-bar">
+      <div class="mk-sorts" role="group" aria-label="정렬">
+        <button class="active" data-chip>최신순</button><button data-chip>낮은 가격순</button><button data-chip>높은 가격순</button><button data-chip>이력 많은 순</button>
+      </div>
+      <label class="mk-onsale"><input type="checkbox" checked> 판매 중만 보기</label>
+    </div>
+    <div class="mk-grid">
+      <article class="mk-card">
+        <button class="mk-thumb tone-silver" data-page="detail" aria-label="MacBook Pro 14″ M3 Pro 18GB/512GB 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">2,150,000원</b>
+          <h3>MacBook Pro 14″ M3 Pro 18GB/512GB</h3>
+          <p class="mk-meta">4등급 · 2024.02 구매 · 보증 남음</p>
+          <p class="mk-hist">이력 4건 · 증빙 있음</p>
+          <p class="mk-seller">기록왕김씨 · 3분 전<span>♡ 12</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-white" data-page="detail" aria-label="LG gram 16 (2023) 16GB/256GB 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">980,000원</b>
+          <h3>LG gram 16 (2023) 16GB/256GB</h3>
+          <p class="mk-meta">4등급 · 2023.09 구매</p>
+          <p class="mk-hist">이력 2건 · 증빙 있음</p>
+          <p class="mk-seller">달리는토끼 · 21분 전<span>♡ 5</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-gray" data-page="detail" aria-label="MacBook Air 15″ M2 미드나이트 상세 보기"><span class="laptop"></span><span class="mk-state">예약 중</span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">1,240,000원</b>
+          <h3>MacBook Air 15″ M2 미드나이트</h3>
+          <p class="mk-meta">5등급 · 2024.05 구매 · 보증 남음</p>
+          <p class="mk-hist">이력 3건 · 증빙 있음</p>
+          <p class="mk-seller">노트북러버 · 1시간 전<span>♡ 21</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-gray" data-page="detail" aria-label="Galaxy Book4 Pro 16″ 32GB 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">1,380,000원</b>
+          <h3>Galaxy Book4 Pro 16″ 32GB</h3>
+          <p class="mk-meta">5등급 · 2024.03 구매 · 보증 남음</p>
+          <p class="mk-hist">이력 1건 · 증빙 있음</p>
+          <p class="mk-seller">책읽는곰 · 2시간 전<span>♡ 3</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-silver" data-page="detail" aria-label="ThinkPad X1 Carbon Gen 11 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">1,150,000원</b>
+          <h3>ThinkPad X1 Carbon Gen 11</h3>
+          <p class="mk-meta">3등급 · 2023.06 구매</p>
+          <p class="mk-hist">이력 3건 · 키보드 교체 포함</p>
+          <p class="mk-seller">새벽두시 · 어제<span>♡ 8</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-white" data-page="detail" aria-label="MacBook Air 13″ M2 스타라이트 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">890,000원</b>
+          <h3>MacBook Air 13″ M2 스타라이트</h3>
+          <p class="mk-meta">4등급 · 2022.09 구매</p>
+          <p class="mk-hist">이력 2건 · 증빙 있음</p>
+          <p class="mk-seller">금요일오후 · 어제<span>♡ 15</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-silver" data-page="detail" aria-label="MacBook Pro 16″ M2 Max 32GB 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">1,690,000원</b>
+          <h3>MacBook Pro 16″ M2 Max 32GB</h3>
+          <p class="mk-meta">4등급 · 2023.03 구매</p>
+          <p class="mk-hist">이력 5건 · 증빙 있음</p>
+          <p class="mk-seller">맥북장인 · 2일 전<span>♡ 30</span></p>
+        </div>
+      </article>
+      <article class="mk-card">
+        <button class="mk-thumb tone-gray" data-page="detail" aria-label="Lenovo Yoga Slim 7 Pro 상세 보기"><span class="laptop"></span></button>
+        <button class="mk-wish" data-wish aria-label="관심 상품" aria-pressed="false">♡</button>
+        <div class="mk-body">
+          <b class="price">720,000원</b>
+          <h3>Lenovo Yoga Slim 7 Pro</h3>
+          <p class="mk-meta">3등급 · 2022.11 구매</p>
+          <p class="mk-hist">이력 2건</p>
+          <p class="mk-seller">하늘빛 · 2일 전<span>♡ 2</span></p>
+        </div>
+      </article>
+    </div>
+    <div class="mk-more"><button class="sc-btn">더 보기</button></div>
+  </div>
+</div>

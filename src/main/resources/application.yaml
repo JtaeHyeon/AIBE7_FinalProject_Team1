@@ -4,9 +4,13 @@ spring:
   config:
     import: optional:file:.env[.properties]
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
+    default: local
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   jpa:
     open-in-view: false
     hibernate:
@@ -26,9 +30,7 @@ app:
     secret: ${JWT_SECRET}
   storage:
     local-root: ${LOCAL_STORAGE_ROOT:./storage}
-  product:
-    serial:
-      fingerprint-secret: ${SERIAL_FINGERPRINT_SECRET}
+    signing-secret: ${STORAGE_SIGNING_SECRET:${app.jwt.secret}}
 
 logging:
   pattern:

@@ -1,0 +1,71 @@
+<div class="sc-head">
+  <div><span class="eyebrow">기록상회 마켓</span><h1>판매글 작성</h1><p>작성 중인 내용은 임시저장해도 다른 사람에게 보이지 않아요.</p></div>
+  <span class="sc-badge">임시저장본 · 비공개</span>
+</div>
+<ol class="sc-steps">
+  <li class="now" data-sale-product-step><span>제품 선택</span></li>
+  <li data-sale-content-step><span>내용 작성</span></li>
+  <li><span>미리보기 · 게시</span></li>
+</ol>
+<div class="sc-note danger" data-sale-error role="alert" hidden><i>!</i><span></span></div>
+<form class="sl" data-sale-form novalidate>
+  <div class="sl-stack">
+    <section class="sc-card">
+      <h2>판매할 제품</h2>
+      <p class="sub">내가 보유한 제품의 정보와 등록된 사진을 불러와요.</p>
+      <label class="sc-field"><span>보유 제품 선택</span><select data-sale-product aria-label="보유 제품 선택"><option value="">제품을 불러오는 중이에요.</option></select></label>
+      <div class="sl-product" data-sale-product-card hidden>
+        <div class="laptop" aria-hidden="true"></div>
+        <div><span class="eyebrow">내 제품</span><h3 data-sale-product-name></h3><p data-sale-product-meta></p></div>
+      </div>
+      <dl class="sl-specs" data-sale-specs hidden></dl>
+      <p class="sub" data-sale-product-empty hidden>판매할 수 있는 보유 제품이 없어요. 내 제품에서 먼저 제품을 등록해 주세요.</p>
+    </section>
+    <section class="sc-card">
+      <h2>판매 정보</h2>
+      <p class="sub">아직 작성하지 않은 항목이 있어도 임시저장할 수 있어요.</p>
+      <label class="sc-field"><span>제목</span><input data-sale-title aria-label="판매글 제목" placeholder="판매글 제목을 입력해 주세요" maxlength="60" disabled><small data-sale-title-count>0 / 60자</small></label>
+      <label class="sc-field sl-price"><span>판매 가격</span><input data-sale-price aria-label="판매 가격" placeholder="가격 입력" inputmode="numeric" disabled></label>
+      <div class="sc-field"><span>제품 상태 등급</span>
+        <div class="sl-grade" role="radiogroup" aria-label="제품 상태 등급">
+          <button type="button" data-sale-grade="1" role="radio" aria-checked="false" disabled><b>1등급</b><span>매우 나쁨</span></button>
+          <button type="button" data-sale-grade="2" role="radio" aria-checked="false" disabled><b>2등급</b><span>나쁨</span></button>
+          <button type="button" data-sale-grade="3" role="radio" aria-checked="false" disabled><b>3등급</b><span>보통</span></button>
+          <button type="button" data-sale-grade="4" role="radio" aria-checked="false" disabled><b>4등급</b><span>좋음</span></button>
+          <button type="button" data-sale-grade="5" role="radio" aria-checked="false" disabled><b>5등급</b><span>최상</span></button>
+        </div>
+        <small>등급을 다시 누르면 선택을 해제할 수 있어요.</small>
+      </div>
+      <label class="sc-field"><span>상세 설명</span><textarea data-sale-description aria-label="상세 설명" maxlength="2000" placeholder="제품의 상태와 판매 내용을 적어 주세요." disabled></textarea><small data-sale-description-count>0 / 2,000자</small></label>
+    </section>
+    <section class="sc-card sl-ai">
+      <div class="sl-section-head"><div><h2>AI 제목·본문 제안</h2><p class="sub">등록된 제품 정보와 이력을 바탕으로 작성할 수 있어요.</p></div><span class="sc-badge">준비 중</span></div>
+      <p class="sl-ai-sug">지금은 제목과 설명을 직접 작성해 주세요. AI 제안 기능은 준비 중이에요.</p>
+    </section>
+    <section class="sc-card">
+      <h2>공개할 사진</h2>
+      <p class="sub">등록된 제품 사진을 선택해 주세요. 첫 번째 선택 사진이 대표 사진이에요. 화살표나 드래그로 순서를 바꿀 수 있어요.</p>
+      <p class="sl-photo-empty" data-sale-photos-empty>제품을 선택하면 등록된 사진이 보여요.</p>
+      <div class="sl-photos" data-sale-photos></div>
+      <p class="sl-photo-caption" data-sale-photo-count>선택한 사진 0장</p>
+    </section>
+    <div class="sl-bar">
+      <span class="saved" data-sale-saved role="status" aria-live="polite">아직 임시저장하지 않았어요.</span>
+      <button type="submit" class="sc-btn primary" data-sale-save disabled>임시저장</button>
+      <button type="button" class="sc-btn" disabled title="미리보기 기능은 준비 중이에요.">미리보기</button>
+      <button type="button" class="sc-btn" disabled title="게시 기능은 준비 중이에요.">게시하기</button>
+    </div>
+  </div>
+  <aside class="sl-side">
+    <section class="sc-card">
+      <h2>게시하면 이렇게 공개돼요</h2>
+      <dl class="sl-open">
+        <dt>누적 핵심 이력</dt><dd>이전 소유자가 등록한 기록까지 모두 공개돼요. 개별 이력은 빼거나 숨길 수 없어요.</dd>
+        <dt>현재 판매 가격과 제품 사양</dt><dd>제품에 등록된 사양과 구매·수리 사실이 보여요.</dd>
+        <dt>선택한 제품 사진</dt><dd>대표 사진부터 선택한 순서대로 보여요. 증빙 문서는 공개되지 않아요.</dd>
+      </dl>
+    </section>
+    <section class="sc-card"><h2>공개되지 않는 정보</h2><ul class="sc-list no" style="margin-top:8px"><li>시리얼 번호 전체·일부</li><li>과거 구매금액·수리비</li><li>이름·연락처 등 개인정보</li><li>영수증·보증서 등 증빙 문서</li></ul></section>
+    <div class="sc-note info"><i>i</i><span>임시저장은 비공개로 보관돼요. 판매글을 게시하거나 제품 이력을 공개하지 않아요.</span></div>
+  </aside>
+</form>
