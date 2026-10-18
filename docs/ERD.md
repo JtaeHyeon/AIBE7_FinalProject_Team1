@@ -2,8 +2,6 @@
 
 [ER 다이어그램](https://dbdiagram.io/d/PastPort-ER-Diagram-6aba49010f25a52d0128f36d)
 
-[ERD\_MERMAID](https://app.notion.com/p/ERD_MERMAID-bf53550b7b558331bb8b81fde87a33e3?pvs=25)
-
 ## **1. users (회원)**
 
 **테이블 역할**
