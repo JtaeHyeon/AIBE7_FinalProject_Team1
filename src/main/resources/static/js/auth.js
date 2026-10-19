@@ -24,6 +24,7 @@ const auth = (() => {
     if (!response.ok) {
       const error = new Error(payload?.message || '요청을 처리하지 못했어요.');
       error.status = response.status;
+      error.code = payload?.code;
       error.fieldErrors = payload?.fieldErrors || [];
       throw error;
     }
@@ -111,6 +112,8 @@ const auth = (() => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
     if (!email || !password) return message(form, '이메일과 비밀번호를 입력해 주세요.');
+    const resend = form.querySelector('[data-email-resend]');
+    resend.hidden = true;
     setBusy(form, true);
     try {
       const data = await request('/api/auth/login', { body: { email, password } });
@@ -123,6 +126,8 @@ const auth = (() => {
     } catch (error) {
       form.elements.password.value = '';
       message(form, error.message);
+      // 이메일 인증 전이면 인증 메일을 다시 받을 수 있게 한다.
+      resend.hidden = error.code !== 'AUTH_008';
     } finally {
       setBusy(form, false);
     }
@@ -157,51 +162,6 @@ const auth = (() => {
   };
   window.PastportApi = { fetch: authFetch };
 
-  // 이메일 인증: 메일의 링크를 눌러 인증을 마친 이메일만 가입할 수 있다(서버도 다시 확인한다).
-  // 링크는 다른 탭에서 열리므로, 보낸 뒤에는 인증 여부를 주기적으로 물어본다. 이메일을 바꾸면 처음부터 다시 한다.
-  let verifiedEmail = null;
-  let pollTimer = null;
-
-  const emailStatus = (form, text, ok = false) => {
-    const box = form.querySelector('[data-email-status]');
-    box.textContent = text;
-    box.classList.toggle('ok', ok);
-  };
-
-  const resetEmailVerification = (form) => {
-    clearInterval(pollTimer);
-    verifiedEmail = null;
-    emailStatus(form, '');
-  };
-
-  const pollEmailVerified = (form, email) => {
-    clearInterval(pollTimer);
-    const deadline = Date.now() + 30 * 60 * 1000;
-    pollTimer = setInterval(async () => {
-      if (Date.now() > deadline) return clearInterval(pollTimer);
-      try {
-        const data = await request(`/api/auth/email/status?email=${encodeURIComponent(email)}`, { method: 'GET' });
-        if (!data?.verified) return;
-        clearInterval(pollTimer);
-        verifiedEmail = email.toLowerCase();
-        emailStatus(form, '이메일 인증이 완료됐어요.', true);
-      } catch { /* 다음 주기에 다시 확인 */ }
-    }, 5000);
-  };
-
-  const handleEmailSend = async (form) => {
-    const email = form.elements.email.value.trim();
-    if (!email) return message(form, '이메일을 입력해 주세요.');
-    message(form, '');
-    try {
-      await request('/api/auth/email/send', { body: { email } });
-      emailStatus(form, '인증 메일을 보냈어요. 메일의 링크를 누르면 인증이 완료돼요.');
-      pollEmailVerified(form, email);
-    } catch (error) {
-      message(form, error.fieldErrors?.[0]?.message || error.message);
-    }
-  };
-
   const handleSignup = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
@@ -211,7 +171,6 @@ const auth = (() => {
       return message(form, '비밀번호는 8자 이상이며 영문, 숫자, 특수문자를 모두 포함해야 해요.');
     }
     if (password !== form.elements.passwordConfirm.value) return message(form, '비밀번호 확인이 일치하지 않아요.');
-    if (verifiedEmail !== email.toLowerCase()) return message(form, '이메일 인증을 완료해 주세요.');
     if (![...form.querySelectorAll('[data-agree-required]')].every((box) => box.checked)) {
       return message(form, '필수 약관에 동의해 주세요.');
     }
@@ -219,12 +178,12 @@ const auth = (() => {
     try {
       await request('/api/auth/signup', { body: { email, password, nickname } });
       form.reset();
-      resetEmailVerification(form);
+      showPasswordMatch(form);
       message(form, '');
       const loginForm = document.querySelector('[data-auth-form="login"]');
       if (loginForm) {
         loginForm.elements.email.value = email;
-        message(loginForm, '가입이 완료됐어요. 로그인해 주세요.', 'info');
+        message(loginForm, '가입이 완료됐어요. 메일로 보낸 인증 링크를 누른 뒤 로그인해 주세요. 30분 안에 인증하지 않으면 가입이 취소돼요.', 'info');
       }
       goto('auth');
     } catch (error) {
@@ -243,11 +202,22 @@ const auth = (() => {
     else if (form.dataset.authForm === 'signup') handleSignup(form);
   });
 
+  // 비밀번호 확인 칸 아래에 일치 여부를 바로 보여준다. 확인 칸이 비어 있으면 아무것도 보여주지 않는다.
+  const showPasswordMatch = (form) => {
+    const { password, passwordConfirm } = form.elements;
+    const box = form.querySelector('[data-match]');
+    const match = password.value === passwordConfirm.value;
+    box.textContent = !passwordConfirm.value ? '' : match ? '비밀번호가 일치해요.' : '비밀번호가 일치하지 않아요.';
+    box.classList.toggle('ok', !!passwordConfirm.value && match);
+    box.classList.toggle('bad', !!passwordConfirm.value && !match);
+  };
+
   document.addEventListener('input', (event) => {
     const input = event.target;
     const form = input.closest?.('[data-auth-form="signup"]');
-    if (form && input.name === 'email') resetEmailVerification(form);
-    if (!form || input.name !== 'password') return;
+    if (!form) return;
+    if (input.name === 'password' || input.name === 'passwordConfirm') showPasswordMatch(form);
+    if (input.name !== 'password') return;
     const rules = passwordRules(input.value);
     form.querySelectorAll('[data-rule]').forEach((item) => item.classList.toggle('ok', rules[item.dataset.rule]));
   });
@@ -258,11 +228,20 @@ const auth = (() => {
     input.closest('form').querySelectorAll('[data-agree-required]').forEach((box) => { box.checked = input.checked; });
   });
 
-  document.addEventListener('click', (event) => {
-    const button = event.target.closest?.('[data-email-send]');
-    if (button) handleEmailSend(button.closest('form'));
-  });
 
+
+  document.addEventListener('click', async (event) => {
+    if (!event.target.closest?.('[data-email-resend]')) return;
+    const form = event.target.closest('form');
+    const email = form.elements.email.value.trim();
+    if (!email) return message(form, '이메일을 입력해 주세요.');
+    try {
+      await request('/api/auth/email/resend', { body: { email } });
+      message(form, '인증 메일을 보냈어요. 메일의 링크를 누른 뒤 다시 로그인해 주세요.', 'info');
+    } catch (error) {
+      message(form, error.fieldErrors?.[0]?.message || error.message);
+    }
+  });
   document.addEventListener('click', async (event) => {
     if (!event.target.closest?.('[data-auth-logout]')) return;
     try {

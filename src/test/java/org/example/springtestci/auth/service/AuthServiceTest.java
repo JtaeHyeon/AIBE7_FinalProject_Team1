@@ -1,8 +1,11 @@
 package org.example.springtestci.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -55,7 +58,6 @@ class AuthServiceTest {
   void signupNormalizesEmailAndStoresOnlyTheHashedPassword() {
     when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
     when(userRepository.existsByNickname("기록왕")).thenReturn(false);
-    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(true);
     when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed");
     when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
 
@@ -69,6 +71,7 @@ class AuthServiceTest {
     assertEquals("기록왕", saved.getValue().getNickname());
     assertEquals(UserRole.USER, saved.getValue().getRole());
     assertEquals("user@example.com", response.email());
+    verify(emailVerificationService).sendLink("user@example.com");
   }
 
   @Test
@@ -98,25 +101,27 @@ class AuthServiceTest {
   }
 
   @Test
-  void signupRequiresAVerifiedEmail() {
+  void signupFailsWhenTheVerificationMailCannotBeSent() {
     when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
     when(userRepository.existsByNickname("기록왕")).thenReturn(false);
-    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(false);
+    when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed");
+    when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
+    doThrow(new CommonException(ErrorCode.EMAIL_SEND_FAILED))
+        .when(emailVerificationService)
+        .sendLink("user@example.com");
 
     CommonException exception =
         assertThrows(
             CommonException.class,
             () -> authService.signup(new SignupRequest("user@example.com", "Passw0rd!", "기록왕")));
 
-    assertEquals(ErrorCode.EMAIL_NOT_VERIFIED, exception.errorCode());
-    verify(userRepository, never()).saveAndFlush(any());
+    assertEquals(ErrorCode.EMAIL_SEND_FAILED, exception.errorCode());
   }
 
   @Test
   void signupMapsAConcurrentUniqueViolationToADuplicateError() {
     when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
     when(userRepository.existsByNickname("기록왕")).thenReturn(false);
-    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(true);
     when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed");
     when(userRepository.saveAndFlush(any(User.class)))
         .thenThrow(
@@ -162,6 +167,54 @@ class AuthServiceTest {
 
     assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.errorCode());
     verifyNoInteractions(refreshTokenStore);
+  }
+
+  @Test
+  void loginRejectsAnUnverifiedEmailUntilTheLinkIsClicked() throws Exception {
+    User user = unverifiedUser(7L, "user@example.com", "hashed");
+    when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("Passw0rd!", "hashed")).thenReturn(true);
+    when(emailVerificationService.confirmIfVerified("user@example.com")).thenReturn(false);
+
+    CommonException exception =
+        assertThrows(
+            CommonException.class,
+            () -> authService.login(new LoginRequest("user@example.com", "Passw0rd!")));
+
+    assertEquals(ErrorCode.EMAIL_NOT_VERIFIED, exception.errorCode());
+    assertFalse(user.isEmailVerified());
+    verifyNoInteractions(refreshTokenStore);
+  }
+
+  @Test
+  void loginMarksTheUserVerifiedOnceTheLinkWasClicked() throws Exception {
+    User user = unverifiedUser(7L, "user@example.com", "hashed");
+    when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("Passw0rd!", "hashed")).thenReturn(true);
+    when(emailVerificationService.confirmIfVerified("user@example.com")).thenReturn(true);
+    when(jwtTokenProvider.createAccessToken(user)).thenReturn("access");
+    when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
+    when(refreshTokenStore.issue(7L)).thenReturn("refresh");
+
+    AuthTokens tokens = authService.login(new LoginRequest("user@example.com", "Passw0rd!"));
+
+    assertTrue(user.isEmailVerified());
+    assertEquals("access", tokens.accessToken());
+  }
+
+  @Test
+  void loginWithAWrongPasswordNeverRevealsThatTheEmailIsUnverified() throws Exception {
+    User user = unverifiedUser(7L, "user@example.com", "hashed");
+    when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+
+    CommonException exception =
+        assertThrows(
+            CommonException.class,
+            () -> authService.login(new LoginRequest("user@example.com", "wrong")));
+
+    assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.errorCode());
+    verifyNoInteractions(emailVerificationService);
   }
 
   @Test
@@ -227,6 +280,12 @@ class AuthServiceTest {
   }
 
   private static User user(long id, String email, String passwordHash) throws Exception {
+    User user = unverifiedUser(id, email, passwordHash);
+    user.markEmailVerified();
+    return user;
+  }
+
+  private static User unverifiedUser(long id, String email, String passwordHash) throws Exception {
     User user = new User(email, passwordHash, "기록왕", UserRole.USER);
     Field idField = User.class.getDeclaredField("id");
     idField.setAccessible(true);

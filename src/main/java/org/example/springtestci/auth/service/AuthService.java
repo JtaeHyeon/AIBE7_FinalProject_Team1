@@ -52,14 +52,12 @@ public class AuthService {
     if (userRepository.existsByNickname(nickname)) {
       throw new CommonException(ErrorCode.DUPLICATE_NICKNAME);
     }
-    if (!emailVerificationService.consumeVerified(email)) {
-      throw new CommonException(ErrorCode.EMAIL_NOT_VERIFIED);
-    }
 
     User user =
         new User(email, passwordEncoder.encode(request.password()), nickname, UserRole.USER);
+    User saved;
     try {
-      return UserResponse.from(userRepository.saveAndFlush(user));
+      saved = userRepository.saveAndFlush(user);
     } catch (DataIntegrityViolationException exception) {
       // 동시 가입으로 사전 검사를 통과한 경우 DB 유니크 제약에서 걸러진다.
       String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
@@ -68,15 +66,25 @@ public class AuthService {
               ? ErrorCode.DUPLICATE_NICKNAME
               : ErrorCode.DUPLICATE_EMAIL);
     }
+    // 메일을 보내지 못하면 예외로 가입 전체를 되돌려, 인증할 수 없는 계정이 남지 않게 한다.
+    emailVerificationService.sendLink(email);
+    return UserResponse.from(saved);
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public AuthTokens login(LoginRequest request) {
     User user = userRepository.findByEmail(normalizeEmail(request.email())).orElse(null);
     String hash = user == null ? dummyHash : user.getPasswordHash();
     boolean matches = passwordEncoder.matches(request.password(), hash);
     if (user == null || !matches) {
       throw new CommonException(ErrorCode.INVALID_CREDENTIALS);
+    }
+    // 비밀번호가 맞은 뒤에만 인증 여부를 알려, 미인증 계정의 존재를 함부로 드러내지 않는다.
+    if (!user.isEmailVerified()) {
+      if (!emailVerificationService.confirmIfVerified(user.getEmail())) {
+        throw new CommonException(ErrorCode.EMAIL_NOT_VERIFIED);
+      }
+      user.markEmailVerified();
     }
     return issueTokens(user);
   }

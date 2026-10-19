@@ -11,6 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.Optional;
+import org.example.springtestci.auth.entity.User;
+import org.example.springtestci.auth.entity.UserRole;
 import org.example.springtestci.auth.repository.UserRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
@@ -44,21 +47,9 @@ class EmailVerificationServiceTest {
         .thenReturn(true);
     when(supabase.signUp("user@example.com")).thenReturn("sb-1");
 
-    service.sendLink(" User@Example.com ");
+    service.sendLink("user@example.com");
 
-    verify(valueOperations)
-        .set("auth:email:pending:user@example.com", "sb-1", Duration.ofMinutes(60));
-  }
-
-  @Test
-  void sendLinkRejectsAnAlreadyRegisteredEmail() {
-    when(userRepository.existsByEmail("user@example.com")).thenReturn(true);
-
-    CommonException exception =
-        assertThrows(CommonException.class, () -> service.sendLink("user@example.com"));
-
-    assertEquals(ErrorCode.DUPLICATE_EMAIL, exception.errorCode());
-    verify(supabase, never()).signUp(anyString());
+    verify(valueOperations).set("auth:email:pending:user@example.com", "sb-1", Duration.ofHours(1));
   }
 
   @Test
@@ -90,63 +81,77 @@ class EmailVerificationServiceTest {
   }
 
   @Test
-  void isVerifiedMarksTheEmailOnceSupabaseConfirmsIt() {
-    when(redisTemplate.hasKey("auth:email:verified:user@example.com")).thenReturn(false);
+  void resendMailsAnUnverifiedUser() {
+    when(userRepository.findByEmail("user@example.com"))
+        .thenReturn(Optional.of(new User("user@example.com", "hash", "기록왕", UserRole.USER)));
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+        .thenReturn(true);
+    when(supabase.signUp("user@example.com")).thenReturn("sb-1");
+
+    service.resend(" User@Example.com ");
+
+    verify(supabase).signUp("user@example.com");
+  }
+
+  @Test
+  void resendDoesNothingForAnAlreadyVerifiedUser() {
+    User verified = new User("user@example.com", "hash", "기록왕", UserRole.USER);
+    verified.markEmailVerified();
+    when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(verified));
+
+    service.resend("user@example.com");
+
+    verify(supabase, never()).signUp(anyString());
+  }
+
+  @Test
+  void resendDoesNothingForAnUnknownEmail() {
+    when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+
+    service.resend("nobody@example.com");
+
+    verify(supabase, never()).signUp(anyString());
+  }
+
+  @Test
+  void confirmIfVerifiedIsTrueOnceSupabaseConfirmsAndCleansUpTheTemporaryAccount() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
+    when(valueOperations.getAndDelete("auth:email:pending:user@example.com")).thenReturn("sb-1");
     when(supabase.isConfirmed("sb-1")).thenReturn(true);
 
-    assertTrue(service.isVerified(" User@Example.com "));
-
-    verify(valueOperations)
-        .set("auth:email:verified:user@example.com", "1", Duration.ofMinutes(30));
-  }
-
-  @Test
-  void isVerifiedIsFalseWhileTheLinkHasNotBeenClicked() {
-    when(redisTemplate.hasKey("auth:email:verified:user@example.com")).thenReturn(false);
-    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
-    when(supabase.isConfirmed("sb-1")).thenReturn(false);
-
-    assertFalse(service.isVerified("user@example.com"));
-    verify(valueOperations, never()).set(anyString(), anyString(), any(Duration.class));
-  }
-
-  @Test
-  void isVerifiedIsFalseWhenNoMailWasRequested() {
-    when(redisTemplate.hasKey("auth:email:verified:user@example.com")).thenReturn(false);
-    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn(null);
-
-    assertFalse(service.isVerified("user@example.com"));
-    verify(supabase, never()).isConfirmed(anyString());
-  }
-
-  @Test
-  void isVerifiedIsTrueWithoutCallingSupabaseWhenAlreadyMarked() {
-    when(redisTemplate.hasKey("auth:email:verified:user@example.com")).thenReturn(true);
-
-    assertTrue(service.isVerified("user@example.com"));
-    verify(supabase, never()).isConfirmed(anyString());
-  }
-
-  @Test
-  void consumeVerifiedUsesTheMarkOnceAndCleansUpTheTemporaryAccount() {
-    when(redisTemplate.delete("auth:email:verified:user@example.com")).thenReturn(true);
-    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-    when(valueOperations.getAndDelete("auth:email:pending:user@example.com")).thenReturn("sb-1");
-
-    assertTrue(service.consumeVerified("user@example.com"));
+    assertTrue(service.confirmIfVerified("user@example.com"));
 
     verify(supabase).deleteUser("sb-1");
   }
 
   @Test
-  void consumeVerifiedIsFalseWithoutAMark() {
-    when(redisTemplate.delete("auth:email:verified:user@example.com")).thenReturn(false);
+  void confirmIfVerifiedIsFalseWhileTheLinkHasNotBeenClicked() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
+    when(supabase.isConfirmed("sb-1")).thenReturn(false);
 
-    assertFalse(service.consumeVerified("user@example.com"));
+    assertFalse(service.confirmIfVerified("user@example.com"));
     verify(supabase, never()).deleteUser(anyString());
+  }
+
+  @Test
+  void confirmIfVerifiedIsFalseWhenNoMailWasRequested() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn(null);
+
+    assertFalse(service.confirmIfVerified("user@example.com"));
+    verify(supabase, never()).isConfirmed(anyString());
+  }
+
+  @Test
+  void discardRemovesThePendingTemporaryAccount() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.getAndDelete("auth:email:pending:user@example.com")).thenReturn("sb-1");
+
+    service.discard("user@example.com");
+
+    verify(supabase).deleteUser("sb-1");
   }
 }

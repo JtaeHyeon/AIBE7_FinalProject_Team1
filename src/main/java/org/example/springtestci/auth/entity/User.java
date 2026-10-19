@@ -31,6 +31,9 @@ public class User extends BaseTimeEntity {
   @Column(nullable = false, length = 20)
   private UserRole role;
 
+  @Column(name = "email_verified", nullable = false)
+  private boolean emailVerified;
+
   protected User() {}
 
   public User(String email, String passwordHash, String nickname, UserRole role) {
@@ -38,6 +41,14 @@ public class User extends BaseTimeEntity {
     this.passwordHash = passwordHash;
     this.nickname = nickname;
     this.role = role;
+  }
+
+  public boolean isEmailVerified() {
+    return emailVerified;
+  }
+
+  public void markEmailVerified() {
+    this.emailVerified = true;
   }
 
   public Long getId() {

@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import org.example.springtestci.common.config.SupabaseProperties;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,9 +30,9 @@ class SupabaseAuthClientTest {
 
   @BeforeEach
   void setUp() {
-    RestClient.Builder builder = RestClient.builder();
+    RestClient.Builder builder = RestClient.builder().baseUrl(URL + "/auth/v1");
     server = MockRestServiceServer.bindTo(builder).build();
-    client = new SupabaseAuthClient(builder, URL + "/", "service-key");
+    client = new SupabaseAuthClient(builder.build(), new SupabaseProperties(URL, "secret"));
   }
 
   @Test
@@ -40,7 +40,6 @@ class SupabaseAuthClientTest {
     server
         .expect(requestTo(URL + "/auth/v1/signup"))
         .andExpect(method(HttpMethod.POST))
-        .andExpect(header("apikey", "service-key"))
         .andRespond(
             withSuccess(
                 "{\"id\":\"sb-1\",\"email\":\"user@example.com\",\"email_confirmed_at\":null}",
@@ -84,7 +83,8 @@ class SupabaseAuthClientTest {
 
   @Test
   void signUpFailsClearlyWhenSupabaseIsNotConfigured() {
-    SupabaseAuthClient unconfigured = new SupabaseAuthClient(RestClient.builder(), "", "");
+    SupabaseAuthClient unconfigured =
+        new SupabaseAuthClient(RestClient.create(), new SupabaseProperties("", ""));
 
     CommonException exception =
         assertThrows(CommonException.class, () -> unconfigured.signUp("user@example.com"));

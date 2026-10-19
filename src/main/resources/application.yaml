@@ -26,7 +26,7 @@ springdoc:
 app:
   supabase:
     url: ${SUPABASE_URL:}
-    service-key: ${SUPABASE_SERVICE_KEY:}
+    secret: ${SUPABASE_SECRET:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   jwt:

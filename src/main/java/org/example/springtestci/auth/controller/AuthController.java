@@ -1,11 +1,9 @@
 package org.example.springtestci.auth.controller;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
 import java.time.Duration;
 import org.example.springtestci.auth.dto.AuthTokens;
-import org.example.springtestci.auth.dto.EmailSendRequest;
-import org.example.springtestci.auth.dto.EmailVerifiedResponse;
+import org.example.springtestci.auth.dto.EmailResendRequest;
 import org.example.springtestci.auth.dto.LoginRequest;
 import org.example.springtestci.auth.dto.LoginResponse;
 import org.example.springtestci.auth.dto.SignupRequest;
@@ -20,18 +18,15 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
-@Validated
 public class AuthController {
 
   private static final String REFRESH_COOKIE = "refresh_token";
@@ -50,16 +45,11 @@ public class AuthController {
     this.properties = properties;
   }
 
-  @PostMapping("/email/send")
-  public ResponseEntity<Void> sendEmailLink(@Valid @RequestBody EmailSendRequest request) {
-    emailVerificationService.sendLink(request.email());
+  /** 아직 인증하지 못한 계정에 인증 메일을 다시 보낸다. 계정이 있는지는 응답으로 알려 주지 않는다. */
+  @PostMapping("/email/resend")
+  public ResponseEntity<Void> resendEmailLink(@Valid @RequestBody EmailResendRequest request) {
+    emailVerificationService.resend(request.email());
     return ResponseEntity.noContent().build();
-  }
-
-  @GetMapping("/email/status")
-  public ApiResponse<EmailVerifiedResponse> emailStatus(@RequestParam @Email String email) {
-    return ApiResponse.success(
-        new EmailVerifiedResponse(emailVerificationService.isVerified(email)));
   }
 
   @PostMapping("/signup")

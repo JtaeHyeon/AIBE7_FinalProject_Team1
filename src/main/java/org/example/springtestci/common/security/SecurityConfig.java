@@ -50,13 +50,11 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers(
                         HttpMethod.POST,
-                        "/api/auth/email/send",
+                        "/api/auth/email/resend",
                         "/api/auth/signup",
                         "/api/auth/login",
                         "/api/auth/refresh",
                         "/api/auth/logout")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/auth/email/status")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

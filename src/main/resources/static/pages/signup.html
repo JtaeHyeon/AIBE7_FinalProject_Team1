@@ -18,10 +18,10 @@
     <p class="lg-sub">가입하고 내 노트북의 기록을 쌓기 시작하세요.</p>
     <form data-auth-form="signup" novalidate>
       <p class="au-msg" role="alert" hidden></p>
-      <label class="sc-field"><span>이메일<em>*</em></span><span class="au-inline"><input name="email" type="email" placeholder="name@example.com" autocomplete="username" maxlength="254" required><button type="button" class="sc-btn" data-email-send>인증 메일 받기</button></span><small data-email-status></small></label>
+      <label class="sc-field"><span>이메일<em>*</em></span><input name="email" type="email" placeholder="name@example.com" autocomplete="username" maxlength="254" required><small>가입 후 이 주소로 인증 메일을 보내요. 30분 안에 인증하지 않으면 가입이 취소돼요.</small></label>
       <label class="sc-field"><span>비밀번호<em>*</em></span><input name="password" type="password" placeholder="비밀번호를 입력하세요" autocomplete="new-password" maxlength="64" required></label>
       <div class="au-rules"><span data-rule="length">8자 이상</span><span data-rule="letter">영문 포함</span><span data-rule="digit">숫자 포함</span><span data-rule="special">특수문자 포함</span></div>
-      <label class="sc-field"><span>비밀번호 확인<em>*</em></span><input name="passwordConfirm" type="password" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password" maxlength="64" required></label>
+      <label class="sc-field"><span>비밀번호 확인<em>*</em></span><input name="passwordConfirm" type="password" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password" maxlength="64" required><small data-match></small></label>
       <label class="sc-field"><span>닉네임<em>*</em></span><input name="nickname" placeholder="2~12자" maxlength="12" required><small>거래 상대에게는 닉네임만 보여요.</small></label>
       <div class="au-agree">
         <label class="all"><input type="checkbox" data-agree-all> 전체 동의</label>
