@@ -1,14 +1,17 @@
 package org.example.springtestci.auth.controller;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import java.time.Duration;
 import org.example.springtestci.auth.dto.AuthTokens;
+import org.example.springtestci.auth.dto.EmailSendRequest;
+import org.example.springtestci.auth.dto.EmailVerifiedResponse;
 import org.example.springtestci.auth.dto.LoginRequest;
 import org.example.springtestci.auth.dto.LoginResponse;
 import org.example.springtestci.auth.dto.SignupRequest;
 import org.example.springtestci.auth.dto.UserResponse;
-import org.example.springtestci.auth.dto.WithdrawRequest;
 import org.example.springtestci.auth.service.AuthService;
+import org.example.springtestci.auth.service.EmailVerificationService;
 import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.common.security.JwtProperties;
 import org.springframework.http.HttpHeaders;
@@ -17,27 +20,46 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.CookieValue;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
+@Validated
 public class AuthController {
 
   private static final String REFRESH_COOKIE = "refresh_token";
   private static final String REFRESH_COOKIE_PATH = "/api/auth";
 
   private final AuthService authService;
+  private final EmailVerificationService emailVerificationService;
   private final JwtProperties properties;
 
-  public AuthController(AuthService authService, JwtProperties properties) {
+  public AuthController(
+      AuthService authService,
+      EmailVerificationService emailVerificationService,
+      JwtProperties properties) {
     this.authService = authService;
+    this.emailVerificationService = emailVerificationService;
     this.properties = properties;
+  }
+
+  @PostMapping("/email/send")
+  public ResponseEntity<Void> sendEmailLink(@Valid @RequestBody EmailSendRequest request) {
+    emailVerificationService.sendLink(request.email());
+    return ResponseEntity.noContent().build();
+  }
+
+  @GetMapping("/email/status")
+  public ApiResponse<EmailVerifiedResponse> emailStatus(@RequestParam @Email String email) {
+    return ApiResponse.success(
+        new EmailVerifiedResponse(emailVerificationService.isVerified(email)));
   }
 
   @PostMapping("/signup")
@@ -71,17 +93,6 @@ public class AuthController {
   @GetMapping("/me")
   public ApiResponse<UserResponse> me(@AuthenticationPrincipal Jwt jwt) {
     return ApiResponse.success(authService.getMe(Long.parseLong(jwt.getSubject())));
-  }
-
-  @DeleteMapping("/me")
-  public ResponseEntity<Void> withdraw(
-      @AuthenticationPrincipal Jwt jwt,
-      @Valid @RequestBody WithdrawRequest request,
-      @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
-    authService.withdraw(Long.parseLong(jwt.getSubject()), request.password(), refreshToken);
-    return ResponseEntity.noContent()
-        .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
-        .build();
   }
 
   private ResponseEntity<ApiResponse<LoginResponse>> withRefreshCookie(AuthTokens tokens) {

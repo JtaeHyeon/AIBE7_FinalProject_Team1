@@ -10,7 +10,7 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .landing-search{height:46px;padding:0 0 0 16px;border:2px solid var(--blue);border-radius:4px;overflow:hidden}
 .landing-search input{font-size:15px}
 .landing-search span{display:grid;place-items:center;width:52px;height:100%;background:var(--blue);color:#fff;font-size:20px}
-.landing-account{font-size:12px}
+.landing-account{font-size:14px;gap:12px;color:#9a9ca3;align-items:center}.landing-account button{font-size:inherit;font-weight:500;color:#44464a;padding:4px 2px}.landing-account button:hover{color:#0d7c7a}
 .landing-nav{height:52px;gap:6px;border-bottom:0}
 .nav-all{height:100%;padding:0 22px 0 0;border-right:1px solid rgba(255,255,255,.28);color:#fff}
 .nav-all .burger{background:linear-gradient(#fff 0 0) top/100% 2px no-repeat,linear-gradient(#fff 0 0) center/100% 2px no-repeat,linear-gradient(#fff 0 0) bottom/100% 2px no-repeat}
@@ -69,8 +69,5 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .mp-link{display:grid;gap:5px;text-align:left;cursor:pointer;transition:border-color .15s}.mp-link:hover{border-color:var(--ink)}
 .mp-link b{font-size:15px;letter-spacing:-.5px}.mp-link small{font-size:12px;color:#62646a}
 @media(max-width:780px){.mp-profile{flex-wrap:wrap}.mp-menu{grid-template-columns:1fr}}
-.mp-danger{margin-top:14px}.mp-danger-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.mp-danger-head div{display:grid;gap:4px}.mp-danger-head b{font-size:15px;letter-spacing:-.5px}.mp-danger-head small{font-size:12px;color:#62646a}
-.mp-withdraw{display:grid;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.mp-withdraw[hidden]{display:none}
-.mp-confirm{display:flex;align-items:center;gap:8px;font-size:13px;color:#44464a}
-.mp-withdraw-actions{display:flex;justify-content:flex-end;gap:8px}
-.sc-btn.mp-danger-btn{background:#b70f28;border-color:#b70f28;color:#fff}.sc-btn.mp-danger-btn:hover{background:#930c20;border-color:#930c20}.sc-btn.mp-danger-btn:disabled{opacity:.6}
+.au-inline{display:flex;gap:8px}.au-inline input{flex:1;min-width:0}.au-inline .sc-btn{white-space:nowrap}
+[data-email-status]{color:#62646a}[data-email-status].ok{color:#0d7c7a;font-weight:700}

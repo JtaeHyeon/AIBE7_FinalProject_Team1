@@ -35,6 +35,7 @@ class AuthServiceTest {
   @Mock private PasswordEncoder passwordEncoder;
   @Mock private JwtTokenProvider jwtTokenProvider;
   @Mock private RefreshTokenStore refreshTokenStore;
+  @Mock private EmailVerificationService emailVerificationService;
 
   private AuthService authService;
 
@@ -42,13 +43,19 @@ class AuthServiceTest {
   void setUp() {
     when(passwordEncoder.encode("dummy-password-for-timing")).thenReturn("dummy-hash");
     authService =
-        new AuthService(userRepository, passwordEncoder, jwtTokenProvider, refreshTokenStore);
+        new AuthService(
+            userRepository,
+            passwordEncoder,
+            jwtTokenProvider,
+            refreshTokenStore,
+            emailVerificationService);
   }
 
   @Test
   void signupNormalizesEmailAndStoresOnlyTheHashedPassword() {
     when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
     when(userRepository.existsByNickname("기록왕")).thenReturn(false);
+    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(true);
     when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed");
     when(userRepository.saveAndFlush(any(User.class))).thenAnswer(call -> call.getArgument(0));
 
@@ -91,9 +98,25 @@ class AuthServiceTest {
   }
 
   @Test
+  void signupRequiresAVerifiedEmail() {
+    when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
+    when(userRepository.existsByNickname("기록왕")).thenReturn(false);
+    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(false);
+
+    CommonException exception =
+        assertThrows(
+            CommonException.class,
+            () -> authService.signup(new SignupRequest("user@example.com", "Passw0rd!", "기록왕")));
+
+    assertEquals(ErrorCode.EMAIL_NOT_VERIFIED, exception.errorCode());
+    verify(userRepository, never()).saveAndFlush(any());
+  }
+
+  @Test
   void signupMapsAConcurrentUniqueViolationToADuplicateError() {
     when(userRepository.existsByEmail("user@example.com")).thenReturn(false);
     when(userRepository.existsByNickname("기록왕")).thenReturn(false);
+    when(emailVerificationService.consumeVerified("user@example.com")).thenReturn(true);
     when(passwordEncoder.encode("Passw0rd!")).thenReturn("hashed");
     when(userRepository.saveAndFlush(any(User.class)))
         .thenThrow(
@@ -201,43 +224,6 @@ class AuthServiceTest {
     authService.logout(null);
 
     verifyNoInteractions(refreshTokenStore);
-  }
-
-  @Test
-  void withdrawDeletesTheUserAndRevokesTheRefreshToken() throws Exception {
-    User user = user(7L, "user@example.com", "hashed");
-    when(userRepository.findById(7L)).thenReturn(Optional.of(user));
-    when(passwordEncoder.matches("Passw0rd!", "hashed")).thenReturn(true);
-
-    authService.withdraw(7L, "Passw0rd!", "token");
-
-    verify(userRepository).delete(user);
-    verify(refreshTokenStore).revoke("token");
-  }
-
-  @Test
-  void withdrawWithAWrongPasswordKeepsTheUser() throws Exception {
-    when(userRepository.findById(7L))
-        .thenReturn(Optional.of(user(7L, "user@example.com", "hashed")));
-    when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
-
-    CommonException exception =
-        assertThrows(CommonException.class, () -> authService.withdraw(7L, "wrong", "token"));
-
-    assertEquals(ErrorCode.INVALID_PASSWORD, exception.errorCode());
-    verify(userRepository, never()).delete(any());
-    verifyNoInteractions(refreshTokenStore);
-  }
-
-  @Test
-  void withdrawForAnAlreadyDeletedUserIsUnauthorized() {
-    when(userRepository.findById(7L)).thenReturn(Optional.empty());
-
-    CommonException exception =
-        assertThrows(CommonException.class, () -> authService.withdraw(7L, "Passw0rd!", null));
-
-    assertEquals(ErrorCode.UNAUTHORIZED, exception.errorCode());
-    verify(userRepository, never()).delete(any());
   }
 
   private static User user(long id, String email, String passwordHash) throws Exception {

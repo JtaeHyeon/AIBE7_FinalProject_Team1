@@ -25,17 +25,20 @@ public class AuthService {
   private final PasswordEncoder passwordEncoder;
   private final JwtTokenProvider jwtTokenProvider;
   private final RefreshTokenStore refreshTokenStore;
+  private final EmailVerificationService emailVerificationService;
   private final String dummyHash;
 
   public AuthService(
       UserRepository userRepository,
       PasswordEncoder passwordEncoder,
       JwtTokenProvider jwtTokenProvider,
-      RefreshTokenStore refreshTokenStore) {
+      RefreshTokenStore refreshTokenStore,
+      EmailVerificationService emailVerificationService) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtTokenProvider = jwtTokenProvider;
     this.refreshTokenStore = refreshTokenStore;
+    this.emailVerificationService = emailVerificationService;
     this.dummyHash = passwordEncoder.encode(DUMMY_PASSWORD);
   }
 
@@ -48,6 +51,9 @@ public class AuthService {
     }
     if (userRepository.existsByNickname(nickname)) {
       throw new CommonException(ErrorCode.DUPLICATE_NICKNAME);
+    }
+    if (!emailVerificationService.consumeVerified(email)) {
+      throw new CommonException(ErrorCode.EMAIL_NOT_VERIFIED);
     }
 
     User user =
@@ -106,21 +112,6 @@ public class AuthService {
         .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
   }
 
-  /** 비밀번호로 본인을 확인한 뒤 계정을 삭제하고, 이 기기의 Refresh Token을 폐기한다. */
-  @Transactional
-  public void withdraw(long userId, String password, String refreshToken) {
-    User user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
-    if (!passwordEncoder.matches(password, user.getPasswordHash())) {
-      throw new CommonException(ErrorCode.INVALID_PASSWORD);
-    }
-    userRepository.delete(user);
-    userRepository.flush();
-    logout(refreshToken);
-  }
-
   private AuthTokens issueTokens(User user) {
     return new AuthTokens(
         jwtTokenProvider.createAccessToken(user),
@@ -129,7 +120,7 @@ public class AuthService {
         UserResponse.from(user));
   }
 
-  private static String normalizeEmail(String email) {
+  static String normalizeEmail(String email) {
     return email.trim().toLowerCase(Locale.ROOT);
   }
 }
