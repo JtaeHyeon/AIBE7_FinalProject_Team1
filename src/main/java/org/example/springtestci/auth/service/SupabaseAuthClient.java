@@ -73,10 +73,10 @@ public class SupabaseAuthClient {
     }
   }
 
-  /** 메일의 링크를 눌러 이메일이 확인됐는지 조회한다. 조회에 실패하면 아직 확인되지 않은 것으로 본다. */
-  public boolean isConfirmed(String userId) {
+  /** 메일의 링크를 눌러 이메일이 확인됐는지 조회한다. 조회에 실패하면 확인 여부를 알 수 없으므로 UNKNOWN을 돌려준다. */
+  public VerificationStatus confirmationStatus(String userId) {
     if (!configured) {
-      return false;
+      return VerificationStatus.UNKNOWN;
     }
     try {
       SupabaseUserResponse response =
@@ -85,10 +85,15 @@ public class SupabaseAuthClient {
               .uri("/admin/users/{id}", userId)
               .retrieve()
               .body(SupabaseUserResponse.class);
-      return response != null && response.emailConfirmedAt() != null;
+      if (response == null) {
+        return VerificationStatus.UNKNOWN;
+      }
+      return response.emailConfirmedAt() != null
+          ? VerificationStatus.CONFIRMED
+          : VerificationStatus.UNCONFIRMED;
     } catch (RestClientException exception) {
       log.warn("Supabase 확인 조회 실패: {}", exception.getClass().getSimpleName());
-      return false;
+      return VerificationStatus.UNKNOWN;
     }
   }
 

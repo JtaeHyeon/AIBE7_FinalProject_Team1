@@ -1,5 +1,6 @@
 package org.example.springtestci.auth.service;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,7 +46,8 @@ class UnverifiedUserCleanerTest {
     when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
             NOW.minus(Duration.ofMinutes(30))))
         .thenReturn(List.of(expired));
-    when(emailVerificationService.confirmIfVerified("old@example.com")).thenReturn(false);
+    when(emailVerificationService.checkVerification("old@example.com"))
+        .thenReturn(VerificationStatus.UNCONFIRMED);
 
     cleaner.deleteExpired();
 
@@ -59,11 +61,28 @@ class UnverifiedUserCleanerTest {
     when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
             NOW.minus(Duration.ofMinutes(30))))
         .thenReturn(List.of(clicked));
-    when(emailVerificationService.confirmIfVerified("clicked@example.com")).thenReturn(true);
+    when(emailVerificationService.checkVerification("clicked@example.com"))
+        .thenReturn(VerificationStatus.CONFIRMED);
 
     cleaner.deleteExpired();
 
     assertTrue(clicked.isEmailVerified());
     verify(userRepository, never()).delete(clicked);
+  }
+
+  @Test
+  void keepsAnAccountWhoseVerificationStatusCannotBeDetermined() {
+    User unknown = new User("unknown@example.com", "hash", "기록왕", UserRole.USER);
+    when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
+            NOW.minus(Duration.ofMinutes(30))))
+        .thenReturn(List.of(unknown));
+    when(emailVerificationService.checkVerification("unknown@example.com"))
+        .thenReturn(VerificationStatus.UNKNOWN);
+
+    cleaner.deleteExpired();
+
+    assertFalse(unknown.isEmailVerified());
+    verify(userRepository, never()).delete(unknown);
+    verify(emailVerificationService, never()).discard("unknown@example.com");
   }
 }

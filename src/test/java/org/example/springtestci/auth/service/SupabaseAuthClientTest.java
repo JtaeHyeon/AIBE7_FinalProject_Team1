@@ -1,9 +1,7 @@
 package org.example.springtestci.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
@@ -93,7 +91,7 @@ class SupabaseAuthClientTest {
   }
 
   @Test
-  void isConfirmedReflectsEmailConfirmedAt() {
+  void confirmationStatusReflectsEmailConfirmedAt() {
     server
         .expect(requestTo(URL + "/auth/v1/admin/users/sb-1"))
         .andRespond(
@@ -106,17 +104,17 @@ class SupabaseAuthClientTest {
             withSuccess(
                 "{\"id\":\"sb-2\",\"email_confirmed_at\":null}", MediaType.APPLICATION_JSON));
 
-    assertTrue(client.isConfirmed("sb-1"));
-    assertFalse(client.isConfirmed("sb-2"));
+    assertEquals(VerificationStatus.CONFIRMED, client.confirmationStatus("sb-1"));
+    assertEquals(VerificationStatus.UNCONFIRMED, client.confirmationStatus("sb-2"));
   }
 
   @Test
-  void isConfirmedIsFalseWhenSupabaseCannotBeQueried() {
+  void confirmationStatusIsUnknownWhenSupabaseCannotBeQueried() {
     server
         .expect(requestTo(URL + "/auth/v1/admin/users/sb-1"))
         .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
 
-    assertFalse(client.isConfirmed("sb-1"));
+    assertEquals(VerificationStatus.UNKNOWN, client.confirmationStatus("sb-1"));
   }
 
   @Test

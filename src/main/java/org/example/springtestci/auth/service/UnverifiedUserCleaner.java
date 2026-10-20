@@ -41,9 +41,15 @@ public class UnverifiedUserCleaner {
         userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(clock.instant().minus(ttl));
     int deleted = 0;
     for (User user : expired) {
+      VerificationStatus status = emailVerificationService.checkVerification(user.getEmail());
       // 링크는 눌렀지만 아직 로그인하지 않은 사용자는 지우지 않고 인증 완료로 바꾼다.
-      if (emailVerificationService.confirmIfVerified(user.getEmail())) {
+      if (status == VerificationStatus.CONFIRMED) {
         user.markEmailVerified();
+        continue;
+      }
+      // 조회 실패나 대기 기록 만료로 확인 여부를 알 수 없으면, 인증을 마친 계정을 잃지 않도록 다음 주기에 다시 확인한다.
+      if (status == VerificationStatus.UNKNOWN) {
+        log.warn("이메일 확인 여부를 알 수 없어 계정 삭제를 건너뜁니다: userId={}", user.getId());
         continue;
       }
       emailVerificationService.discard(user.getEmail());

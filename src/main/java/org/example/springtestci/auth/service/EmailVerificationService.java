@@ -58,12 +58,23 @@ public class EmailVerificationService {
 
   /** 메일의 링크를 눌러 이메일이 확인됐는지 본다. 확인됐으면 쓰임이 끝난 Supabase 임시 계정을 정리한다. */
   public boolean confirmIfVerified(String normalizedEmail) {
+    return checkVerification(normalizedEmail) == VerificationStatus.CONFIRMED;
+  }
+
+  /**
+   * 이메일 확인 상태를 조회한다. 대기 기록(Redis)이 없거나 Supabase 조회에 실패하면 UNKNOWN이며, 호출한 쪽은 이 경우 계정을 지우면 안 된다. 확인됐으면
+   * 쓰임이 끝난 Supabase 임시 계정을 정리한다.
+   */
+  public VerificationStatus checkVerification(String normalizedEmail) {
     String supabaseUserId = redisTemplate.opsForValue().get(PENDING_KEY + normalizedEmail);
-    if (supabaseUserId == null || !supabase.isConfirmed(supabaseUserId)) {
-      return false;
+    if (supabaseUserId == null) {
+      return VerificationStatus.UNKNOWN;
     }
-    discard(normalizedEmail);
-    return true;
+    VerificationStatus status = supabase.confirmationStatus(supabaseUserId);
+    if (status == VerificationStatus.CONFIRMED) {
+      discard(normalizedEmail);
+    }
+    return status;
   }
 
   /** 대기 중인 Supabase 임시 계정을 지운다. */

@@ -119,7 +119,7 @@ class EmailVerificationServiceTest {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
     when(valueOperations.getAndDelete("auth:email:pending:user@example.com")).thenReturn("sb-1");
-    when(supabase.isConfirmed("sb-1")).thenReturn(true);
+    when(supabase.confirmationStatus("sb-1")).thenReturn(VerificationStatus.CONFIRMED);
 
     assertTrue(service.confirmIfVerified("user@example.com"));
 
@@ -130,7 +130,7 @@ class EmailVerificationServiceTest {
   void confirmIfVerifiedIsFalseWhileTheLinkHasNotBeenClicked() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
-    when(supabase.isConfirmed("sb-1")).thenReturn(false);
+    when(supabase.confirmationStatus("sb-1")).thenReturn(VerificationStatus.UNCONFIRMED);
 
     assertFalse(service.confirmIfVerified("user@example.com"));
     verify(supabase, never()).deleteUser(anyString());
@@ -142,7 +142,7 @@ class EmailVerificationServiceTest {
     when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn(null);
 
     assertFalse(service.confirmIfVerified("user@example.com"));
-    verify(supabase, never()).isConfirmed(anyString());
+    verify(supabase, never()).confirmationStatus(anyString());
   }
 
   @Test
