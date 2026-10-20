@@ -19,7 +19,7 @@
 | `chat/service/ChatUserReader.java` | 신규 | 닉네임 벌크 조회 경계 | 원본 회원 조회 패턴만 참고 |
 | `chat/repository/ChatMessageRepository.java` | 수정 | 최신 메시지·새 메시지 조회 계약 | `ChatMessageRepository.java` |
 | `chat/repository/jpa/*` | 신규 | 방·메시지·확인 위치 실제 JPA 어댑터 | 원본 저장·최근 메시지 쿼리 선별 이식 |
-| `db/migration/V2__create_chat_tables.sql` | 신규 | 채팅 테이블·내부 FK·UNIQUE·인덱스 | Pastport 전용 신규 스키마 |
+| `db/migration/V2026101302__create_chat_tables.sql` | 신규 | 채팅 테이블·내부 FK·UNIQUE·인덱스 | Pastport 전용 신규 스키마 |
 | `chat/service/DefaultChatServiceTest.java` | 신규 | 서비스 정책·권한·읽음 단위 테스트 | 원본 `ChatServiceTest.java` 확장 |
 | `chat/repository/*Test.java` | 신규 | H2 영속성·Flyway 적용 검증 | 신규 |
 | `docs/chat/namespace-architecture.md` | 수정 | 실제 구현·활성화·연동 위치 | v1.2 명세 |

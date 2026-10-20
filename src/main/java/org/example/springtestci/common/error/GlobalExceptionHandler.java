@@ -9,6 +9,7 @@ import org.example.springtestci.common.config.RequestIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -57,7 +58,8 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   ResponseEntity<ErrorResponse> handleUnexpected(Exception exception, HttpServletRequest request) {
-    if (exception instanceof HttpMessageNotReadableException) {
+    if (exception instanceof HttpMessageNotReadableException
+        || exception instanceof TypeMismatchException) {
       return response(ErrorCode.INVALID_INPUT, request, List.of());
     }
 

@@ -119,13 +119,12 @@ $env:CHAT_REALTIME_TEST_DB_PASSWORD = '<local-test-password>'
 
 ## 확인 사항
 
-- 보강 착수 기준은 `feat/chat-api-namespace@59b3c1f`, 최신 `origin/main`과 `upstream/main`은 모두 `2e6d7a4`로 확인했다. merge base는 `1a1aaf2`이며 보강 커밋 반영 후 main 기준 2개 커밋 ahead, 23개 커밋 behind 상태라 통합 검증은 별도 대기다.
-- main의 인증 공개 경로와 `JwtEncoder` 변경을 확인했다. 이후 main 반영 시 현재 `SecurityConfig` 전체를 덮어쓰지 않고 `/ws-stomp` 허용만 통합해야 한다.
+- 보강 착수 기준은 `feat/chat-api-namespace@59b3c1f`이며, `upstream/main@0c3f67b`을 작업 브랜치에 병합했다.
+- main의 인증 공개 경로와 `JwtEncoder` 변경을 그대로 보존하고 `/ws-stomp` 허용 경로만 함께 통합했다.
 - 실제 회원·판매글 Reader, 운영 JWT 계약, 공유 DB, 신규 ERD, 거래 상태 API 연결은 계속 외부 대기다.
 - 현재 모델은 전역 `messageId`와 별도 읽기 위치 테이블을 사용한다. 이를 신규 ERD 전환 완료로 보고하지 않는다.
 - HTTP 성공 코드·응답 래퍼·CSRF 차이는 기존 계약을 유지했다.
 - 브라우저 화면, HTTP 응답과 소켓 이벤트의 UI 중복 제거, 재연결·이력 복원은 후속 클라이언트 작업이다.
-- 이번 보강 변경의 PR 생성·병합은 수행하지 않았다. commit·push 결과는 Git 이력을 기준으로 확인한다.
 
 ### 외부 연결 대기
 
