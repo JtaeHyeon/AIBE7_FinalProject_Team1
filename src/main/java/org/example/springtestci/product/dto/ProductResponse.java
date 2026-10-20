@@ -4,7 +4,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-/** 일련번호는 응답에 포함하지 않는다. */
+/** 일련번호는 현재 소유자의 상세 응답에만 채우고 목록 응답에서는 null로 둔다. */
 public record ProductResponse(
     long productId,
     String title,
@@ -12,6 +12,10 @@ public record ProductResponse(
     String modelName,
     LocalDate purchaseDate,
     LocalDate warrantyExpiresAt,
+    String warrantyTerms,
+    long factsVersion,
+    String serialNumber,
+    String warrantyStatus,
     Specifications specifications,
     List<Image> images,
     OffsetDateTime createdAt) {
@@ -26,7 +30,7 @@ public record ProductResponse(
       Integer batteryHealthPercent,
       String os) {}
 
-  public record Image(long imageId, String url) {}
+  public record Image(long imageId, String url, boolean primary, int sortOrder, long byteSize) {}
 
   public ProductResponse withImages(List<Image> images) {
     return new ProductResponse(
@@ -36,6 +40,27 @@ public record ProductResponse(
         modelName,
         purchaseDate,
         warrantyExpiresAt,
+        warrantyTerms,
+        factsVersion,
+        serialNumber,
+        warrantyStatus,
+        specifications,
+        images,
+        createdAt);
+  }
+
+  public ProductResponse withSerialNumber(String serialNumber) {
+    return new ProductResponse(
+        productId,
+        title,
+        manufacturer,
+        modelName,
+        purchaseDate,
+        warrantyExpiresAt,
+        warrantyTerms,
+        factsVersion,
+        serialNumber,
+        warrantyStatus,
         specifications,
         images,
         createdAt);

@@ -68,6 +68,8 @@ public class SecurityConfig {
                         "/images/**",
                         "/local-files",
                         "/error",
+                        "/ws-stomp",
+                        "/ws-stomp/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html")

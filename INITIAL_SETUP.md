@@ -77,6 +77,10 @@ cp .env.example .env
 | `DB_URL` | 애플리케이션 JDBC URL | 로컬 기본값 제공 |
 | `DB_USERNAME` | DB 사용자 | 로컬 기본값 제공 |
 | `DB_PASSWORD` | 애플리케이션 DB 비밀번호 | 필수 |
+| `SUPABASE_DB_URL` | Supabase Session pooler JDBC URL | `supabase` 프로필 필수 |
+| `SUPABASE_DB_USERNAME` | Supabase DB 사용자 (`postgres.<project-ref>`) | `supabase` 프로필 필수 |
+| `SUPABASE_DB_PASSWORD` | Supabase Database Password | `supabase` 프로필 필수 |
+| `SUPABASE_DB_MAX_POOL_SIZE` | 애플리케이션 DB 최대 연결 수 | 선택, 기본값 `5` |
 | `REDIS_HOST` | Redis 호스트 | 로컬 기본값 제공 |
 | `REDIS_PORT` | Redis 포트 | 로컬 기본값 제공 |
 | `REDIS_PASSWORD` | Redis 비밀번호 | 선택 |
@@ -88,7 +92,7 @@ cp .env.example .env
 주의 사항:
 
 - Docker Compose는 프로젝트 루트의 `.env`를 자동으로 읽습니다.
-- Spring Boot 또는 IntelliJ 실행 구성은 `.env`를 자동으로 읽지 않습니다. IntelliJ의 Run Configuration에 필요한 환경 변수를 직접 등록해야 합니다.
+- Spring Boot는 프로젝트 루트의 `.env`를 읽습니다. IntelliJ의 Working directory가 프로젝트 루트인지 확인합니다.
 - `DB_PASSWORD`와 `POSTGRES_PASSWORD`는 로컬 환경에서 같은 값으로 설정합니다.
 - `JWT_SECRET`은 예시 값을 그대로 사용하지 말고 환경마다 안전한 값으로 교체합니다.
 
@@ -113,6 +117,29 @@ docker compose down
 
 Object Storage 구현체는 아직 결정하지 않았습니다. 현재는 `FileStorage` 인터페이스와 `local`, `test` 프로필에서 동작하는 `LocalFileStorage`만 제공합니다.
 
+### Supabase PostgreSQL 사용
+
+Supabase Dashboard의 **Connect** 화면에서 **Session pooler** 연결 정보를 확인합니다. Spring Data JPA처럼 지속적으로 실행되는 ORM 애플리케이션은 Transaction pooler(6543)가 아닌 Session pooler(5432)를 사용합니다. IPv6 연결이 가능한 실행 환경에서는 Direct connection도 사용할 수 있습니다.
+
+`.env`에 다음 값을 설정합니다. 비밀번호에 `&`, `#`, `?`, 공백 같은 예약 문자가 있으면 URL에 직접 포함하지 말고 `SUPABASE_DB_PASSWORD`에 원문 그대로 입력합니다.
+
+```dotenv
+SPRING_PROFILES_ACTIVE=supabase
+SUPABASE_DB_URL=jdbc:postgresql://<session-pooler-host>:5432/postgres?sslmode=require
+SUPABASE_DB_USERNAME=postgres.<project-ref>
+SUPABASE_DB_PASSWORD=<database-password>
+```
+
+이후 애플리케이션을 실행하면 Flyway가 `src/main/resources/db/migration`의 마이그레이션을 적용하고 Hibernate가 스키마를 검증합니다.
+
+```bash
+./gradlew bootRun
+```
+
+Supabase 연결 설정은 SSL을 강제하고 HikariCP 최대 연결 수를 기본 5개로 제한합니다. 운영 규모와 Supabase 프로젝트의 연결 한도를 확인한 후 풀 크기를 조정합니다. 실제 비밀번호나 연결 문자열은 Git에 커밋하지 않습니다.
+
+이 프로필은 PostgreSQL만 Supabase로 전환합니다. Redis가 필요한 기능은 별도의 관리형 Redis 또는 로컬 Docker Redis 설정을 계속 사용해야 합니다.
+
 ## 6. 환경별 Spring 설정
 
 설정 파일은 다음과 같이 구분합니다.
@@ -122,6 +149,7 @@ Object Storage 구현체는 아직 결정하지 않았습니다. 현재는 `File
 | `application.yaml` | 공통 설정 및 기본 `local` 프로필 |
 | `application-local.yaml` | 로컬 PostgreSQL·Redis 설정 |
 | `application-test.yaml` | 테스트 DB·Redis·JWT·저장소 설정 |
+| `application-supabase.yaml` | Supabase PostgreSQL 연결 및 풀 설정 |
 | `application-prod.yaml` | 운영 DB·Redis 및 운영 안전 설정 |
 
 공통 기준:
@@ -135,11 +163,13 @@ Object Storage 구현체는 아직 결정하지 않았습니다. 현재는 `File
 - CORS 허용 Origin은 `CORS_ALLOWED_ORIGINS`로 관리합니다.
 - 로그에는 비밀번호, 토큰, 개인정보를 출력하지 않습니다.
 
+루트의 `.env`는 `spring.config.import`를 통해 로컬 실행 시 자동으로 읽습니다. 운영 환경에서는 `.env` 대신 배포 환경의 환경 변수 또는 Secret 관리 기능을 사용합니다.
+
 ## 7. IntelliJ 실행
 
 1. `SpringTestCiApplication`을 실행 대상으로 선택합니다.
 2. Run Configuration의 JRE를 Java 17로 지정합니다.
-3. Environment variables에 최소 `DB_PASSWORD`, `JWT_SECRET`을 등록합니다.
+3. 프로젝트 루트에 `.env`가 있는지 확인합니다. 필요하면 Run Configuration에 환경 변수를 직접 등록해 `.env` 값을 재정의합니다.
 4. PostgreSQL과 Redis가 실행 중인지 확인합니다.
 5. 애플리케이션을 실행합니다.
 
