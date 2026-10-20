@@ -10,7 +10,7 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .landing-search{height:46px;padding:0 0 0 16px;border:2px solid var(--blue);border-radius:4px;overflow:hidden}
 .landing-search input{font-size:15px}
 .landing-search span{display:grid;place-items:center;width:52px;height:100%;background:var(--blue);color:#fff;font-size:20px}
-.landing-account{font-size:12px}
+.landing-account{font-size:14px;gap:12px;color:#9a9ca3;align-items:center}.landing-account button{font-size:inherit;font-weight:500;color:#44464a;padding:4px 2px}.landing-account button:hover{color:#0d7c7a}
 .landing-nav{height:52px;gap:6px;border-bottom:0}
 .nav-all{height:100%;padding:0 22px 0 0;border-right:1px solid rgba(255,255,255,.28);color:#fff}
 .nav-all .burger{background:linear-gradient(#fff 0 0) top/100% 2px no-repeat,linear-gradient(#fff 0 0) center/100% 2px no-repeat,linear-gradient(#fff 0 0) bottom/100% 2px no-repeat}
@@ -29,7 +29,7 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .lp-hot button:hover{background:var(--blue)}
 .lp-how{background:#fff;border:1px solid var(--line);border-radius:8px}
 .lp-how-grid b{border-radius:6px;background:var(--blue)}
-.mk-head h1{font-size:26px}
+.mk-head h1{font-size:28px}
 .chip-btn{height:36px;border-radius:4px}
 .chip-btn.active{background:var(--blue);border-color:var(--blue)}
 .mk-layout{grid-template-columns:1fr;gap:18px}
@@ -69,8 +69,38 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .mp-link{display:grid;gap:5px;text-align:left;cursor:pointer;transition:border-color .15s}.mp-link:hover{border-color:var(--ink)}
 .mp-link b{font-size:15px;letter-spacing:-.5px}.mp-link small{font-size:12px;color:#62646a}
 @media(max-width:780px){.mp-profile{flex-wrap:wrap}.mp-menu{grid-template-columns:1fr}}
-.mp-danger{margin-top:14px}.mp-danger-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.mp-danger-head div{display:grid;gap:4px}.mp-danger-head b{font-size:15px;letter-spacing:-.5px}.mp-danger-head small{font-size:12px;color:#62646a}
-.mp-withdraw{display:grid;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.mp-withdraw[hidden]{display:none}
-.mp-confirm{display:flex;align-items:center;gap:8px;font-size:13px;color:#44464a}
-.mp-withdraw-actions{display:flex;justify-content:flex-end;gap:8px}
-.sc-btn.mp-danger-btn{background:#b70f28;border-color:#b70f28;color:#fff}.sc-btn.mp-danger-btn:hover{background:#930c20;border-color:#930c20}.sc-btn.mp-danger-btn:disabled{opacity:.6}
+[data-match]{min-height:16px;color:#62646a}[data-match].ok{color:#0d7c7a}[data-match].bad{color:#b70f28}
+/* 페이지 제목 크기를 화면마다 같게 맞춘다 */
+.page-title h1,.handover-title h1,.mk-head h1,.sc-head h1{font-size:28px;letter-spacing:-1.4px}
+@media(max-width:780px){.page-title h1,.handover-title h1,.mk-head h1,.sc-head h1{font-size:22px}}
+
+/* 내 제품·제품 여권·새 제품 등록·소유권 이전 화면의 글씨를 다른 화면(판매글·내 거래 등)과 같은 크기 체계로 맞춘다 */
+.page-title p,.handover-title p,.passport-top p{font-size:13px}
+.page-title .back{font-size:12px}
+.button{font-size:13px;padding:10px 16px}
+.button.small{font-size:12px;padding:7px 12px}
+.sum span,.sum em{font-size:12px}
+.sum strong{font-size:24px}
+.section-head h2,.handover-panel h2,.form-card h3,.upload-card h3{font-size:16px}
+.eyebrow,.meta,.chip,.product-action button{font-size:12px}
+.product h3{font-size:15px}
+.mini-device,.side-menu button{font-size:13px}
+.mini-device strong{font-size:13px}
+.passport-top h2{font-size:20px}
+.timeline h3,.info-card h3,.ai-card h3{font-size:14px}
+.event .date,.event p,.info-row,.bubble{font-size:12px}
+.event strong{font-size:13px}
+.register-bar,.handover-bar,.steps{font-size:13px}
+.step .num{font-size:11px}
+.field label{font-size:12px}
+.field input{font-size:13px;height:36px;padding:0 10px}
+.drop,.doc-preview{font-size:12px}
+.drop{height:96px}
+.transfer-product strong{font-size:14px}
+.transfer-product span{font-size:12px}
+.check-title{font-size:13px}
+.check-line,.qr-copy{font-size:12px}
+.check-line::before{width:14px;height:14px;font-size:9px}
+.doc-preview{display:flow-root;padding:12px;line-height:1.7}
+.drop{align-content:center;gap:4px}
+.search{height:36px;width:240px;font-size:13px;padding:0 12px}

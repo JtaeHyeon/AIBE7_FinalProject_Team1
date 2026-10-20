@@ -10,7 +10,11 @@ public enum ErrorCode {
   DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "AUTH_004", "이미 사용 중인 닉네임입니다."),
   INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_005", "이메일 또는 비밀번호가 올바르지 않습니다."),
   INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_006", "다시 로그인해 주세요."),
-  INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "AUTH_007", "비밀번호가 올바르지 않습니다."),
+  EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "AUTH_008", "이메일 인증을 완료해 주세요."),
+  TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH_010", "잠시 후 다시 시도해 주세요."),
+  LOGIN_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AUTH_012", "로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요."),
+  EMAIL_SEND_FAILED(
+      HttpStatus.SERVICE_UNAVAILABLE, "AUTH_011", "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요."),
   RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_002", "요청한 리소스를 찾을 수 없습니다."),
   DRAFT_CONFLICT(
       HttpStatus.CONFLICT, "SALE_DRAFT_001", "다른 저장본이 있거나 저장 후 내용이 변경되었습니다. 최신 저장본을 확인해 주세요."),
@@ -40,20 +44,24 @@ public enum ErrorCode {
   private final String code;
   private final String message;
 
+  /** HTTP 상태, 오류 코드, 사용자에게 보여줄 메시지로 오류를 정의한다. */
   ErrorCode(HttpStatus status, String code, String message) {
     this.status = status;
     this.code = code;
     this.message = message;
   }
 
+  /** 응답에 쓸 HTTP 상태를 돌려준다. */
   public HttpStatus status() {
     return status;
   }
 
+  /** 클라이언트가 구분하는 오류 코드를 돌려준다. */
   public String code() {
     return code;
   }
 
+  /** 사용자에게 보여줄 메시지를 돌려준다. */
   public String message() {
     return message;
   }

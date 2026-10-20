@@ -1,9 +1,4 @@
 package org.example.springtestci.auth.dto;
 
-public record LoginResponse(
-    String accessToken, String tokenType, long expiresIn, UserResponse user) {
-
-  public static LoginResponse bearer(String accessToken, long expiresIn, UserResponse user) {
-    return new LoginResponse(accessToken, "Bearer", expiresIn, user);
-  }
-}
+/** 토큰은 HttpOnly 쿠키로만 내려가고 응답 본문에는 담지 않는다. */
+public record LoginResponse(long expiresIn, UserResponse user) {}
