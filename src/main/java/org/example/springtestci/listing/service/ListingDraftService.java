@@ -3,17 +3,14 @@ package org.example.springtestci.listing.service;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
-import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.listing.dto.DraftProductResponse;
 import org.example.springtestci.listing.dto.ListingDraftResponse;
 import org.example.springtestci.listing.dto.SaveListingDraftRequest;
 import org.example.springtestci.listing.entity.ListingDraft;
-import org.example.springtestci.listing.repository.DraftProductRepository;
 import org.example.springtestci.listing.repository.ListingDraftRepository;
-import org.springframework.beans.factory.ObjectProvider;
+import org.example.springtestci.product.service.ProductService;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,34 +20,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class ListingDraftService {
 
   private final ListingDraftRepository drafts;
-  private final DraftProductRepository products;
-  private final ObjectProvider<FileStorage> storage;
+  private final ProductService products;
 
-  public ListingDraftService(
-      ListingDraftRepository drafts,
-      DraftProductRepository products,
-      ObjectProvider<FileStorage> storage) {
+  public ListingDraftService(ListingDraftRepository drafts, ProductService products) {
     this.drafts = drafts;
     this.products = products;
-    this.storage = storage;
   }
 
   public List<DraftProductResponse> products(long userId) {
-    return products.findOwnedProducts(userId);
+    return products.listMine(userId).stream().map(DraftProductResponse::from).toList();
   }
 
   public DraftProductResponse composition(long productId, long userId) {
-    return products.composition(productId, userId);
+    return DraftProductResponse.from(products.getForListing(userId, productId));
   }
 
   @Transactional
   public SavedDraft save(long productId, long userId, SaveListingDraftRequest request) {
-    products.requireOwnership(productId, userId, true);
+    products.lockOwnedForListing(userId, productId);
     List<Long> imageIds = request.imageIds();
     if (new HashSet<>(imageIds).size() != imageIds.size())
       throw new CommonException(ErrorCode.INVALID_INPUT);
-    Set<Long> allowed = new HashSet<>();
-    products.images(productId, true).forEach(image -> allowed.add(image.imageId()));
+    var allowed = new HashSet<Long>();
+    products
+        .getForListing(userId, productId)
+        .images()
+        .forEach(image -> allowed.add(image.imageId()));
     if (!allowed.containsAll(imageIds)) throw new CommonException(ErrorCode.INVALID_INPUT);
 
     ListingDraft draft = drafts.findByProductId(productId).orElse(null);
@@ -69,18 +64,8 @@ public class ListingDraftService {
   }
 
   public DraftImage image(long productId, long imageId, long userId) throws IOException {
-    products.requireOwnership(productId, userId, false);
-    DraftProductRepository.ProductImage image =
-        products.images(productId, false).stream()
-            .filter(item -> item.imageId() == imageId)
-            .findFirst()
-            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
-    FileStorage files = storage.getIfAvailable();
-    if (files == null) throw new CommonException(ErrorCode.DRAFT_PRODUCT_UNAVAILABLE);
-    Resource resource = files.load(image.storageKey());
-    if (!resource.exists() || !resource.isReadable())
-      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
-    return new DraftImage(resource, image.contentType());
+    var image = products.image(userId, productId, imageId);
+    return new DraftImage(image.resource(), image.contentType());
   }
 
   public record SavedDraft(ListingDraftResponse draft, boolean created) {}
