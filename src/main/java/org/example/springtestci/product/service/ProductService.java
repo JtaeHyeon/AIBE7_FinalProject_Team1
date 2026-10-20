@@ -2,21 +2,30 @@ package org.example.springtestci.product.service;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.product.dto.CreateProductRequest;
 import org.example.springtestci.product.dto.ProductResponse;
+import org.example.springtestci.product.dto.UpdateProductImagesRequest;
+import org.example.springtestci.product.dto.UpdateProductRequest;
 import org.example.springtestci.product.repository.ProductRepository;
+import org.example.springtestci.product.repository.ProductRepository.ProductImageRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.io.Resource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
-/** 노트북 제품 등록·조회와 이미지 업로드. 모든 조회·변경은 제품의 현재 소유자만 할 수 있다. */
+/** 노트북 등록·조회·수정과 이미지 관리. 모든 조회·변경은 현재 소유자에게만 허용한다. */
 @Service
 public class ProductService {
 
@@ -28,59 +37,103 @@ public class ProductService {
   private final SerialNumberProtector serialNumberProtector;
   private final ProductImageValidator imageValidator;
   private final ObjectProvider<FileStorage> fileStorage;
+  private final ObjectMapper objectMapper;
 
   public ProductService(
       ProductRepository productRepository,
       SerialNumberProtector serialNumberProtector,
       ProductImageValidator imageValidator,
-      ObjectProvider<FileStorage> fileStorage) {
+      ObjectProvider<FileStorage> fileStorage,
+      ObjectMapper objectMapper) {
     this.productRepository = productRepository;
     this.serialNumberProtector = serialNumberProtector;
     this.imageValidator = imageValidator;
     this.fileStorage = fileStorage;
+    this.objectMapper = objectMapper;
   }
 
   @Transactional
   public ProductResponse create(long ownerId, CreateProductRequest request) {
+    validateDates(request.purchaseDate(), request.warrantyExpiresAt());
+    String manufacturerNormalized =
+        SerialNumberProtector.normalizeManufacturer(request.manufacturer());
     String fingerprint = serialNumberProtector.fingerprint(request.serialNumber());
-    if (productRepository.existsBySerialFingerprint(fingerprint)) {
+    if (productRepository.existsByManufacturerAndSerial(manufacturerNormalized, fingerprint)) {
       throw new CommonException(ErrorCode.PRODUCT_DUPLICATE_SERIAL);
     }
     long productId;
     try {
       productId =
           productRepository.insertProduct(
-              ownerId, request, fingerprint, serialNumberProtector.encrypt(request.serialNumber()));
+              ownerId,
+              request,
+              manufacturerNormalized,
+              fingerprint,
+              serialNumberProtector.encrypt(request.serialNumber()));
     } catch (DataIntegrityViolationException exception) {
-      // 동시 등록으로 사전 검사를 통과한 경우 DB 유니크 제약에서 걸러진다.
       throw new CommonException(ErrorCode.PRODUCT_DUPLICATE_SERIAL);
     }
     productRepository.insertLaptopDetails(productId, request.specifications());
+    productRepository.insertFieldAuthors(productId, ownerId, request);
     return get(ownerId, productId);
   }
 
   @Transactional(readOnly = true)
   public List<ProductResponse> listMine(long ownerId) {
-    return productRepository.findAllOwned(ownerId).stream()
-        .map(product -> withImages(product))
-        .toList();
+    return productRepository.findAllOwned(ownerId).stream().map(this::withImages).toList();
   }
 
   @Transactional(readOnly = true)
   public ProductResponse get(long ownerId, long productId) {
-    return productRepository
-        .findOwned(productId, ownerId)
-        .map(this::withImages)
-        .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    ProductResponse product =
+        productRepository
+            .findOwned(productId, ownerId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    String ciphertext =
+        productRepository
+            .findSerialCiphertextOwned(productId, ownerId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    return withImages(product).withSerialNumber(serialNumberProtector.decrypt(ciphertext));
   }
 
-  /** 소유자만 올릴 수 있다. 다른 사람의 제품이 존재하는지 알려 주지 않으려고 404로 응답한다. */
+  /** PROD-08에 정의된 기본 정보만 수정하고 변경 전후 값과 사유를 감사 로그에 남긴다. */
   @Transactional
-  public ProductResponse addImage(
-      long ownerId, long productId, String filename, String contentType, byte[] content) {
+  public ProductResponse update(long ownerId, long productId, UpdateProductRequest request) {
+    validateDates(request.purchaseDate(), request.warrantyExpiresAt());
     if (!productRepository.lockOwned(productId, ownerId)) {
       throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
     }
+    ProductResponse before =
+        productRepository
+            .findOwned(productId, ownerId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+
+    requireFieldAuthor(productId, ownerId, "TITLE", before.title(), request.title());
+    requireFieldAuthor(
+        productId, ownerId, "PURCHASE_DATE", before.purchaseDate(), request.purchaseDate());
+    requireFieldAuthor(
+        productId,
+        ownerId,
+        "WARRANTY_EXPIRES_AT",
+        before.warrantyExpiresAt(),
+        request.warrantyExpiresAt());
+    productRepository.updateProduct(productId, request);
+    ProductResponse after =
+        productRepository
+            .findOwned(productId, ownerId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    productRepository.insertProductAudit(
+        productId, ownerId, auditJson(before), auditJson(after), request.reason());
+    return withImages(after)
+        .withSerialNumber(
+            serialNumberProtector.decrypt(
+                productRepository.findSerialCiphertextOwned(productId, ownerId).orElseThrow()));
+  }
+
+  @Transactional
+  public ProductResponse addImage(
+      long ownerId, long productId, String filename, String contentType, byte[] content) {
+    requireOwnedLock(ownerId, productId);
     ProductImageValidator.ImageKind kind = imageValidator.validate(filename, contentType, content);
     if (productRepository.countImages(productId) >= MAX_IMAGES_PER_PRODUCT) {
       throw new CommonException(ErrorCode.PRODUCT_IMAGE_LIMIT_EXCEEDED);
@@ -88,33 +141,127 @@ public class ProductService {
 
     String storageKey = store(productId, kind.extension(), content);
     try {
-      productRepository.insertImage(productId, storageKey, kind.contentType());
+      productRepository.insertImage(productId, storageKey, kind.contentType(), content.length);
     } catch (RuntimeException exception) {
-      deleteStoredFile(storageKey);
+      deleteStoredFile(storageKey, true);
       throw exception;
     }
     return get(ownerId, productId);
   }
 
+  @Transactional
+  public ProductResponse updateImages(
+      long ownerId, long productId, UpdateProductImagesRequest request) {
+    requireOwnedLock(ownerId, productId);
+    List<Long> current =
+        productRepository.findImages(productId).stream().map(ProductImageRecord::imageId).toList();
+    Set<Long> requested = new HashSet<>(request.imageIds());
+    if (requested.size() != request.imageIds().size()
+        || !requested.equals(new HashSet<>(current))
+        || !requested.contains(request.primaryImageId())) {
+      throw new CommonException(ErrorCode.INVALID_INPUT);
+    }
+    productRepository.replaceImageOrder(productId, request.imageIds(), request.primaryImageId());
+    return get(ownerId, productId);
+  }
+
+  @Transactional
+  public ProductResponse deleteImage(long ownerId, long productId, long imageId) {
+    requireOwnedLock(ownerId, productId);
+    ProductImageRecord image =
+        productRepository
+            .findImage(productId, imageId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    productRepository.softDeleteImage(productId, imageId);
+    deleteStoredFile(image.storageKey(), true);
+    return get(ownerId, productId);
+  }
+
+  @Transactional(readOnly = true)
+  public ProductImageContent image(long ownerId, long productId, long imageId) {
+    if (productRepository.findOwned(productId, ownerId).isEmpty()) {
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+    ProductImageRecord image =
+        productRepository
+            .findImage(productId, imageId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    try {
+      Resource resource = storage().load(image.storageKey());
+      if (!resource.exists() || !resource.isReadable()) {
+        throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+      }
+      return new ProductImageContent(resource, image.contentType());
+    } catch (IOException exception) {
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+  }
+
+  private void requireOwnedLock(long ownerId, long productId) {
+    if (!productRepository.lockOwned(productId, ownerId)) {
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+  }
+
+  private void requireFieldAuthor(
+      long productId, long ownerId, String fieldName, Object before, Object after) {
+    if (Objects.equals(before, after)) return;
+    OptionalLongAuthor author =
+        productRepository
+            .findFieldAuthor(productId, fieldName)
+            .map(OptionalLongAuthor::known)
+            .orElseGet(OptionalLongAuthor::missing);
+    if (author.known() && author.authorId() != ownerId) {
+      throw new CommonException(ErrorCode.ACCESS_DENIED);
+    }
+    if (!author.known()) productRepository.insertFieldAuthor(productId, fieldName, ownerId);
+  }
+
+  private String auditJson(ProductResponse product) {
+    try {
+      return objectMapper.writeValueAsString(
+          new AuditFacts(
+              product.title(),
+              product.purchaseDate(),
+              product.warrantyExpiresAt(),
+              product.warrantyTerms(),
+              product.factsVersion()));
+    } catch (JacksonException exception) {
+      throw new IllegalStateException("Failed to serialize product audit facts", exception);
+    }
+  }
+
+  private static void validateDates(
+      java.time.LocalDate purchaseDate, java.time.LocalDate warrantyExpiresAt) {
+    if (purchaseDate != null
+        && warrantyExpiresAt != null
+        && warrantyExpiresAt.isBefore(purchaseDate)) {
+      throw new CommonException(ErrorCode.INVALID_INPUT);
+    }
+  }
+
   private ProductResponse withImages(ProductResponse product) {
     List<ProductResponse.Image> images =
-        productRepository.findImageIds(product.productId()).stream()
-            .map(id -> new ProductResponse.Image(id, imageUrl(product.productId(), id)))
+        productRepository.findImages(product.productId()).stream()
+            .map(
+                image ->
+                    new ProductResponse.Image(
+                        image.imageId(),
+                        imageUrl(product.productId(), image.imageId()),
+                        image.primary(),
+                        image.sortOrder(),
+                        image.byteSize()))
             .toList();
     return product.withImages(images);
   }
 
-  /** 초안 기능이 제공하는 소유자 전용 이미지 조회 경로를 그대로 쓴다. */
   private static String imageUrl(long productId, long imageId) {
-    return "/api/v1/products/" + productId + "/listing-draft/images/" + imageId;
+    return "/api/v1/products/" + productId + "/images/" + imageId;
   }
 
-  /** 저장소 구현이 없는 환경(운영 프로필 등)에서도 앱은 기동하고, 파일 기능만 503으로 응답한다. */
   private FileStorage storage() {
     FileStorage storage = fileStorage.getIfAvailable();
-    if (storage == null) {
-      throw new CommonException(ErrorCode.DOCUMENT_STORAGE_UNAVAILABLE);
-    }
+    if (storage == null) throw new CommonException(ErrorCode.DOCUMENT_STORAGE_UNAVAILABLE);
     return storage;
   }
 
@@ -128,11 +275,34 @@ public class ProductService {
     }
   }
 
-  private void deleteStoredFile(String storageKey) {
+  private void deleteStoredFile(String storageKey, boolean suppressFailure) {
     try {
       storage().delete(storageKey);
     } catch (IOException | RuntimeException exception) {
-      log.warn("Failed to delete stored product image");
+      if (suppressFailure) {
+        log.warn("Failed to clean up product image storageKey={}", storageKey);
+        return;
+      }
+      throw new CommonException(ErrorCode.INTERNAL_ERROR);
     }
   }
+
+  private record OptionalLongAuthor(boolean known, long authorId) {
+    static OptionalLongAuthor known(long authorId) {
+      return new OptionalLongAuthor(true, authorId);
+    }
+
+    static OptionalLongAuthor missing() {
+      return new OptionalLongAuthor(false, 0);
+    }
+  }
+
+  private record AuditFacts(
+      String title,
+      java.time.LocalDate purchaseDate,
+      java.time.LocalDate warrantyExpiresAt,
+      String warrantyTerms,
+      long factsVersion) {}
+
+  public record ProductImageContent(Resource resource, String contentType) {}
 }

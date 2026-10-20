@@ -47,6 +47,11 @@ public class SerialNumberProtector {
     return serialNumber.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
   }
 
+  /** 제조사 표기 차이로 동일 제품의 중복 검사가 우회되지 않도록 정규화한다. */
+  public static String normalizeManufacturer(String manufacturer) {
+    return manufacturer.replaceAll("[\\s-]+", "").toUpperCase(Locale.ROOT);
+  }
+
   public String fingerprint(String serialNumber) {
     return HexFormat.of().formatHex(hmac(fingerprintKey, normalize(serialNumber)));
   }

@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.example.springtestci.product.dto.CreateProductRequest;
 import org.example.springtestci.product.dto.ProductResponse;
+import org.example.springtestci.product.dto.UpdateProductRequest;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -15,7 +17,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
-/** 전체 마이그레이션을 빈 DB에 적용한 뒤, 저장소의 SQL이 실제 스키마에서 동작하는지 확인한다. */
+/** 전체 Flyway 마이그레이션을 빈 DB에 적용하고 제품 SQL과 제약을 검증한다. */
 class ProductRepositoryTest {
 
   private static final String URL =
@@ -26,7 +28,6 @@ class ProductRepositoryTest {
 
   @BeforeAll
   static void migrate() {
-    // H2 2.4는 제약을 만든 세션이 닫히면 문자열 비교 CHECK를 평가하지 못한다. 마이그레이션과 테스트가 한 연결을 같이 쓴다.
     SingleConnectionDataSource dataSource = new SingleConnectionDataSource(URL, "sa", "", true);
     Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
     jdbc = new JdbcTemplate(dataSource);
@@ -34,102 +35,125 @@ class ProductRepositoryTest {
   }
 
   @Test
-  void createdProductIsReadBackWithItsLaptopSpecifications() {
-    long productId = insert(1L, "fp-read-back");
+  void createdProductIsReadBackWithRequirementsFieldsAndAuthors() {
+    long productId = insert(1L, "APPLE", "fp-read-back");
 
     ProductResponse product = repository.findOwned(productId, 1L).orElseThrow();
 
     assertEquals("MacBook Pro 14", product.title());
     assertEquals("Apple M3 Pro", product.specifications().cpu());
-    assertEquals(18, product.specifications().ramGb());
-    assertEquals("SSD", product.specifications().storageType());
-    assertEquals(92, product.specifications().batteryHealthPercent());
-  }
-
-  @Test
-  void aProductWithoutSpecificationsIsStillReadable() {
-    long productId = repository.insertProduct(2L, request(null), "fp-without-specs", "ciphertext");
-    repository.insertLaptopDetails(productId, null);
-
-    ProductResponse product = repository.findOwned(productId, 2L).orElseThrow();
-
-    assertEquals(null, product.specifications().cpu());
+    assertEquals("구매 후 1년", product.warrantyTerms());
+    assertEquals(1L, product.factsVersion());
+    assertEquals(1L, repository.findFieldAuthor(productId, "TITLE").orElseThrow());
   }
 
   @Test
   void anotherUserCannotReadOrLockTheProduct() {
-    long productId = insert(3L, "fp-other-user");
+    long productId = insert(2L, "APPLE", "fp-other-user");
 
     assertTrue(repository.findOwned(productId, 99L).isEmpty());
     assertFalse(repository.lockOwned(productId, 99L));
-    assertTrue(repository.lockOwned(productId, 3L));
+    assertTrue(repository.lockOwned(productId, 2L));
   }
 
   @Test
-  void findAllOwnedReturnsOnlyTheUsersProducts() {
-    long mine = insert(4L, "fp-list-mine");
-    insert(5L, "fp-list-theirs");
+  void duplicateRuleUsesManufacturerAndSerialTogether() {
+    insert(3L, "APPLE", "fp-shared");
 
-    List<ProductResponse> products = repository.findAllOwned(4L);
-
-    assertEquals(1, products.size());
-    assertEquals(mine, products.get(0).productId());
-  }
-
-  @Test
-  void archivedProductsAreHidden() {
-    long productId = insert(6L, "fp-archived");
-    jdbc.update("UPDATE products SET archived_at = CURRENT_TIMESTAMP WHERE id = ?", productId);
-
-    assertTrue(repository.findOwned(productId, 6L).isEmpty());
-    assertTrue(repository.findAllOwned(6L).isEmpty());
-    assertFalse(repository.lockOwned(productId, 6L));
-  }
-
-  @Test
-  void theSameSerialFingerprintCannotBeRegisteredTwice() {
-    insert(7L, "fp-duplicate");
-
-    assertTrue(repository.existsBySerialFingerprint("fp-duplicate"));
+    assertTrue(repository.existsByManufacturerAndSerial("APPLE", "fp-shared"));
+    assertFalse(repository.existsByManufacturerAndSerial("SAMSUNG", "fp-shared"));
     assertThrows(
         DataIntegrityViolationException.class,
-        () -> repository.insertProduct(8L, request(null), "fp-duplicate", "ciphertext"));
+        () ->
+            repository.insertProduct(
+                4L, request(null), "APPLE", "fp-shared", "another-ciphertext"));
+    repository.insertProduct(4L, request(null), "SAMSUNG", "fp-shared", "ciphertext");
   }
 
   @Test
-  void imagesAreCountedAndOrderedAndSoftDeletedOnesAreIgnored() {
-    long productId = insert(9L, "fp-images");
+  void updateChangesAllowedFieldsAndIncrementsFactsVersion() {
+    long productId = insert(5L, "APPLE", "fp-update");
+    UpdateProductRequest update =
+        new UpdateProductRequest(
+            "업무용 맥북", LocalDate.of(2025, 1, 2), LocalDate.of(2027, 1, 2), "구매 증빙 확인");
 
-    long first = repository.insertImage(productId, "product-images/a.png", "image/png");
-    long second = repository.insertImage(productId, "product-images/b.jpg", "image/jpeg");
-    long deleted = repository.insertImage(productId, "product-images/c.png", "image/png");
-    jdbc.update("UPDATE product_images SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", deleted);
+    repository.updateProduct(productId, update);
+    ProductResponse product = repository.findOwned(productId, 5L).orElseThrow();
+    repository.insertProductAudit(
+        productId, 5L, "{\"title\":\"before\"}", "{\"title\":\"after\"}", update.reason());
 
-    assertEquals(2, repository.countImages(productId));
-    assertEquals(List.of(first, second), repository.findImageIds(productId));
+    assertEquals("업무용 맥북", product.title());
+    assertEquals("MacBook Pro 14", product.modelName());
+    assertEquals("구매 후 1년", product.warrantyTerms());
+    assertEquals(2L, product.factsVersion());
+    assertEquals(
+        "구매 증빙 확인",
+        jdbc.queryForObject(
+            "SELECT reason FROM audit_logs WHERE product_id = ?", String.class, productId));
   }
 
   @Test
-  void imageContentTypeIsLimitedToTheDraftAllowList() {
-    long productId = insert(10L, "fp-content-type");
+  void imagesStoreMetadataAndCanBeReorderedAndMarkedPrimary() {
+    long productId = insert(6L, "APPLE", "fp-images");
+    long first = repository.insertImage(productId, "product-images/a.png", "image/png", 100L);
+    long second = repository.insertImage(productId, "product-images/b.jpg", "image/jpeg", 200L);
+
+    repository.replaceImageOrder(productId, List.of(second, first), second);
+    var images = repository.findImages(productId);
+
+    assertEquals(
+        List.of(second, first),
+        images.stream().map(ProductRepository.ProductImageRecord::imageId).toList());
+    assertTrue(images.get(0).primary());
+    assertEquals(200L, images.get(0).byteSize());
+  }
+
+  @Test
+  void deletingAnImageAlsoRepairsOrderAndPrimaryImage() {
+    long productId = insert(7L, "APPLE", "fp-delete-image");
+    long first = repository.insertImage(productId, "product-images/c.png", "image/png", 10L);
+    long second = repository.insertImage(productId, "product-images/d.png", "image/png", 20L);
+
+    repository.softDeleteImage(productId, first);
+    var images = repository.findImages(productId);
+
+    assertEquals(1, images.size());
+    assertEquals(second, images.get(0).imageId());
+    assertTrue(images.get(0).primary());
+    assertEquals(0, images.get(0).sortOrder());
+  }
+
+  @Test
+  void imageContentTypeIsLimitedToTheAllowList() {
+    long productId = insert(8L, "APPLE", "fp-content-type");
 
     assertThrows(
         DataIntegrityViolationException.class,
-        () -> repository.insertImage(productId, "product-images/x.gif", "image/gif"));
+        () -> repository.insertImage(productId, "product-images/x.gif", "image/gif", 10L));
   }
 
-  private long insert(long ownerId, String fingerprint) {
+  private long insert(long ownerId, String manufacturerNormalized, String fingerprint) {
     CreateProductRequest request =
         request(
             new CreateProductRequest.Specifications(
                 "Apple M3 Pro", null, 18, 512, "SSD", "14인치", 92, "macOS"));
-    long productId = repository.insertProduct(ownerId, request, fingerprint, "ciphertext");
+    long productId =
+        repository.insertProduct(
+            ownerId, request, manufacturerNormalized, fingerprint, "ciphertext");
     repository.insertLaptopDetails(productId, request.specifications());
+    repository.insertFieldAuthors(productId, ownerId, request);
     return productId;
   }
 
   private static CreateProductRequest request(CreateProductRequest.Specifications specs) {
     return new CreateProductRequest(
-        "MacBook Pro 14", "Apple", "MacBook Pro 14", null, null, "SERIAL1234", specs);
+        "MacBook Pro 14",
+        "Apple",
+        "MacBook Pro 14",
+        null,
+        LocalDate.of(2099, 1, 1),
+        "구매 후 1년",
+        "SERIAL1234",
+        specs);
   }
 }

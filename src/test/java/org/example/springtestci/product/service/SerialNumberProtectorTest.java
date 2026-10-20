@@ -20,6 +20,12 @@ class SerialNumberProtectorTest {
   }
 
   @Test
+  void manufacturerNormalizationIgnoresCaseWhitespaceAndHyphens() {
+    assertEquals(
+        "HEWLETTPACKARD", SerialNumberProtector.normalizeManufacturer(" Hewlett-Packard "));
+  }
+
+  @Test
   void fingerprintDiffersForDifferentSerialNumbers() {
     assertNotEquals(protector.fingerprint("AB12CD34"), protector.fingerprint("AB12CD35"));
   }
