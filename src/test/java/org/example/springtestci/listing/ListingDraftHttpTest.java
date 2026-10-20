@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.example.springtestci.SpringTestCiApplication;
@@ -45,6 +46,7 @@ class ListingDraftHttpTest {
   private static String baseUrl;
   private static String schema;
   private static Path storageRoot;
+  private static final Map<Long, Long> SAVED_DRAFT_IDS = new ConcurrentHashMap<>();
 
   @BeforeAll
   static void start() throws Exception {
@@ -114,6 +116,7 @@ class ListingDraftHttpTest {
 
   @BeforeEach
   void reset() {
+    SAVED_DRAFT_IDS.clear();
     jdbc.update("DELETE FROM draft_images");
     jdbc.update("DELETE FROM listing_drafts");
     jdbc.update("UPDATE products SET owner_id = 1 WHERE id = 101");
@@ -543,7 +546,265 @@ class ListingDraftHttpTest {
     assertEquals(
         404, send("GET", "/api/v1/products/101/listing-draft/images/301", "1", null).statusCode());
     assertEquals(409, save(101, "2", "{}").statusCode());
-    assertEquals(405, send("GET", "/api/v1/products/101/listing-draft", "2", null).statusCode());
+    assertEquals(404, send("GET", "/api/v1/products/101/listing-draft", "2", null).statusCode());
+  }
+
+  @Test
+  void readsSavedContentAndPhotoOrderAfterReopeningTheProduct() throws Exception {
+    var created =
+        save(
+            101,
+            "1",
+            """
+        {"title":"이어서 쓸 제목", "description":"저장한 설명", "price":123456,
+         "conditionGrade":4, "selectedImageIds":[303,301]}
+        """);
+    var reopened = readDraft(101, "1");
+    assertEquals(200, reopened.statusCode());
+    for (String field :
+        List.of(
+            "draftId",
+            "productId",
+            "title",
+            "description",
+            "price",
+            "conditionGrade",
+            "selectedImageIds",
+            "version")) {
+      assertEquals(data(created).get(field), data(reopened).get(field), field);
+    }
+    // DB의 timestamp(6) 저장 정밀도에 따른 나노초 반올림만 허용한다.
+    assertTrue(
+        Duration.between(
+                    Instant.parse(data(created).get("updatedAt").asText()),
+                    Instant.parse(data(reopened).get("updatedAt").asText()))
+                .abs()
+                .compareTo(Duration.ofNanos(1000))
+            <= 0);
+    assertEquals("no-store", reopened.headers().firstValue("Cache-Control").orElseThrow());
+    assertEquals(404, readDraft(102, "1").statusCode());
+    assertEquals(404, readDraft(101, "2").statusCode());
+    assertEquals(401, readDraft(101, null).statusCode());
+    var resumedSave =
+        updateDraft(
+            101,
+            data(reopened).get("draftId").asLong(),
+            "1",
+            "{\"version\":0,\"title\":\"이어서 수정한 제목\",\"selectedImageIds\":[301,303]}");
+    assertEquals(200, resumedSave.statusCode());
+    assertEquals(1, data(readDraft(101, "1")).get("version").asLong());
+    assertEquals("이어서 수정한 제목", data(readDraft(101, "1")).get("title").asText());
+  }
+
+  @Test
+  void listsDraftsWithStablePaginationAndNoPrivateProductFields() throws Exception {
+    var first = save(101, "1", "{\"title\":\"첫 초안\",\"description\":\"목록에 노출하지 않을 본문\"}");
+    var second = save(102, "1", "{}");
+    save(201, "2", "{\"title\":\"다른 사람 초안\"}");
+    jdbc.update("UPDATE listing_drafts SET updated_at = created_at WHERE product_id = 101");
+    jdbc.update(
+        "UPDATE listing_drafts SET updated_at = (SELECT updated_at FROM listing_drafts WHERE product_id = 101) WHERE product_id = 102");
+    var page0 = send("GET", "/api/v1/listing-drafts?page=0&size=1", "1", null);
+    var page1 = send("GET", "/api/v1/listing-drafts?page=1&size=1", "1", null);
+    assertEquals(200, page0.statusCode());
+    assertEquals(2, data(page0).get("page").get("totalElements").asLong());
+    assertEquals(2, data(page0).get("page").get("totalPages").asInt());
+    assertTrue(data(page0).get("page").get("hasNext").asBoolean());
+    assertFalse(data(page1).get("page").get("hasNext").asBoolean());
+    assertEquals(
+        data(second).get("draftId").asLong(),
+        data(page0).get("items").get(0).get("draftId").asLong());
+    assertEquals(
+        data(first).get("draftId").asLong(),
+        data(page1).get("items").get(0).get("draftId").asLong());
+    assertTrue(data(page0).get("items").get(0).get("title").isNull());
+    for (String field :
+        List.of("description", "serialNumber", "ownerId", "authorId", "documents", "storageKey")) {
+      assertFalse(page0.body().contains(field));
+    }
+    assertEquals("no-store", page0.headers().firstValue("Cache-Control").orElseThrow());
+    assertEquals(
+        0,
+        data(send("GET", "/api/v1/listing-drafts?page=50&size=1", "1", null)).get("items").size());
+  }
+
+  @Test
+  void filtersTransferredAndArchivedDraftsBeforePagination() throws Exception {
+    save(101, "1", "{\"title\":\"보이지 않아야 할 초안\"}");
+    save(102, "1", "{\"title\":\"내 초안\"}");
+    try {
+      jdbc.update("UPDATE products SET owner_id = 2 WHERE id = 101");
+      assertEquals(
+          1,
+          data(send("GET", "/api/v1/listing-drafts?size=1", "1", null))
+              .get("page")
+              .get("totalElements")
+              .asLong());
+      assertEquals(
+          102,
+          data(send("GET", "/api/v1/listing-drafts?size=1", "1", null))
+              .get("items")
+              .get(0)
+              .get("productId")
+              .asLong());
+      assertEquals(0, data(send("GET", "/api/v1/listing-drafts", "2", null)).get("items").size());
+      jdbc.update("UPDATE products SET archived_at = CURRENT_TIMESTAMP WHERE id = 102");
+      assertEquals(
+          0,
+          data(send("GET", "/api/v1/listing-drafts", "1", null))
+              .get("page")
+              .get("totalElements")
+              .asLong());
+      assertEquals(404, readDraft(102, "1").statusCode());
+    } finally {
+      jdbc.update("UPDATE products SET owner_id = 1 WHERE id = 101");
+      jdbc.update("UPDATE products SET archived_at = NULL WHERE id = 102");
+    }
+  }
+
+  @Test
+  void validatesListPaginationAndRequiresAuthentication() throws Exception {
+    assertEquals(401, send("GET", "/api/v1/listing-drafts", null, null).statusCode());
+    for (String query : List.of("page=-1", "size=0", "size=101", "page=abc")) {
+      assertEquals(400, send("GET", "/api/v1/listing-drafts?" + query, "1", null).statusCode());
+    }
+    assertEquals(0, data(send("GET", "/api/v1/listing-drafts", "1", null)).get("items").size());
+  }
+
+  @Test
+  void updateRequiresAnExistingDraftItsIdentityAndVersion() throws Exception {
+    assertEquals(404, updateDraft(101, 999, "1", "{\"version\":0}").statusCode());
+    assertEquals(0, countDrafts());
+    long id = data(save(101, "1", "{\"title\":\"보존할 제목\"}")).get("draftId").asLong();
+    assertEquals(
+        400,
+        send("PUT", "/api/v1/products/101/listing-draft", "1", "{\"version\":0}").statusCode());
+    assertEquals(409, updateDraft(101, id, "1", "{}").statusCode());
+    assertEquals(409, updateDraft(101, id + 999, "1", "{\"version\":0}").statusCode());
+    assertEquals(404, updateDraft(101, id, "2", "{\"version\":0}").statusCode());
+    assertEquals(400, updateDraft(101, id, "1", "{\"version\":0,\"price\":-1}").statusCode());
+    assertEquals("보존할 제목", data(readDraft(101, "1")).get("title").asText());
+    assertEquals(
+        409,
+        send(
+                "POST",
+                "/api/v1/products/101/listing-draft",
+                "1",
+                "{\"version\":0,\"title\":\"POST 수정 금지\"}")
+            .statusCode());
+  }
+
+  @Test
+  void deletesOnlyTheDraftAndItsPhotoSelections() throws Exception {
+    long id = data(save(101, "1", "{\"selectedImageIds\":[303,301]}")).get("draftId").asLong();
+    assertEquals(403, deleteDraft(101, id, null, 0).statusCode());
+    assertEquals(404, deleteDraft(101, id, "2", 0).statusCode());
+    assertEquals(
+        400,
+        send("DELETE", "/api/v1/products/101/listing-draft?draftId=" + id, "1", null).statusCode());
+    assertEquals(409, deleteDraft(101, id + 99, "1", 0).statusCode());
+    var deleted = deleteDraft(101, id, "1", 0);
+    assertEquals(204, deleted.statusCode());
+    assertEquals("", deleted.body());
+    assertEquals("no-store", deleted.headers().firstValue("Cache-Control").orElseThrow());
+    assertEquals(0, countDrafts());
+    assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM draft_images", Integer.class));
+    assertEquals(
+        1, jdbc.queryForObject("SELECT count(*) FROM products WHERE id = 101", Integer.class));
+    assertEquals(
+        3,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM product_images WHERE product_id = 101 AND deleted_at IS NULL",
+            Integer.class));
+    assertEquals(
+        200, send("GET", "/api/v1/products/101/listing-draft/images/301", "1", null).statusCode());
+    assertEquals(404, readDraft(101, "1").statusCode());
+    assertEquals(404, deleteDraft(101, id, "1", 0).statusCode());
+    assertEquals(201, save(101, "1", "{}").statusCode());
+  }
+
+  @Test
+  void updatesAndDeletesCookieAuthenticatedDraftsOnlyWithMatchingCsrf() throws Exception {
+    long id = data(save(101, "1", "{}")).get("draftId").asLong();
+    String cookie = "access_token=" + token("1") + "; XSRF-TOKEN=csrf-value";
+    String path = "/api/v1/products/101/listing-draft?draftId=" + id;
+    String body = "{\"version\":0,\"title\":\"쿠키 인증으로 수정\"}";
+    assertEquals(403, sendWithCookie("PUT", path, cookie, null, body).statusCode());
+    assertEquals(403, sendWithCookie("PUT", path, cookie, "wrong-value", body).statusCode());
+    assertEquals(
+        401, sendWithCookie("PUT", path, "XSRF-TOKEN=csrf-value", "csrf-value", body).statusCode());
+    var updated = sendWithCookie("PUT", path, cookie, "csrf-value", body);
+    assertEquals(200, updated.statusCode());
+    assertEquals("쿠키 인증으로 수정", data(updated).get("title").asText());
+    path += "&version=" + data(updated).get("version").asLong();
+    assertEquals(403, sendWithCookie("DELETE", path, cookie, null, null).statusCode());
+    assertEquals(403, sendWithCookie("DELETE", path, cookie, "wrong-value", null).statusCode());
+    assertEquals(
+        401,
+        sendWithCookie("DELETE", path, "XSRF-TOKEN=csrf-value", "csrf-value", null).statusCode());
+    assertEquals(1, countDrafts());
+    assertEquals(204, sendWithCookie("DELETE", path, cookie, "csrf-value", null).statusCode());
+    assertEquals(0, countDrafts());
+  }
+
+  @Test
+  void staleDeletePreservesTheUpdatedDraft() throws Exception {
+    long id = data(save(101, "1", "{\"title\":\"처음 제목\"}")).get("draftId").asLong();
+    updateDraft(101, id, "1", "{\"version\":0,\"title\":\"최신 제목\"}");
+    assertEquals(409, deleteDraft(101, id, "1", 0).statusCode());
+    assertEquals("최신 제목", data(readDraft(101, "1")).get("title").asText());
+    assertEquals(204, deleteDraft(101, id, "1", 1).statusCode());
+  }
+
+  @Test
+  void anOldTabCannotUpdateOrDeleteADraftRecreatedAtVersionZero() throws Exception {
+    long oldId = data(save(101, "1", "{\"title\":\"옛 초안\"}")).get("draftId").asLong();
+    assertEquals(204, deleteDraft(101, oldId, "1", 0).statusCode());
+    long newId = data(save(101, "1", "{\"title\":\"새 초안\"}")).get("draftId").asLong();
+    assertNotEquals(oldId, newId);
+    assertEquals(
+        409, updateDraft(101, oldId, "1", "{\"version\":0,\"title\":\"옛 창에서 덮어쓰기\"}").statusCode());
+    assertEquals(409, deleteDraft(101, oldId, "1", 0).statusCode());
+    assertEquals("새 초안", data(readDraft(101, "1")).get("title").asText());
+  }
+
+  @Test
+  void serializesConcurrentUpdateAndDeleteWithoutLosingANewerDraft() throws Exception {
+    long id = data(save(101, "1", "{}")).get("draftId").asLong();
+    var update =
+        CompletableFuture.supplyAsync(
+            () -> {
+              try {
+                return updateDraft(101, id, "1", "{\"version\":0,\"title\":\"동시 수정\"}")
+                    .statusCode();
+              } catch (Exception exception) {
+                throw new RuntimeException(exception);
+              }
+            });
+    var deletion =
+        CompletableFuture.supplyAsync(
+            () -> {
+              try {
+                return deleteDraft(101, id, "1", 0).statusCode();
+              } catch (Exception exception) {
+                throw new RuntimeException(exception);
+              }
+            });
+    var codes = List.of(update.join(), deletion.join());
+    assertTrue(
+        codes.equals(List.of(200, 409)) || codes.equals(List.of(404, 204)), codes.toString());
+  }
+
+  @Test
+  void transferBlocksBothPreviousAndNewOwnerFromThePreviousOwnersDraft() throws Exception {
+    long id = data(save(101, "1", "{\"title\":\"이전 소유자 비공개\"}")).get("draftId").asLong();
+    jdbc.update("UPDATE products SET owner_id = 2 WHERE id = 101");
+    for (String user : List.of("1", "2")) {
+      assertEquals(404, readDraft(101, user).statusCode());
+      assertEquals(404, updateDraft(101, id, user, "{\"version\":0}").statusCode());
+      assertEquals(404, deleteDraft(101, id, user, 0).statusCode());
+      assertEquals(0, data(send("GET", "/api/v1/listing-drafts", user, null)).get("items").size());
+    }
   }
 
   @Test
@@ -580,7 +841,38 @@ class ListingDraftHttpTest {
 
   private static HttpResponse<String> save(long productId, String user, String body)
       throws Exception {
-    return send("POST", "/api/v1/products/" + productId + "/listing-draft", user, body);
+    var suppliedVersion = JSON.readTree(body).get("version");
+    if (suppliedVersion != null && !suppliedVersion.isNull()) {
+      return updateDraft(productId, SAVED_DRAFT_IDS.getOrDefault(productId, 1L), user, body);
+    }
+    var response = send("POST", "/api/v1/products/" + productId + "/listing-draft", user, body);
+    if (response.statusCode() == 201)
+      SAVED_DRAFT_IDS.put(productId, data(response).get("draftId").asLong());
+    return response;
+  }
+
+  private static HttpResponse<String> readDraft(long productId, String user) throws Exception {
+    return send("GET", "/api/v1/products/" + productId + "/listing-draft", user, null);
+  }
+
+  private static HttpResponse<String> updateDraft(
+      long productId, long draftId, String user, String body) throws Exception {
+    return send(
+        "PUT", "/api/v1/products/" + productId + "/listing-draft?draftId=" + draftId, user, body);
+  }
+
+  private static HttpResponse<String> deleteDraft(
+      long productId, long draftId, String user, long version) throws Exception {
+    return send(
+        "DELETE",
+        "/api/v1/products/"
+            + productId
+            + "/listing-draft?draftId="
+            + draftId
+            + "&version="
+            + version,
+        user,
+        null);
   }
 
   private static HttpResponse<String> uploadPhoto(long productId) throws Exception {
@@ -632,13 +924,22 @@ class ListingDraftHttpTest {
   /** 쿠키와 CSRF 헤더를 직접 지정해 POST 요청을 보낸다. */
   private static HttpResponse<String> sendWithCookie(String path, String cookie, String csrfHeader)
       throws Exception {
+    return sendWithCookie("POST", path, cookie, csrfHeader, "{}");
+  }
+
+  private static HttpResponse<String> sendWithCookie(
+      String method, String path, String cookie, String csrfHeader, String body) throws Exception {
     var request =
         HttpRequest.newBuilder(URI.create(baseUrl + path))
             .timeout(Duration.ofSeconds(15))
             .header("Cookie", cookie)
             .header("Content-Type", "application/json");
     if (csrfHeader != null) request.header("X-XSRF-TOKEN", csrfHeader);
-    request.POST(HttpRequest.BodyPublishers.ofString("{}"));
+    request.method(
+        method,
+        body == null
+            ? HttpRequest.BodyPublishers.noBody()
+            : HttpRequest.BodyPublishers.ofString(body));
     return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
   }
 

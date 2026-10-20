@@ -10,6 +10,12 @@
 <div class="sc-note danger" data-sale-error role="alert" hidden><i>!</i><span></span></div>
 <form class="sl" data-sale-form novalidate>
   <div class="sl-stack">
+    <section class="sc-card sl-drafts" aria-labelledby="sale-drafts-heading">
+      <div class="sl-section-head"><div><h2 id="sale-drafts-heading">내 임시저장</h2><p class="sub">저장한 글을 다시 열어 이어서 작성할 수 있어요. <span data-sale-drafts-count></span></p></div><button type="button" class="sc-btn" data-sale-drafts-refresh>새로고침</button></div>
+      <p class="sub" data-sale-drafts-status role="status" aria-live="polite">임시저장본을 불러오는 중이에요.</p>
+      <ul class="sl-draft-list" data-sale-drafts aria-label="내 임시저장 목록"></ul>
+      <button type="button" class="sc-btn sl-drafts-more" data-sale-drafts-more hidden>더 보기</button>
+    </section>
     <section class="sc-card">
       <h2>판매할 제품</h2>
       <p class="sub">내가 보유한 제품의 정보와 등록된 사진을 불러와요.</p>
@@ -52,6 +58,8 @@
     <div class="sl-bar">
       <span class="saved" data-sale-saved role="status" aria-live="polite">아직 임시저장하지 않았어요.</span>
       <button type="submit" class="sc-btn primary" data-sale-save disabled>임시저장</button>
+      <button type="button" class="sc-btn" data-sale-reload hidden>저장본 다시 불러오기</button>
+      <button type="button" class="sc-btn sl-draft-delete" data-sale-delete hidden>임시저장본 삭제</button>
       <button type="button" class="sc-btn" disabled title="미리보기 기능은 준비 중이에요.">미리보기</button>
       <button type="button" class="sc-btn" disabled title="게시 기능은 준비 중이에요.">게시하기</button>
     </div>
@@ -69,3 +77,10 @@
     <div class="sc-note info"><i>i</i><span>임시저장은 비공개로 보관돼요. 판매글을 게시하거나 제품 이력을 공개하지 않아요.</span></div>
   </aside>
 </form>
+<dialog class="sl-confirm" data-sale-confirm aria-labelledby="sale-confirm-title" aria-describedby="sale-confirm-message">
+  <form method="dialog">
+    <h2 id="sale-confirm-title">임시저장본 확인</h2>
+    <p id="sale-confirm-message" data-sale-confirm-message></p>
+    <div class="sl-confirm-actions"><button class="sc-btn" value="cancel" autofocus>취소</button><button class="sc-btn primary" value="confirm" data-sale-confirm-action>확인</button></div>
+  </form>
+</dialog>
