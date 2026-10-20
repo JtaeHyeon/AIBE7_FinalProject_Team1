@@ -2,6 +2,7 @@ package org.example.springtestci.document.controller;
 
 import java.io.IOException;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.response.ApiResponse;
@@ -25,13 +26,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1")
+@RequiredArgsConstructor
 public class DocumentController {
 
   private final DocumentService documentService;
-
-  public DocumentController(DocumentService documentService) {
-    this.documentService = documentService;
-  }
 
   @PostMapping(
       path = "/products/{productId}/documents",

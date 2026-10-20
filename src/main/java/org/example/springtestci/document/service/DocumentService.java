@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.storage.FileStorage;
@@ -13,8 +15,6 @@ import org.example.springtestci.document.dto.FileUrlResponse;
 import org.example.springtestci.document.entity.Document;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
 import org.example.springtestci.document.repository.DocumentRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,13 +26,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <p>개인정보가 있는 원본은 브라우저에서만 처리하고, 서버는 마스킹 확인이 끝난 사본만 받는다. 열람과 삭제 권한은 업로더가 아니라 제품의 현재 소유자를 기준으로 한다.
  */
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class DocumentService {
 
   static final int MAX_DOCUMENTS_PER_PRODUCT = 20;
   static final Duration FILE_URL_TTL = Duration.ofMinutes(5);
-
-  private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
   private final DocumentRepository documentRepository;
   private final DocumentExtractionRepository extractionRepository;
@@ -40,21 +40,6 @@ public class DocumentService {
   private final DocumentFileValidator fileValidator;
   private final ProductOwnerReader productOwnerReader;
   private final Clock clock;
-
-  public DocumentService(
-      DocumentRepository documentRepository,
-      DocumentExtractionRepository extractionRepository,
-      ObjectProvider<FileStorage> fileStorage,
-      DocumentFileValidator fileValidator,
-      ProductOwnerReader productOwnerReader,
-      Clock clock) {
-    this.documentRepository = documentRepository;
-    this.extractionRepository = extractionRepository;
-    this.fileStorage = fileStorage;
-    this.fileValidator = fileValidator;
-    this.productOwnerReader = productOwnerReader;
-    this.clock = clock;
-  }
 
   /** 현재 소유자가 마스킹을 확인한 사본을 올린다. 업로드 파일명은 확장자 판별에만 쓰고 저장하지 않는다. */
   @Transactional
