@@ -1,6 +1,8 @@
 package org.example.springtestci.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.lang.reflect.Field;
@@ -36,6 +38,14 @@ class JwtTokenProviderTest {
     Jwt jwt =
         NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build().decode(token);
     assertEquals("42", jwt.getSubject());
+    assertNotNull(jwt.getId());
+    assertNotEquals(
+        jwt.getId(),
+        NimbusJwtDecoder.withSecretKey(key)
+            .macAlgorithm(MacAlgorithm.HS256)
+            .build()
+            .decode(provider.createAccessToken(user(42L)))
+            .getId());
     assertEquals("USER", jwt.getClaimAsString("scope"));
     assertEquals(Duration.ofMinutes(15), Duration.between(jwt.getIssuedAt(), jwt.getExpiresAt()));
     assertEquals(900L, provider.accessTokenExpiresInSeconds());

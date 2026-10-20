@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.Optional;
 import org.example.springtestci.auth.dto.AuthTokens;
 import org.example.springtestci.auth.dto.LoginRequest;
@@ -22,6 +23,8 @@ import org.example.springtestci.auth.entity.UserRole;
 import org.example.springtestci.auth.repository.UserRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.common.error.RateLimitedException;
+import org.example.springtestci.common.security.AccessTokenBlocklist;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,15 +33,23 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
+
+  private static final String IP = "127.0.0.1";
 
   @Mock private UserRepository userRepository;
   @Mock private PasswordEncoder passwordEncoder;
   @Mock private JwtTokenProvider jwtTokenProvider;
   @Mock private RefreshTokenStore refreshTokenStore;
   @Mock private EmailVerificationService emailVerificationService;
+  @Mock private LoginRateLimiter loginRateLimiter;
+  @Mock private JwtDecoder jwtDecoder;
+  @Mock private AccessTokenBlocklist accessTokenBlocklist;
 
   private AuthService authService;
 
@@ -51,7 +62,10 @@ class AuthServiceTest {
             passwordEncoder,
             jwtTokenProvider,
             refreshTokenStore,
-            emailVerificationService);
+            emailVerificationService,
+            loginRateLimiter,
+            jwtDecoder,
+            accessTokenBlocklist);
   }
 
   @Test
@@ -146,7 +160,7 @@ class AuthServiceTest {
     when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
     when(refreshTokenStore.issue(7L)).thenReturn("refresh");
 
-    AuthTokens tokens = authService.login(new LoginRequest(" User@Example.com", "Passw0rd!"));
+    AuthTokens tokens = authService.login(new LoginRequest(" User@Example.com", "Passw0rd!"), IP);
 
     assertEquals("access", tokens.accessToken());
     assertEquals("refresh", tokens.refreshToken());
@@ -163,7 +177,7 @@ class AuthServiceTest {
     CommonException exception =
         assertThrows(
             CommonException.class,
-            () -> authService.login(new LoginRequest("user@example.com", "wrong")));
+            () -> authService.login(new LoginRequest("user@example.com", "wrong"), IP));
 
     assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.errorCode());
     verifyNoInteractions(refreshTokenStore);
@@ -179,7 +193,7 @@ class AuthServiceTest {
     CommonException exception =
         assertThrows(
             CommonException.class,
-            () -> authService.login(new LoginRequest("user@example.com", "Passw0rd!")));
+            () -> authService.login(new LoginRequest("user@example.com", "Passw0rd!"), IP));
 
     assertEquals(ErrorCode.EMAIL_NOT_VERIFIED, exception.errorCode());
     assertFalse(user.isEmailVerified());
@@ -196,7 +210,7 @@ class AuthServiceTest {
     when(jwtTokenProvider.accessTokenExpiresInSeconds()).thenReturn(900L);
     when(refreshTokenStore.issue(7L)).thenReturn("refresh");
 
-    AuthTokens tokens = authService.login(new LoginRequest("user@example.com", "Passw0rd!"));
+    AuthTokens tokens = authService.login(new LoginRequest("user@example.com", "Passw0rd!"), IP);
 
     assertTrue(user.isEmailVerified());
     assertEquals("access", tokens.accessToken());
@@ -211,7 +225,7 @@ class AuthServiceTest {
     CommonException exception =
         assertThrows(
             CommonException.class,
-            () -> authService.login(new LoginRequest("user@example.com", "wrong")));
+            () -> authService.login(new LoginRequest("user@example.com", "wrong"), IP));
 
     assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.errorCode());
     verifyNoInteractions(emailVerificationService);
@@ -225,7 +239,7 @@ class AuthServiceTest {
     CommonException exception =
         assertThrows(
             CommonException.class,
-            () -> authService.login(new LoginRequest("nobody@example.com", "Passw0rd!")));
+            () -> authService.login(new LoginRequest("nobody@example.com", "Passw0rd!"), IP));
 
     assertEquals(ErrorCode.INVALID_CREDENTIALS, exception.errorCode());
     verify(passwordEncoder).matches("Passw0rd!", "dummy-hash");
@@ -266,17 +280,66 @@ class AuthServiceTest {
   }
 
   @Test
-  void logoutRevokesTheRefreshToken() {
-    authService.logout("token");
+  void loginIsRejectedWithoutComparingThePasswordWhileRateLimited() {
+    doThrow(new RateLimitedException(ErrorCode.LOGIN_RATE_LIMITED, Duration.ofMinutes(10)))
+        .when(loginRateLimiter)
+        .checkAllowed("user@example.com", IP);
+
+    RateLimitedException exception =
+        assertThrows(
+            RateLimitedException.class,
+            () -> authService.login(new LoginRequest("user@example.com", "Passw0rd!"), IP));
+
+    assertEquals(ErrorCode.LOGIN_RATE_LIMITED, exception.errorCode());
+    verifyNoInteractions(userRepository, refreshTokenStore);
+    verify(passwordEncoder, never()).matches(any(), any());
+  }
+
+  @Test
+  void loginRecordsAFailureForAWrongPasswordAndClearsItOnSuccess() throws Exception {
+    User user = user(7L, "user@example.com", "hashed");
+    when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
+    when(passwordEncoder.matches("Passw0rd!", "hashed")).thenReturn(true);
+    when(jwtTokenProvider.createAccessToken(user)).thenReturn("access");
+    when(refreshTokenStore.issue(7L)).thenReturn("refresh");
+
+    assertThrows(
+        CommonException.class,
+        () -> authService.login(new LoginRequest("user@example.com", "wrong"), IP));
+    verify(loginRateLimiter).recordFailure("user@example.com", IP);
+    verify(loginRateLimiter, never()).reset("user@example.com");
+
+    authService.login(new LoginRequest("user@example.com", "Passw0rd!"), IP);
+    verify(loginRateLimiter).reset("user@example.com");
+  }
+
+  @Test
+  void logoutRevokesTheRefreshTokenAndBlocksTheAccessToken() {
+    Jwt jwt = Jwt.withTokenValue("access").header("alg", "HS256").subject("7").build();
+    when(jwtDecoder.decode("access")).thenReturn(jwt);
+
+    authService.logout("token", "access");
 
     verify(refreshTokenStore).revoke("token");
+    verify(accessTokenBlocklist).block(jwt);
+  }
+
+  @Test
+  void logoutIgnoresAnAccessTokenThatIsAlreadyInvalid() {
+    when(jwtDecoder.decode("expired")).thenThrow(new JwtException("expired"));
+
+    authService.logout("token", "expired");
+
+    verify(refreshTokenStore).revoke("token");
+    verifyNoInteractions(accessTokenBlocklist);
   }
 
   @Test
   void logoutWithoutATokenDoesNothing() {
-    authService.logout(null);
+    authService.logout(null, null);
 
-    verifyNoInteractions(refreshTokenStore);
+    verifyNoInteractions(refreshTokenStore, jwtDecoder, accessTokenBlocklist);
   }
 
   private static User user(long id, String email, String passwordHash) throws Exception {

@@ -12,6 +12,7 @@ public enum ErrorCode {
   INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_006", "다시 로그인해 주세요."),
   EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "AUTH_008", "이메일 인증을 완료해 주세요."),
   TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH_010", "잠시 후 다시 시도해 주세요."),
+  LOGIN_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AUTH_012", "로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요."),
   EMAIL_SEND_FAILED(
       HttpStatus.SERVICE_UNAVAILABLE, "AUTH_011", "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요."),
   RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_002", "요청한 리소스를 찾을 수 없습니다."),

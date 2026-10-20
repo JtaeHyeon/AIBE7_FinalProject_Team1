@@ -1,5 +1,6 @@
 package org.example.springtestci.auth.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import org.example.springtestci.auth.dto.AuthTokens;
@@ -12,6 +13,7 @@ import org.example.springtestci.auth.service.AuthService;
 import org.example.springtestci.auth.service.EmailVerificationService;
 import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.common.security.JwtProperties;
+import org.example.springtestci.common.security.SecurityConfig;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -61,22 +64,25 @@ public class AuthController {
 
   @PostMapping("/login")
   public ResponseEntity<ApiResponse<LoginResponse>> login(
-      @Valid @RequestBody LoginRequest request) {
-    return withRefreshCookie(authService.login(request));
+      @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+    return withTokenCookies(authService.login(request, httpRequest.getRemoteAddr()));
   }
 
   @PostMapping("/refresh")
   public ResponseEntity<ApiResponse<LoginResponse>> refresh(
       @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
-    return withRefreshCookie(authService.refresh(refreshToken));
+    return withTokenCookies(authService.refresh(refreshToken));
   }
 
   @PostMapping("/logout")
   public ResponseEntity<Void> logout(
-      @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
-    authService.logout(refreshToken);
+      @CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken,
+      @CookieValue(name = SecurityConfig.ACCESS_TOKEN_COOKIE, required = false) String accessCookie,
+      @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+    authService.logout(refreshToken, bearerOrCookie(authorization, accessCookie));
     return ResponseEntity.noContent()
         .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
+        .header(HttpHeaders.SET_COOKIE, accessCookie("", Duration.ZERO).toString())
         .build();
   }
 
@@ -85,22 +91,39 @@ public class AuthController {
     return ApiResponse.success(authService.getMe(Long.parseLong(jwt.getSubject())));
   }
 
-  private ResponseEntity<ApiResponse<LoginResponse>> withRefreshCookie(AuthTokens tokens) {
-    LoginResponse body =
-        LoginResponse.bearer(tokens.accessToken(), tokens.expiresIn(), tokens.user());
+  private static String bearerOrCookie(String authorization, String accessCookie) {
+    if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+      return authorization.substring(7).trim();
+    }
+    return accessCookie;
+  }
+
+  private ResponseEntity<ApiResponse<LoginResponse>> withTokenCookies(AuthTokens tokens) {
+    LoginResponse body = new LoginResponse(tokens.expiresIn(), tokens.user());
     return ResponseEntity.ok()
         .header(
             HttpHeaders.SET_COOKIE,
             refreshCookie(tokens.refreshToken(), properties.refreshTokenTtl()).toString())
+        .header(
+            HttpHeaders.SET_COOKIE,
+            accessCookie(tokens.accessToken(), properties.accessTokenTtl()).toString())
         .body(ApiResponse.success(body));
   }
 
   private ResponseCookie refreshCookie(String value, Duration maxAge) {
-    return ResponseCookie.from(REFRESH_COOKIE, value)
+    return httpOnlyCookie(REFRESH_COOKIE, value, REFRESH_COOKIE_PATH, maxAge);
+  }
+
+  private ResponseCookie accessCookie(String value, Duration maxAge) {
+    return httpOnlyCookie(SecurityConfig.ACCESS_TOKEN_COOKIE, value, "/", maxAge);
+  }
+
+  private ResponseCookie httpOnlyCookie(String name, String value, String path, Duration maxAge) {
+    return ResponseCookie.from(name, value)
         .httpOnly(true)
         .secure(properties.refreshCookieSecure())
         .sameSite("Strict")
-        .path(REFRESH_COOKIE_PATH)
+        .path(path)
         .maxAge(maxAge)
         .build();
   }

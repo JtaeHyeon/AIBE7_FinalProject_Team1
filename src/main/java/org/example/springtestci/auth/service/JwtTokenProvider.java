@@ -2,6 +2,7 @@ package org.example.springtestci.auth.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.UUID;
 import org.example.springtestci.auth.entity.User;
 import org.example.springtestci.common.security.JwtProperties;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -28,6 +29,7 @@ public class JwtTokenProvider {
     Instant now = Instant.now(clock);
     JwtClaimsSet claims =
         JwtClaimsSet.builder()
+            .id(UUID.randomUUID().toString())
             .subject(String.valueOf(user.getId()))
             .issuedAt(now)
             .expiresAt(now.plus(properties.accessTokenTtl()))

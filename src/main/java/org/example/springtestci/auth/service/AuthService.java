@@ -10,8 +10,11 @@ import org.example.springtestci.auth.entity.UserRole;
 import org.example.springtestci.auth.repository.UserRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.common.security.AccessTokenBlocklist;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +29,9 @@ public class AuthService {
   private final JwtTokenProvider jwtTokenProvider;
   private final RefreshTokenStore refreshTokenStore;
   private final EmailVerificationService emailVerificationService;
+  private final LoginRateLimiter loginRateLimiter;
+  private final JwtDecoder jwtDecoder;
+  private final AccessTokenBlocklist accessTokenBlocklist;
   private final String dummyHash;
 
   public AuthService(
@@ -33,12 +39,18 @@ public class AuthService {
       PasswordEncoder passwordEncoder,
       JwtTokenProvider jwtTokenProvider,
       RefreshTokenStore refreshTokenStore,
-      EmailVerificationService emailVerificationService) {
+      EmailVerificationService emailVerificationService,
+      LoginRateLimiter loginRateLimiter,
+      JwtDecoder jwtDecoder,
+      AccessTokenBlocklist accessTokenBlocklist) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtTokenProvider = jwtTokenProvider;
     this.refreshTokenStore = refreshTokenStore;
     this.emailVerificationService = emailVerificationService;
+    this.loginRateLimiter = loginRateLimiter;
+    this.jwtDecoder = jwtDecoder;
+    this.accessTokenBlocklist = accessTokenBlocklist;
     this.dummyHash = passwordEncoder.encode(DUMMY_PASSWORD);
   }
 
@@ -72,13 +84,18 @@ public class AuthService {
   }
 
   @Transactional
-  public AuthTokens login(LoginRequest request) {
-    User user = userRepository.findByEmail(normalizeEmail(request.email())).orElse(null);
+  public AuthTokens login(LoginRequest request, String clientIp) {
+    String email = normalizeEmail(request.email());
+    // 제한 중에는 비밀번호를 비교하지 않고 바로 거부한다.
+    loginRateLimiter.checkAllowed(email, clientIp);
+    User user = userRepository.findByEmail(email).orElse(null);
     String hash = user == null ? dummyHash : user.getPasswordHash();
     boolean matches = passwordEncoder.matches(request.password(), hash);
     if (user == null || !matches) {
+      loginRateLimiter.recordFailure(email, clientIp);
       throw new CommonException(ErrorCode.INVALID_CREDENTIALS);
     }
+    loginRateLimiter.reset(email);
     // 비밀번호가 맞은 뒤에만 인증 여부를 알려, 미인증 계정의 존재를 함부로 드러내지 않는다.
     if (!user.isEmailVerified()) {
       if (!emailVerificationService.confirmIfVerified(user.getEmail())) {
@@ -106,9 +123,17 @@ public class AuthService {
     return issueTokens(user);
   }
 
-  public void logout(String refreshToken) {
+  /** Refresh Token을 폐기하고, Access Token은 남은 유효 기간 동안 사용하지 못하게 차단한다. */
+  public void logout(String refreshToken, String accessToken) {
     if (refreshToken != null && !refreshToken.isBlank()) {
       refreshTokenStore.revoke(refreshToken);
+    }
+    if (accessToken != null && !accessToken.isBlank()) {
+      try {
+        accessTokenBlocklist.block(jwtDecoder.decode(accessToken));
+      } catch (JwtException exception) {
+        // 이미 만료됐거나 유효하지 않은 토큰은 차단할 필요가 없다.
+      }
     }
   }
 

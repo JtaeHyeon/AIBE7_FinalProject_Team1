@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -48,6 +49,24 @@ public class GlobalExceptionHandler {
                         violation.getPropertyPath().toString(), violation.getMessage()))
             .toList();
     return response(ErrorCode.INVALID_INPUT, request, fieldErrors);
+  }
+
+  @ExceptionHandler(RateLimitedException.class)
+  ResponseEntity<ErrorResponse> handleRateLimited(
+      RateLimitedException exception, HttpServletRequest request) {
+    long seconds = Math.max(1, exception.retryAfter().toSeconds());
+    long minutes = (seconds + 59) / 60;
+    ErrorCode errorCode = exception.errorCode();
+    ResponseEntity<ErrorResponse> base =
+        response(
+            errorCode.status(),
+            errorCode.code(),
+            "로그인 시도가 너무 많아요. %d분 뒤에 다시 시도해 주세요.".formatted(minutes),
+            request,
+            List.of());
+    return ResponseEntity.status(base.getStatusCode())
+        .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
+        .body(base.getBody());
   }
 
   @ExceptionHandler(CommonException.class)

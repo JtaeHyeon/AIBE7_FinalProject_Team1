@@ -1,8 +1,7 @@
 // 로그인·회원가입 화면 연동. 화면 HTML은 pages.js가 나중에 채워 넣으므로 document에 이벤트를 위임한다.
-// Access Token은 메모리에만 둔다(새로고침 시 HttpOnly refresh 쿠키로 복구). Refresh Token은 JS에서 접근할 수 없다.
+// Access/Refresh Token은 모두 HttpOnly 쿠키라 JS에서 접근할 수 없다. 쓰기 요청은 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내 CSRF를 검사받는다.
 const auth = (() => {
   const EMAIL_KEY = 'savedEmail';
-  let accessToken = null;
   let user = null;
 
   const safeStorage = {
@@ -11,12 +10,18 @@ const auth = (() => {
     remove: (key) => { try { localStorage.removeItem(key); } catch { /* 저장소를 못 쓰는 환경 */ } },
   };
 
+  const csrfHeaders = (method) => {
+    if (!method || ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return {};
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+    return match ? { 'X-XSRF-TOKEN': decodeURIComponent(match[1]) } : {};
+  };
+
   const goto = (page) => document.querySelector(`[data-page="${page}"]`)?.click();
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
       method: options.method || 'POST',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders(options.method || 'POST'), ...(options.headers || {}) },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
     if (response.status === 204) return null;
@@ -80,7 +85,6 @@ const auth = (() => {
   };
 
   const setSession = (data) => {
-    accessToken = data?.accessToken ?? null;
     user = data?.user ?? null;
     renderHeader();
     renderMyPage();
@@ -142,15 +146,15 @@ const auth = (() => {
     return refreshing;
   };
 
-  // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. Authorization 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
+  // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. 쿠키와 CSRF 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
   const authFetch = async (url, options = {}) => {
     const send = () => {
       const headers = new Headers(options.headers || {});
-      if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-      return fetch(url, { ...options, headers });
+      Object.entries(csrfHeaders(options.method)).forEach(([name, value]) => headers.set(name, value));
+      return fetch(url, { ...options, headers, credentials: 'same-origin' });
     };
     // 새로고침 직후 세션 복구가 진행 중이면 먼저 끝나기를 기다린다.
-    if (!accessToken && refreshing) await refreshing.catch(() => {});
+    if (!user && refreshing) await refreshing.catch(() => {});
     const response = await send();
     if (response.status !== 401) return response;
     try {
@@ -276,5 +280,5 @@ const auth = (() => {
   // 새로고침 후 HttpOnly refresh 쿠키가 남아 있으면 세션을 복구한다.
   refresh().catch(() => {});
 
-  return { get accessToken() { return accessToken; }, get user() { return user; } };
+  return { get user() { return user; } };
 })();

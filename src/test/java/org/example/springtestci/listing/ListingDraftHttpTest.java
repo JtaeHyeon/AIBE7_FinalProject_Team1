@@ -128,6 +128,45 @@ class ListingDraftHttpTest {
   }
 
   @Test
+  void acceptsTheAccessTokenFromAnHttpOnlyCookieOnlyWithAMatchingCsrfToken() throws Exception {
+    String path = "/api/v1/products/101/listing-draft";
+    String cookie = "access_token=" + token("1") + "; XSRF-TOKEN=csrf-value";
+
+    assertEquals(403, sendWithCookie(path, cookie, null).statusCode());
+    assertEquals(403, sendWithCookie(path, cookie, "other-value").statusCode());
+    assertEquals(201, sendWithCookie(path, cookie, "csrf-value").statusCode());
+  }
+
+  @Test
+  void authEndpointsAlsoRequireACsrfTokenForStateChangingRequests() throws Exception {
+    String cookie = "XSRF-TOKEN=csrf-value";
+
+    assertEquals(403, sendWithCookie("/api/auth/login", cookie, null).statusCode());
+    assertEquals(403, sendWithCookie("/api/auth/refresh", cookie, "other-value").statusCode());
+    assertEquals(403, sendWithCookie("/api/auth/logout", cookie, null).statusCode());
+    // CSRF를 통과한 요청만 컨트롤러에 도달한다(빈 본문이라 검증 오류 400).
+    assertEquals(400, sendWithCookie("/api/auth/login", cookie, "csrf-value").statusCode());
+
+    var logout = sendWithCookie("/api/auth/logout", cookie, "csrf-value");
+    assertEquals(204, logout.statusCode());
+    var cleared = logout.headers().allValues("Set-Cookie");
+    assertTrue(cleared.stream().anyMatch(value -> value.startsWith("access_token=;")));
+    assertTrue(cleared.stream().anyMatch(value -> value.startsWith("refresh_token=;")));
+  }
+
+  @Test
+  void issuesTheCsrfCookieWhenAPageIsFirstLoaded() throws Exception {
+    var response =
+        HTTP.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/")).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+
+    assertTrue(
+        response.headers().allValues("Set-Cookie").stream()
+            .anyMatch(value -> value.startsWith("XSRF-TOKEN=")));
+  }
+
+  @Test
   void savesContentAndSelectedPhotoOrderWithTheFirstAsRepresentative() throws Exception {
     var response =
         save(
@@ -207,7 +246,13 @@ class ListingDraftHttpTest {
 
   @Test
   void requiresAuthenticationAndTheCurrentOwner() throws Exception {
-    assertEquals(401, save(101, null, "{}").statusCode());
+    // CSRF 토큰은 맞지만 로그인하지 않은 요청
+    assertEquals(
+        401,
+        sendWithCookie("/api/v1/products/101/listing-draft", "XSRF-TOKEN=csrf-value", "csrf-value")
+            .statusCode());
+    // CSRF 토큰도 없는 비로그인 쓰기 요청은 CSRF 검사에서 먼저 거부된다.
+    assertEquals(403, save(101, null, "{}").statusCode());
     assertEquals(404, save(101, "2", "{}").statusCode());
     assertEquals(404, save(103, "1", "{}").statusCode());
     assertEquals(404, save(999, "1", "{}").statusCode());
@@ -354,6 +399,18 @@ class ListingDraftHttpTest {
         body == null
             ? HttpRequest.BodyPublishers.noBody()
             : HttpRequest.BodyPublishers.ofString(body));
+    return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+  }
+
+  private static HttpResponse<String> sendWithCookie(String path, String cookie, String csrfHeader)
+      throws Exception {
+    var request =
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .timeout(Duration.ofSeconds(15))
+            .header("Cookie", cookie)
+            .header("Content-Type", "application/json");
+    if (csrfHeader != null) request.header("X-XSRF-TOKEN", csrfHeader);
+    request.POST(HttpRequest.BodyPublishers.ofString("{}"));
     return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
   }
 
