@@ -1,6 +1,7 @@
 package org.example.springtestci.chat.realtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,11 +20,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.sql.DataSource;
 import org.example.springtestci.SpringTestCiApplication;
 import org.example.springtestci.chat.domain.ChatListingSnapshot;
 import org.example.springtestci.chat.domain.ChatMessage;
@@ -32,6 +38,7 @@ import org.example.springtestci.chat.dto.ChatMessageResponse;
 import org.example.springtestci.chat.repository.ChatMessageRepository;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.example.springtestci.chat.service.ChatListingReader;
+import org.example.springtestci.chat.service.ChatService;
 import org.example.springtestci.chat.service.ChatUserReader;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -41,14 +48,19 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -59,6 +71,7 @@ class ChatRealtimeIntegrationTest {
   private static final long INQUIRER_ID = 202L;
   private static final long OTHER_USER_ID = 303L;
   private static final String SECRET = "chat-realtime-test-secret-at-least-32-bytes";
+  private static final String DIFFERENT_SECRET = "chat-realtime-different-secret-at-least-32-bytes";
   private static final String ORIGIN = "http://localhost:3000";
   private static final JsonMapper JSON = JsonMapper.builder().build();
   private static final HttpClient HTTP =
@@ -68,15 +81,20 @@ class ChatRealtimeIntegrationTest {
   private static JdbcTemplate jdbcTemplate;
   private static ChatRoomRepository roomRepository;
   private static ChatMessageRepository messageRepository;
+  private static ChatService chatService;
+  private static PlatformTransactionManager transactionManager;
   private static WebSocketStompClient stompClient;
+  private static SubscriptionProbe subscriptionProbe;
   private static String httpBaseUrl;
   private static String webSocketUrl;
   private static String schema;
+  private static boolean postgresDatabase;
 
   @BeforeAll
   static void startServer() {
     String databaseUrl = System.getenv("CHAT_REALTIME_TEST_DB_URL");
     boolean postgres = databaseUrl != null && !databaseUrl.isBlank();
+    postgresDatabase = postgres;
     if (postgres && !databaseUrl.toLowerCase().contains("test")) {
       throw new IllegalStateException("Use a dedicated test database for chat realtime tests");
     }
@@ -121,6 +139,9 @@ class ChatRealtimeIntegrationTest {
     jdbcTemplate = context.getBean(JdbcTemplate.class);
     roomRepository = context.getBean(ChatRoomRepository.class);
     messageRepository = context.getBean(ChatMessageRepository.class);
+    chatService = context.getBean(ChatService.class);
+    transactionManager = context.getBean(PlatformTransactionManager.class);
+    subscriptionProbe = context.getBean(SubscriptionProbe.class);
     stompClient = new WebSocketStompClient(new StandardWebSocketClient());
     stompClient.setMessageConverter(new JacksonJsonMessageConverter());
   }
@@ -143,6 +164,15 @@ class ChatRealtimeIntegrationTest {
     jdbcTemplate.update("DELETE FROM chat_read_positions");
     jdbcTemplate.update("DELETE FROM chat_messages");
     jdbcTemplate.update("DELETE FROM chat_rooms");
+  }
+
+  @Test
+  void usesExpectedDatabaseEngine() throws Exception {
+    try (var connection = context.getBean(DataSource.class).getConnection()) {
+      assertEquals(
+          postgresDatabase ? "PostgreSQL" : "H2",
+          connection.getMetaData().getDatabaseProductName());
+    }
   }
 
   @Test
@@ -176,9 +206,55 @@ class ChatRealtimeIntegrationTest {
   }
 
   @Test
-  void rejectsInvalidConnectToken() {
+  void rejectsMalformedConnectToken() {
     assertThrows(
         ExecutionException.class, () -> connect("not-a-jwt", ORIGIN).get(10, TimeUnit.SECONDS));
+  }
+
+  @Test
+  void rejectsConnectTokenWithInvalidSignature() throws Exception {
+    String invalidSignatureToken =
+        token(Long.toString(SELLER_ID), DIFFERENT_SECRET, Instant.now().plus(Duration.ofHours(1)));
+
+    assertConnectRejected(invalidSignatureToken);
+  }
+
+  @Test
+  void rejectsExpiredConnectToken() throws Exception {
+    String expiredToken =
+        token(Long.toString(SELLER_ID), SECRET, Instant.now().minus(Duration.ofHours(1)));
+
+    assertConnectRejected(expiredToken);
+  }
+
+  @Test
+  void rejectsConnectWithoutToken() {
+    assertConnectRejected(null);
+  }
+
+  @Test
+  void doesNotStoreOrPublishRolledBackMessages() throws Exception {
+    ChatRoom room = roomRepository.create(1001L, SELLER_ID, INQUIRER_ID);
+    BlockingQueue<ChatMessageResponse> receivedMessages = new LinkedBlockingQueue<>();
+    StompSession inquirerSession = connect(INQUIRER_ID);
+    try {
+      subscribe(inquirerSession, room.roomId(), receivedMessages);
+      AtomicReference<ChatMessageResponse> rolledBackMessage = new AtomicReference<>();
+      TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+      transaction.executeWithoutResult(
+          status -> {
+            rolledBackMessage.set(
+                chatService.sendMessage(room.roomId(), SELLER_ID, "rollback message"));
+            status.setRollbackOnly();
+          });
+
+      assertNotNull(rolledBackMessage.get());
+      assertFalse(messageRepository.findById(rolledBackMessage.get().messageId()).isPresent());
+      assertEquals(null, receivedMessages.poll(1, TimeUnit.SECONDS));
+    } finally {
+      inquirerSession.disconnect();
+    }
   }
 
   @Test
@@ -249,12 +325,13 @@ class ChatRealtimeIntegrationTest {
     return connect(token(Long.toString(userId)), ORIGIN).get(10, TimeUnit.SECONDS);
   }
 
-  private static java.util.concurrent.CompletableFuture<StompSession> connect(
-      String bearerToken, String origin) {
+  private static CompletableFuture<StompSession> connect(String bearerToken, String origin) {
     WebSocketHttpHeaders handshakeHeaders = new WebSocketHttpHeaders();
     handshakeHeaders.setOrigin(origin);
     StompHeaders connectHeaders = new StompHeaders();
-    connectHeaders.add("Authorization", "Bearer " + bearerToken);
+    if (bearerToken != null) {
+      connectHeaders.add("Authorization", "Bearer " + bearerToken);
+    }
     return stompClient.connectAsync(
         URI.create(webSocketUrl),
         handshakeHeaders,
@@ -264,9 +341,11 @@ class ChatRealtimeIntegrationTest {
 
   private static void subscribe(
       StompSession session, long roomId, BlockingQueue<ChatMessageResponse> receivedMessages)
-      throws InterruptedException {
+      throws Exception {
+    String destination = "/sub/chat/room/" + roomId;
+    int expectedProcessedCount = subscriptionProbe.processedCount(destination) + 1;
     session.subscribe(
-        "/sub/chat/room/" + roomId,
+        destination,
         new StompFrameHandler() {
           @Override
           public Type getPayloadType(StompHeaders headers) {
@@ -278,7 +357,7 @@ class ChatRealtimeIntegrationTest {
             receivedMessages.add((ChatMessageResponse) payload);
           }
         });
-    Thread.sleep(200);
+    subscriptionProbe.awaitProcessed(destination, expectedProcessedCount, Duration.ofSeconds(5));
   }
 
   private static JsonNode sendMessage(long roomId, long senderId, String content) throws Exception {
@@ -321,24 +400,29 @@ class ChatRealtimeIntegrationTest {
   }
 
   private static String token(String subject) throws Exception {
+    return token(subject, SECRET, Instant.now().plus(Duration.ofHours(1)));
+  }
+
+  private static String token(String subject, String secret, Instant expiresAt) throws Exception {
     Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
     String header =
         encoder.encodeToString(
             "{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
     String payload =
         encoder.encodeToString(
-            ("{\"sub\":\""
-                    + subject
-                    + "\",\"exp\":"
-                    + (Instant.now().getEpochSecond() + 3600)
-                    + "}")
+            ("{\"sub\":\"" + subject + "\",\"exp\":" + expiresAt.getEpochSecond() + "}")
                 .getBytes(StandardCharsets.UTF_8));
     String content = header + "." + payload;
     Mac mac = Mac.getInstance("HmacSHA256");
-    mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+    mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
     return content
         + "."
         + encoder.encodeToString(mac.doFinal(content.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  private static void assertConnectRejected(String bearerToken) {
+    assertThrows(
+        ExecutionException.class, () -> connect(bearerToken, ORIGIN).get(10, TimeUnit.SECONDS));
   }
 
   @TestConfiguration(proxyBeanMethods = false)
@@ -357,6 +441,39 @@ class ChatRealtimeIntegrationTest {
     @Bean
     ChatUserReader chatUserReader() {
       return userIds -> Map.of();
+    }
+
+    @Bean
+    SubscriptionProbe subscriptionProbe() {
+      return new SubscriptionProbe();
+    }
+  }
+
+  static class SubscriptionProbe {
+
+    private final Map<String, AtomicInteger> processedSubscriptions = new ConcurrentHashMap<>();
+
+    @EventListener
+    void onSubscribe(SessionSubscribeEvent event) {
+      SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.wrap(event.getMessage());
+      processedSubscriptions
+          .computeIfAbsent(accessor.getDestination(), ignored -> new AtomicInteger())
+          .incrementAndGet();
+    }
+
+    int processedCount(String destination) {
+      return processedSubscriptions.getOrDefault(destination, new AtomicInteger()).get();
+    }
+
+    void awaitProcessed(String destination, int expectedCount, Duration timeout)
+        throws InterruptedException {
+      long deadline = System.nanoTime() + timeout.toNanos();
+      while (processedCount(destination) < expectedCount && System.nanoTime() < deadline) {
+        Thread.sleep(10);
+      }
+      assertTrue(
+          processedCount(destination) >= expectedCount,
+          "Server did not process the chat subscription before the timeout");
     }
   }
 }
