@@ -23,8 +23,12 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # 빌드가 외부 의존성 코드를 실행하므로 저장소 토큰을 .git/config에 남기지 않는다.
+      # 이 워크플로는 저장소에 push하지 않아 저장된 토큰이 필요 없다.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
