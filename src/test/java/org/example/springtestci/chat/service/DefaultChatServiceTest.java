@@ -57,6 +57,7 @@ class DefaultChatServiceTest {
   @Mock private ChatReadPositionRepository readPositionRepository;
   @Mock private ChatListingReader listingReader;
   @Mock private ChatUserReader userReader;
+  @Mock private ChatMessageDelivery messageDelivery;
 
   private DefaultChatService service;
 
@@ -64,7 +65,12 @@ class DefaultChatServiceTest {
   void setUp() {
     service =
         new DefaultChatService(
-            roomRepository, messageRepository, readPositionRepository, listingReader, userReader);
+            roomRepository,
+            messageRepository,
+            readPositionRepository,
+            listingReader,
+            userReader,
+            messageDelivery);
   }
 
   @Test
@@ -163,6 +169,7 @@ class DefaultChatServiceTest {
 
     assertEquals(BUYER_ID, response.senderId());
     assertEquals(" 원문 ", response.content());
+    verify(messageDelivery).publishAfterCommit(response);
   }
 
   @Test
@@ -174,6 +181,7 @@ class DefaultChatServiceTest {
 
     assertEquals(ErrorCode.INVALID_INPUT, exception.errorCode());
     verify(messageRepository, never()).append(ROOM_ID, BUYER_ID, " ");
+    verify(messageDelivery, never()).publishAfterCommit(any());
   }
 
   @Test

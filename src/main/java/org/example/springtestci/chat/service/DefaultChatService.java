@@ -41,6 +41,7 @@ public class DefaultChatService implements ChatService {
   private final ChatReadPositionRepository readPositionRepository;
   private final ChatListingReader listingReader;
   private final ChatUserReader userReader;
+  private final ChatMessageDelivery messageDelivery;
   private final ChatAccessPolicy accessPolicy;
 
   public DefaultChatService(
@@ -48,12 +49,14 @@ public class DefaultChatService implements ChatService {
       ChatMessageRepository messageRepository,
       ChatReadPositionRepository readPositionRepository,
       ChatListingReader listingReader,
-      ChatUserReader userReader) {
+      ChatUserReader userReader,
+      ChatMessageDelivery messageDelivery) {
     this.roomRepository = roomRepository;
     this.messageRepository = messageRepository;
     this.readPositionRepository = readPositionRepository;
     this.listingReader = listingReader;
     this.userReader = userReader;
+    this.messageDelivery = messageDelivery;
     this.accessPolicy = new ChatAccessPolicy();
   }
 
@@ -111,7 +114,10 @@ public class DefaultChatService implements ChatService {
     if (content == null || content.isBlank()) {
       throw new CommonException(ErrorCode.INVALID_INPUT);
     }
-    return toMessageResponse(messageRepository.append(roomId, actorId, content));
+    ChatMessageResponse response =
+        toMessageResponse(messageRepository.append(roomId, actorId, content));
+    messageDelivery.publishAfterCommit(response);
+    return response;
   }
 
   @Override
