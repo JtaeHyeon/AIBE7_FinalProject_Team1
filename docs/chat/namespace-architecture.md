@@ -5,7 +5,7 @@
 - 작업 기준: `Pastport_Chat_Codex_All_In_One_v1.2.md`, `Pastport_Chat_API_Migration_Extension_Spec_v1.4.md`
 - 구현 범위: TX-01 채팅 시작, TX-02 채팅·거래 진행 중 기본 채팅 API 5개, HTTP 저장 후 STOMP 실시간 수신
 - 운영 등록: 기본 비활성. `app.features.chat-api.enabled=true`일 때 HTTP Controller·Service와 WebSocket endpoint·broker·publisher가 등록된다.
-- 외부 연결: 판매글 모듈의 `ChatListingReader`, 회원 모듈의 `ChatUserReader` 구현 빈이 필요하다.
+- 외부 연결: `JdbcChatListingReader`가 임시 판매글 구조를, `JpaChatUserReader`가 현재 회원 구조를 연결한다.
 - 제외 범위: 완성형 화면, 파일, SockJS, 외부 broker, 주문·견적, 거래 상태 변경, 운영 배포
 
 ## API 대응표
@@ -36,7 +36,7 @@
 
 | 항목 | v1.2 이관 기준 | 현재 공통 구현 | 이번 처리 |
 |---|---|---|---|
-| 인증 | Access/Refresh Token의 HttpOnly 쿠키 | OAuth2 Resource Server의 Bearer JWT | 공통 구현 유지, 실제 JWT HTTP 검증은 외부 Reader 연결 뒤 수행 |
+| 인증 | Access/Refresh Token의 HttpOnly 쿠키 | OAuth2 Resource Server의 Bearer JWT와 auth API | main의 공통 인증·`JwtEncoder` 구성을 그대로 유지 |
 | CSRF | 변경 요청의 `X-CSRF-Token` | REST API 기준 비활성 | 공유 `SecurityConfig`를 변경하지 않고 승인 여부를 후속 확인 |
 | 성공 응답 | 단건 `data`, 목록 `data`와 `page` | `success+data`, 목록은 `data.items+data.page` | 기존 채팅 골격과 공통 응답 유지 |
 | 성공 코드 | 기존 정의 우선, 부재 시 201/204 잠정안 | 5개 Controller 모두 200 | 기존 골격을 우선 유지하고 API 확정 시 조정 |
@@ -51,6 +51,8 @@
 | `chat/service/ChatMessageDelivery.java` | 저장 트랜잭션과 실시간 전달 구현 사이의 경계 |
 | `chat/service/ChatListingReader.java` | 판매글·판매자·제품 소유자·상태·제목 조회 경계 |
 | `chat/service/ChatUserReader.java` | 상대 사용자 닉네임 벌크 조회 경계 |
+| `chat/service/JdbcChatListingReader.java` | `listing_drafts`·`products` 기반 임시 판매글 조회 구현 |
+| `chat/service/JpaChatUserReader.java` | 현재 회원 Repository 기반 닉네임 조회 구현 |
 | `chat/realtime/ChatRealtimeConfig.java` | `/ws-stomp`, `/sub` broker, inbound interceptor 설정 |
 | `chat/realtime/ChatStompAuthorizationInterceptor.java` | CONNECT 인증, SUBSCRIBE 인가, SEND 차단 |
 | `chat/realtime/ChatMessageRealtimePublisher.java` | DB 커밋 후 방 구독 목적지로 DTO 전달 |
@@ -71,12 +73,12 @@
 - 새 메시지는 본인의 확인 위치 이후에 저장된 상대 발신 메시지로 계산한다.
 - 메시지 본문은 응답 이외 로그와 문자열 표현에서 가린다.
 
-## 외부 모듈 연결 위치
+## 외부 모듈 연결 상태
 
-1. 판매글 구현에서 `ChatListingReader`를 구현해 `listingId`, 최초 판매자, 제품, 현재 소유자, 상태, 제목을 반환한다.
-2. 회원 구현에서 `ChatUserReader`를 구현해 사용자 ID별 닉네임을 벌크 반환한다.
-3. 두 빈이 준비된 환경에서 `app.features.chat-api.enabled=true`로 설정한다.
-4. 실제 Bearer JWT와 개발 PostgreSQL로 HTTP 기본 흐름을 재검증한다.
+1. `JdbcChatListingReader`가 공개 판매글 테이블 확정 전까지 `listing_drafts`와 `products`를 조회한다.
+2. `JpaChatUserReader`가 현재 `UserRepository`에서 사용자 ID별 닉네임을 벌크 조회한다.
+3. 공개 판매글 스키마가 확정되면 `ChatListingReader` 구현만 교체하고 채팅 Service 계약은 유지한다.
+4. 기능 사용 환경에서는 `app.features.chat-api.enabled=true`로 설정한다.
 
 ## 검증 명령
 

@@ -4,7 +4,7 @@
 
 - 기준 저장소·브랜치·커밋: `goarns77/AIBE7_FinalProject_Team1`, `feat/chat-api-namespace`, `1a1aaf2`
 - 참조 원본 커밋: `prgrms-aibe-devcourse/AIBE7-Project2-Team02`, `a65b9918`
-- 기존 HTTP API, `DefaultChatService`, 채팅 JPA 어댑터, `V2__create_chat_tables.sql`을 재사용했다.
+- 기존 HTTP API, `DefaultChatService`, 채팅 JPA 어댑터, `V2026101302__create_chat_tables.sql`을 재사용했다.
 - `/ws-stomp` 네이티브 WebSocket/STOMP 연결과 `/sub/chat/room/{roomId}` 구독을 추가했다.
 - STOMP `CONNECT`에서 Bearer JWT를 검증하고, 정확한 방 구독 목적지와 고정 참여자 권한을 검사한다.
 - 클라이언트의 모든 STOMP `SEND`를 거부하고 메시지 저장은 기존 HTTP API 한 경로로 유지한다.
@@ -45,7 +45,7 @@ HTTP handshake transport는 `/ws-stomp`에서 허용하지만, 유효한 STOMP `
 
 | 검증 | 환경 | 결과 |
 |---|---|---|
-| 실시간 통합 테스트 | 실제 임베디드 HTTP 서버 + 네이티브 WebSocket/STOMP + H2 PostgreSQL 모드 + Flyway V1~V2 | 통과 |
+| 실시간 통합 테스트 | 실제 임베디드 HTTP 서버 + 네이티브 WebSocket/STOMP + H2 PostgreSQL 모드 + 현행 Flyway migration | 통과 |
 | 두 사용자 송수신 | S·Q가 같은 방을 구독하고 Q→S, S→Q HTTP 전송 및 양쪽 자동 수신 | 통과 |
 | 저장·수신·이력 대조 | HTTP 응답, 두 수신 DTO, JPA 재조회 식별자·발신자·본문·시각 | 통과 |
 | JWT·Origin | 유효 JWT 연결, 형식 불량·서명 불일치·만료·누락 JWT 거부, 미허용 Origin handshake 거부 | 통과 |
@@ -85,7 +85,7 @@ HTTP handshake transport는 `/ws-stomp`에서 허용하지만, 유효한 STOMP `
 | CV-01 | 통과 | Controller→Service→Repository 책임 유지, 실시간 코드는 `chat.realtime`에 한정 |
 | CV-02 | 통과 | 기존 HTTP 계약 유지, STOMP 계약을 이 문서에 기록 |
 | CV-03 | 통과 | 커밋·롤백 단위 검증과 PostgreSQL 실제 저장·rollback 통합 검증 |
-| CV-04 | 통과 | 기존 Migration을 수정하지 않고 PostgreSQL 임시 스키마에 V1~V2 적용·정리 확인 |
+| CV-04 | 통과 | 기존 Migration을 수정하지 않고 PostgreSQL 임시 스키마에 현행 migration 전체 적용·정리 확인 |
 | CV-05 | 통과 | 토큰·본문 로그 없음, DTO `toString()` 본문 마스킹 유지, 테스트 fixture 격리 |
 | CV-06 | 통과 | `spotlessCheck`, 전체 `test`, `build` 통과. 원격 CI·PR은 미실행 |
 
@@ -95,7 +95,7 @@ HTTP handshake transport는 `/ws-stomp`에서 허용하지만, 유효한 STOMP `
 .\gradlew.bat spotlessCheck test build --rerun-tasks --no-build-cache
 ```
 
-- 결과: `BUILD SUCCESSFUL in 1m 30s`
+- 결과: main 병합 후 `BUILD SUCCESSFUL in 35s`
 - 실행 작업: `spotlessCheck`, 전체 `test`, `build`
 - 기본 전체 검증은 H2 경로를 사용했고, PostgreSQL 전용 통합 검증은 아래 명령으로 별도 강제 재실행했다.
 
@@ -121,7 +121,7 @@ $env:CHAT_REALTIME_TEST_DB_PASSWORD = '<local-test-password>'
 
 - 보강 착수 기준은 `feat/chat-api-namespace@59b3c1f`이며, `upstream/main@0c3f67b`을 작업 브랜치에 병합했다.
 - main의 인증 공개 경로와 `JwtEncoder` 변경을 그대로 보존하고 `/ws-stomp` 허용 경로만 함께 통합했다.
-- 실제 회원·판매글 Reader, 운영 JWT 계약, 공유 DB, 신규 ERD, 거래 상태 API 연결은 계속 외부 대기다.
+- main의 `JpaChatUserReader`와 임시 `JdbcChatListingReader`를 연결했다. 공개 판매글 스키마, 운영 JWT 계약, 신규 ERD, 거래 상태 API는 계속 외부 대기다.
 - 현재 모델은 전역 `messageId`와 별도 읽기 위치 테이블을 사용한다. 이를 신규 ERD 전환 완료로 보고하지 않는다.
 - HTTP 성공 코드·응답 래퍼·CSRF 차이는 기존 계약을 유지했다.
 - 브라우저 화면, HTTP 응답과 소켓 이벤트의 UI 중복 제거, 재연결·이력 복원은 후속 클라이언트 작업이다.
@@ -130,8 +130,8 @@ $env:CHAT_REALTIME_TEST_DB_PASSWORD = '<local-test-password>'
 
 | 대상 | 현재 연결점 | 필요한 결과물 | 재개 조건 |
 |---|---|---|---|
-| 회원 | `ChatUserReader` | 사용자 식별·닉네임 조회 구현 | 승인된 회원 모듈 제공 |
-| 판매글·제품 | `ChatListingReader` | 판매자·제품·소유자·상태·제목 조회 구현 | 승인된 조회 계약 제공 |
+| 회원 | `JpaChatUserReader` | 현재 `UserRepository` 닉네임 조회 연결 완료 | 운영 회원 정책 변경 시 재검증 |
+| 판매글·제품 | `JdbcChatListingReader` | 임시 `listing_drafts`·`products` 조회 연결 | 공개 판매글 스키마 확정 후 구현 교체 |
 | 인증 | HTTP Resource Server와 STOMP `JwtDecoder` | 최종 토큰 claim·세션·CSRF 계약 | 공통 보안 기준 확정 |
 | 공유 DB·신규 ERD | 기존 채팅 JPA 어댑터 | 승인 스키마·식별자 전환 기준 | 별도 DB/ERD 작업 승인 |
 | 거래 | 연결 없음 | 구매 요청·예약·취소·완료 계약 | 거래 담당 구현 제공 |
@@ -157,6 +157,6 @@ $env:CHAT_REALTIME_TEST_DB_PASSWORD = '<local-test-password>'
 
 ### 확인 사항
 
-- 실제 외부 Reader·운영 인증·공유 DB·신규 ERD·거래 연동은 별도 대기다.
+- 임시 판매글 Reader와 현재 회원 Reader는 연결됐으며, 운영 인증 계약·공개 판매글 스키마·신규 ERD·거래 연동은 별도 대기다.
 - 공통 보안 변경은 `/ws-stomp` handshake 허용 두 경로뿐이다.
 - 사람의 리뷰·원격 CI·승인·병합은 수행되지 않았다.

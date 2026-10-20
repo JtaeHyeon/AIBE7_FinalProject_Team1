@@ -48,6 +48,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -429,6 +430,7 @@ class ChatRealtimeIntegrationTest {
   static class FixtureConfig {
 
     @Bean
+    @Primary
     ChatListingReader chatListingReader() {
       return new ChatListingReader() {
         @Override
@@ -439,6 +441,7 @@ class ChatRealtimeIntegrationTest {
     }
 
     @Bean
+    @Primary
     ChatUserReader chatUserReader() {
       return userIds -> Map.of();
     }
