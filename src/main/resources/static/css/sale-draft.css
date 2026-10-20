@@ -20,4 +20,22 @@
 #sell .sl-grade button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 #sell .sl-bar .saved{line-height:1.6}
 #sell input:disabled,#sell textarea:disabled{background:var(--soft)}
+#sell .sl-draft-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:10px}
+#sell .sl-draft-item{border:1px solid var(--line);border-radius:8px;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+#sell .sl-draft-item.is-current{border-color:var(--blue);background:var(--soft)}
+#sell .sl-draft-info{min-width:0}
+#sell .sl-draft-info h3{margin:0;font-size:14px;overflow-wrap:anywhere}
+#sell .sl-draft-info p{margin:6px 0 0;font-size:12px;color:#73767d;line-height:1.6;overflow-wrap:anywhere}
+#sell .sl-draft-actions{display:flex;flex-wrap:wrap;gap:6px;flex-shrink:0}
+#sell .sl-draft-actions .sc-btn,#sell .sl-drafts .sl-section-head>.sc-btn{min-height:34px;padding:0 12px;font-size:12px}
+#sell .sl-draft-delete{color:#b42318;border-color:#efc4c0}
+#sell .sl-drafts-more{margin-top:12px;width:100%}
+#sell .sl-bar{flex-wrap:wrap;gap:8px}
+#sell .sl-bar .saved{flex:1 0 100%}
+#sell .sl-confirm{border:1px solid var(--line);border-radius:12px;padding:24px;width:min(440px,calc(100% - 32px));box-sizing:border-box;color:var(--ink);background:#fff}
+#sell .sl-confirm::backdrop{background:rgba(20,25,35,.4)}
+#sell .sl-confirm h2{margin:0;font-size:18px}
+#sell .sl-confirm p{margin:16px 0 24px;font-size:14px;line-height:1.7;white-space:pre-line}
+#sell .sl-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+@media(max-width:600px){#sell .sl-draft-item{align-items:flex-start;flex-direction:column}#sell .sl-draft-actions{width:100%}#sell .sl-draft-actions .sc-btn{flex:1}#sell .sl-bar .sc-btn{flex:1 1 130px}}
 @media(max-width:480px){#sell .sl-specs{grid-template-columns:1fr}#sell .sl-product{grid-template-columns:72px 1fr}#sell .sl-bar .sc-btn{flex:1;padding:0 10px}}

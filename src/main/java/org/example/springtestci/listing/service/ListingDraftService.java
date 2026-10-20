@@ -6,12 +6,15 @@ import java.util.List;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.DraftProductResponse;
+import org.example.springtestci.listing.dto.ListingDraftPageResponse;
 import org.example.springtestci.listing.dto.ListingDraftResponse;
 import org.example.springtestci.listing.dto.SaveListingDraftRequest;
 import org.example.springtestci.listing.entity.ListingDraft;
+import org.example.springtestci.listing.repository.ListingDraftQueryRepository;
 import org.example.springtestci.listing.repository.ListingDraftRepository;
 import org.example.springtestci.product.service.ProductService;
 import org.springframework.core.io.Resource;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +24,15 @@ public class ListingDraftService {
 
   private final ListingDraftRepository drafts;
   private final ProductService products;
+  private final ListingDraftQueryRepository draftQueries;
 
-  public ListingDraftService(ListingDraftRepository drafts, ProductService products) {
+  public ListingDraftService(
+      ListingDraftRepository drafts,
+      ProductService products,
+      ListingDraftQueryRepository draftQueries) {
     this.drafts = drafts;
     this.products = products;
+    this.draftQueries = draftQueries;
   }
 
   public List<DraftProductResponse> products(long userId) {
@@ -35,9 +43,66 @@ public class ListingDraftService {
     return DraftProductResponse.from(products.getForListing(userId, productId));
   }
 
+  public ListingDraftPageResponse list(long userId, int page, int size) {
+    return ListingDraftPageResponse.from(
+        draftQueries.findAvailableTo(userId, PageRequest.of(page, size)));
+  }
+
+  /** 소유권 이전·수정과 경합해도 검사한 소유권과 초안 내용을 같은 잠금 안에서 읽는다. */
   @Transactional
-  public SavedDraft save(long productId, long userId, SaveListingDraftRequest request) {
+  public ListingDraftResponse get(long productId, long userId) {
     products.lockOwnedForListing(userId, productId);
+    return ListingDraftResponse.from(ownedDraft(productId, userId));
+  }
+
+  @Transactional
+  public ListingDraftResponse save(long productId, long userId, SaveListingDraftRequest request) {
+    products.lockOwnedForListing(userId, productId);
+    if (request.version() != null || drafts.findByProductId(productId).isPresent()) {
+      throw new CommonException(ErrorCode.DRAFT_CONFLICT);
+    }
+    validateImages(productId, userId, request);
+    ListingDraft draft = new ListingDraft(productId, userId);
+    draft.replaceContent(request);
+    drafts.saveAndFlush(draft);
+    return ListingDraftResponse.from(draft);
+  }
+
+  @Transactional
+  public ListingDraftResponse update(
+      long productId, long draftId, long userId, SaveListingDraftRequest request) {
+    products.lockOwnedForListing(userId, productId);
+    ListingDraft draft = ownedDraft(productId, userId);
+    requireCurrentVersion(draft, draftId, request.version());
+    validateImages(productId, userId, request);
+    draft.replaceContent(request);
+    drafts.saveAndFlush(draft);
+    return ListingDraftResponse.from(draft);
+  }
+
+  @Transactional
+  public void delete(long productId, long draftId, long userId, long version) {
+    products.lockOwnedForListing(userId, productId);
+    ListingDraft draft = ownedDraft(productId, userId);
+    requireCurrentVersion(draft, draftId, version);
+    drafts.delete(draft);
+    drafts.flush();
+  }
+
+  private ListingDraft ownedDraft(long productId, long userId) {
+    return drafts
+        .findByProductId(productId)
+        .filter(draft -> draft.getAuthorId() == userId)
+        .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+  }
+
+  private void requireCurrentVersion(ListingDraft draft, long draftId, Long version) {
+    if (draft.getId() != draftId || version == null || !version.equals(draft.getVersion())) {
+      throw new CommonException(ErrorCode.DRAFT_CONFLICT);
+    }
+  }
+
+  private void validateImages(long productId, long userId, SaveListingDraftRequest request) {
     List<Long> imageIds = request.imageIds();
     if (new HashSet<>(imageIds).size() != imageIds.size())
       throw new CommonException(ErrorCode.INVALID_INPUT);
@@ -47,28 +112,12 @@ public class ListingDraftService {
         .images()
         .forEach(image -> allowed.add(image.imageId()));
     if (!allowed.containsAll(imageIds)) throw new CommonException(ErrorCode.INVALID_INPUT);
-
-    ListingDraft draft = drafts.findByProductId(productId).orElse(null);
-    boolean created = draft == null;
-    if (created) {
-      if (request.version() != null) throw new CommonException(ErrorCode.DRAFT_CONFLICT);
-      draft = new ListingDraft(productId, userId);
-    } else {
-      if (draft.getAuthorId() != userId) throw new CommonException(ErrorCode.DRAFT_CONFLICT);
-      if (request.version() == null || !request.version().equals(draft.getVersion()))
-        throw new CommonException(ErrorCode.DRAFT_CONFLICT);
-    }
-    draft.replaceContent(request);
-    drafts.saveAndFlush(draft);
-    return new SavedDraft(ListingDraftResponse.from(draft), created);
   }
 
   public DraftImage image(long productId, long imageId, long userId) throws IOException {
     var image = products.image(userId, productId, imageId);
     return new DraftImage(image.resource(), image.contentType());
   }
-
-  public record SavedDraft(ListingDraftResponse draft, boolean created) {}
 
   public record DraftImage(Resource resource, String contentType) {}
 }
