@@ -15,6 +15,7 @@ public record CreateProductRequest(
     @NotBlank @Size(max = 100) String modelName,
     LocalDate purchaseDate,
     LocalDate warrantyExpiresAt,
+    @Size(max = 500) String warrantyTerms,
     @NotBlank @Size(min = 4, max = 64) String serialNumber,
     @Valid Specifications specifications) {
 

@@ -4,8 +4,12 @@ CREATE TABLE products (
     category VARCHAR(30) NOT NULL DEFAULT 'LAPTOP',
     title VARCHAR(200) NOT NULL, manufacturer VARCHAR(100) NOT NULL,
     model_name VARCHAR(100) NOT NULL, purchase_date DATE, warranty_expires_at DATE,
+    serial_number_fingerprint VARCHAR(64) NOT NULL,
+    serial_number_ciphertext VARCHAR(512) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    archived_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    archived_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT uk_products_serial_number_fingerprint UNIQUE (serial_number_fingerprint)
 );
 CREATE TABLE laptop_details (
     product_id BIGINT PRIMARY KEY REFERENCES products(id),
@@ -23,12 +27,14 @@ CREATE TABLE product_events (
     visibility VARCHAR(20) NOT NULL DEFAULT 'PRIVATE'
 );
 CREATE TABLE listings (id BIGINT PRIMARY KEY, product_id BIGINT, status VARCHAR(20));
-INSERT INTO products (id, owner_id, title, manufacturer, model_name, purchase_date, warranty_expires_at) VALUES
-    (101, 1, 'MacBook Pro 14 M3 Pro', 'Apple', 'MacBook Pro 14', DATE '2024-02-12', DATE '2027-02-12'),
-    (102, 1, 'ThinkPad X1 Carbon', 'Lenovo', 'ThinkPad X1 Carbon Gen 12', DATE '2025-03-15', DATE '2028-03-15'),
-    (201, 2, '다른 소유자의 노트북', 'Samsung', 'Galaxy Book', DATE '2025-01-01', NULL);
-INSERT INTO products (id, owner_id, title, manufacturer, model_name, archived_at)
-    VALUES (103, 1, '보관된 제품', 'LG', 'Gram', CURRENT_TIMESTAMP);
+INSERT INTO products (id, owner_id, title, manufacturer, model_name, purchase_date,
+    warranty_expires_at, serial_number_fingerprint, serial_number_ciphertext) VALUES
+    (101, 1, 'MacBook Pro 14 M3 Pro', 'Apple', 'MacBook Pro 14', DATE '2024-02-12', DATE '2027-02-12', 'demo-101', 'demo-cipher-101'),
+    (102, 1, 'ThinkPad X1 Carbon', 'Lenovo', 'ThinkPad X1 Carbon Gen 12', DATE '2025-03-15', DATE '2028-03-15', 'demo-102', 'demo-cipher-102'),
+    (201, 2, '다른 소유자의 노트북', 'Samsung', 'Galaxy Book', DATE '2025-01-01', NULL, 'demo-201', 'demo-cipher-201');
+INSERT INTO products (id, owner_id, title, manufacturer, model_name, archived_at,
+    serial_number_fingerprint, serial_number_ciphertext)
+    VALUES (103, 1, '보관된 제품', 'LG', 'Gram', CURRENT_TIMESTAMP, 'demo-103', 'demo-cipher-103');
 INSERT INTO laptop_details (product_id, cpu_spec, ram_gb, storage_gb, storage_type, display_spec, battery_health_percent, os_name) VALUES
     (101, 'Apple M3 Pro', 18, 512, 'SSD', '14인치', 92, 'macOS'),
     (102, 'Intel Core Ultra 7', 32, 1024, 'SSD', '14인치', NULL, 'Windows 11');
