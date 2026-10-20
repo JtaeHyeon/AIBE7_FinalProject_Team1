@@ -155,6 +155,29 @@ class ListingDraftHttpTest {
   }
 
   @Test
+  void anInvalidAccessCookieDoesNotBlockPagesButIsRejectedForApiRequests() throws Exception {
+    String cookie = "access_token=not-a-valid-token";
+
+    var page =
+        HTTP.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/"))
+                .header("Cookie", cookie)
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    var api =
+        HTTP.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/api/auth/me"))
+                .header("Cookie", cookie)
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+
+    assertEquals(200, page.statusCode());
+    assertEquals(401, api.statusCode());
+  }
+
+  @Test
   void issuesTheCsrfCookieWhenAPageIsFirstLoaded() throws Exception {
     var response =
         HTTP.send(

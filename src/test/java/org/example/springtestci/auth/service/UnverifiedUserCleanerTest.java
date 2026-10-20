@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.util.List;
 import org.example.springtestci.auth.entity.User;
 import org.example.springtestci.auth.entity.UserRole;
 import org.example.springtestci.auth.repository.UserRepository;
+import org.example.springtestci.common.audit.BaseTimeEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,6 +70,59 @@ class UnverifiedUserCleanerTest {
 
     assertTrue(clicked.isEmailVerified());
     verify(userRepository, never()).delete(clicked);
+  }
+
+  @Test
+  void keepsAnAccountWhoseLinkWasResentWithinTheWaitingPeriod() {
+    User resent = new User("resent@example.com", "hash", "기록왕", UserRole.USER);
+    when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
+            NOW.minus(Duration.ofMinutes(30))))
+        .thenReturn(List.of(resent));
+    when(emailVerificationService.checkVerification("resent@example.com"))
+        .thenReturn(VerificationStatus.UNCONFIRMED);
+    when(emailVerificationService.linkSentWithin("resent@example.com", Duration.ofMinutes(30)))
+        .thenReturn(true);
+
+    cleaner.deleteExpired();
+
+    verify(userRepository, never()).delete(resent);
+    verify(emailVerificationService, never()).discard("resent@example.com");
+  }
+
+  @Test
+  void deletesAnOldAccountWhosePendingRecordHasExpired() throws Exception {
+    User old = createdAt("old@example.com", NOW.minus(Duration.ofHours(2)));
+    when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
+            NOW.minus(Duration.ofMinutes(30))))
+        .thenReturn(List.of(old));
+    when(emailVerificationService.checkVerification("old@example.com"))
+        .thenReturn(VerificationStatus.EXPIRED);
+
+    cleaner.deleteExpired();
+
+    verify(userRepository).delete(old);
+  }
+
+  @Test
+  void keepsARecentAccountWhosePendingRecordIsMissing() throws Exception {
+    User recent = createdAt("recent@example.com", NOW.minus(Duration.ofMinutes(40)));
+    when(userRepository.findByEmailVerifiedFalseAndCreatedAtBefore(
+            NOW.minus(Duration.ofMinutes(30))))
+        .thenReturn(List.of(recent));
+    when(emailVerificationService.checkVerification("recent@example.com"))
+        .thenReturn(VerificationStatus.EXPIRED);
+
+    cleaner.deleteExpired();
+
+    verify(userRepository, never()).delete(recent);
+  }
+
+  private static User createdAt(String email, Instant createdAt) throws Exception {
+    User user = new User(email, "hash", "기록왕", UserRole.USER);
+    Field field = BaseTimeEntity.class.getDeclaredField("createdAt");
+    field.setAccessible(true);
+    field.set(user, createdAt);
+    return user;
   }
 
   @Test

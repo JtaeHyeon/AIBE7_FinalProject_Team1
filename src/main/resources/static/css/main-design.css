@@ -29,7 +29,7 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .lp-hot button:hover{background:var(--blue)}
 .lp-how{background:#fff;border:1px solid var(--line);border-radius:8px}
 .lp-how-grid b{border-radius:6px;background:var(--blue)}
-.mk-head h1{font-size:26px}
+.mk-head h1{font-size:28px}
 .chip-btn{height:36px;border-radius:4px}
 .chip-btn.active{background:var(--blue);border-color:var(--blue)}
 .mk-layout{grid-template-columns:1fr;gap:18px}
@@ -70,3 +70,37 @@ body,body:has(#landing.active){background:var(--canvas);font-family:"Pretendard 
 .mp-link b{font-size:15px;letter-spacing:-.5px}.mp-link small{font-size:12px;color:#62646a}
 @media(max-width:780px){.mp-profile{flex-wrap:wrap}.mp-menu{grid-template-columns:1fr}}
 [data-match]{min-height:16px;color:#62646a}[data-match].ok{color:#0d7c7a}[data-match].bad{color:#b70f28}
+/* 페이지 제목 크기를 화면마다 같게 맞춘다 */
+.page-title h1,.handover-title h1,.mk-head h1,.sc-head h1{font-size:28px;letter-spacing:-1.4px}
+@media(max-width:780px){.page-title h1,.handover-title h1,.mk-head h1,.sc-head h1{font-size:22px}}
+
+/* 내 제품·제품 여권·새 제품 등록·소유권 이전 화면의 글씨를 다른 화면(판매글·내 거래 등)과 같은 크기 체계로 맞춘다 */
+.page-title p,.handover-title p,.passport-top p{font-size:13px}
+.page-title .back{font-size:12px}
+.button{font-size:13px;padding:10px 16px}
+.button.small{font-size:12px;padding:7px 12px}
+.sum span,.sum em{font-size:12px}
+.sum strong{font-size:24px}
+.section-head h2,.handover-panel h2,.form-card h3,.upload-card h3{font-size:16px}
+.eyebrow,.meta,.chip,.product-action button{font-size:12px}
+.product h3{font-size:15px}
+.mini-device,.side-menu button{font-size:13px}
+.mini-device strong{font-size:13px}
+.passport-top h2{font-size:20px}
+.timeline h3,.info-card h3,.ai-card h3{font-size:14px}
+.event .date,.event p,.info-row,.bubble{font-size:12px}
+.event strong{font-size:13px}
+.register-bar,.handover-bar,.steps{font-size:13px}
+.step .num{font-size:11px}
+.field label{font-size:12px}
+.field input{font-size:13px;height:36px;padding:0 10px}
+.drop,.doc-preview{font-size:12px}
+.drop{height:96px}
+.transfer-product strong{font-size:14px}
+.transfer-product span{font-size:12px}
+.check-title{font-size:13px}
+.check-line,.qr-copy{font-size:12px}
+.check-line::before{width:14px;height:14px;font-size:9px}
+.doc-preview{display:flow-root;padding:12px;line-height:1.7}
+.drop{align-content:center;gap:4px}
+.search{height:36px;width:240px;font-size:13px;padding:0 12px}

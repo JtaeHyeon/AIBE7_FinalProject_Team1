@@ -47,9 +47,20 @@ public class UnverifiedUserCleaner {
         user.markEmailVerified();
         continue;
       }
-      // 조회 실패나 대기 기록 만료로 확인 여부를 알 수 없으면, 인증을 마친 계정을 잃지 않도록 다음 주기에 다시 확인한다.
+      // 조회에 실패해 확인 여부를 알 수 없으면, 인증을 마친 계정을 잃지 않도록 다음 주기에 다시 확인한다.
       if (status == VerificationStatus.UNKNOWN) {
         log.warn("이메일 확인 여부를 알 수 없어 계정 삭제를 건너뜁니다: userId={}", user.getId());
+        continue;
+      }
+      // 인증 메일을 다시 보냈다면 그 시점부터 다시 기다린다.
+      if (status == VerificationStatus.UNCONFIRMED
+          && emailVerificationService.linkSentWithin(user.getEmail(), ttl)) {
+        continue;
+      }
+      // 대기 기록이 만료됐어도 가입 직후라면 확인할 기회가 남았을 수 있어 기록 보관 시간이 지난 뒤에만 지운다.
+      if (status == VerificationStatus.EXPIRED
+          && user.getCreatedAt()
+              .isAfter(clock.instant().minus(EmailVerificationService.PENDING_TTL))) {
         continue;
       }
       emailVerificationService.discard(user.getEmail());

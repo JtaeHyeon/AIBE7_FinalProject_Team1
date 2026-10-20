@@ -53,6 +53,21 @@ class EmailVerificationServiceTest {
   }
 
   @Test
+  void sendLinkResendsTheMailInsteadOfSigningUpAgainWhenAPendingAccountExists() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+        .thenReturn(true);
+    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
+
+    service.sendLink("user@example.com");
+
+    verify(supabase).resend("user@example.com");
+    verify(supabase, never()).signUp(anyString());
+    verify(valueOperations, never()).set(anyString(), anyString(), any(Duration.class));
+    verify(redisTemplate).expire("auth:email:pending:user@example.com", Duration.ofHours(1));
+  }
+
+  @Test
   void sendLinkWithinTheCooldownIsRejected() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
@@ -143,6 +158,34 @@ class EmailVerificationServiceTest {
 
     assertFalse(service.confirmIfVerified("user@example.com"));
     verify(supabase, never()).confirmationStatus(anyString());
+  }
+
+  @Test
+  void checkVerificationIsExpiredOnceThePendingRecordIsGone() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn(null);
+
+    assertEquals(VerificationStatus.EXPIRED, service.checkVerification("user@example.com"));
+  }
+
+  @Test
+  void checkVerificationIsUnknownWhenSupabaseCannotBeQueried() {
+    when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    when(valueOperations.get("auth:email:pending:user@example.com")).thenReturn("sb-1");
+    when(supabase.confirmationStatus("sb-1")).thenReturn(VerificationStatus.UNKNOWN);
+
+    assertEquals(VerificationStatus.UNKNOWN, service.checkVerification("user@example.com"));
+  }
+
+  @Test
+  void linkSentWithinIsTrueOnlyWhileTheRecordWasRefreshedRecently() {
+    when(redisTemplate.getExpire("auth:email:pending:user@example.com"))
+        .thenReturn(2400L, 1200L, null);
+
+    // 남은 40분 = 20분 전에 보냄, 남은 20분 = 40분 전에 보냄
+    assertTrue(service.linkSentWithin("user@example.com", Duration.ofMinutes(30)));
+    assertFalse(service.linkSentWithin("user@example.com", Duration.ofMinutes(30)));
+    assertFalse(service.linkSentWithin("user@example.com", Duration.ofMinutes(30)));
   }
 
   @Test

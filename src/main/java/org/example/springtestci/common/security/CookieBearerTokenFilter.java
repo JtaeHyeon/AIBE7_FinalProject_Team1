@@ -33,6 +33,10 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
     if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
       return null;
     }
+    // 화면과 정적 파일은 인증이 필요 없으므로, 잘못된 쿠키가 남아 있어도 막히지 않게 API 요청에만 쓴다.
+    if (!request.getRequestURI().startsWith("/api/")) {
+      return null;
+    }
     // 로그인·갱신·로그아웃은 만료되거나 잘못된 쿠키가 남아 있어도 막히지 않아야 한다.
     if ("POST".equals(request.getMethod()) && request.getRequestURI().startsWith("/api/auth/")) {
       return null;

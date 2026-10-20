@@ -2,6 +2,7 @@ package org.example.springtestci.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
@@ -65,6 +66,35 @@ class SupabaseAuthClientTest {
 
     assertEquals(ErrorCode.EMAIL_SEND_FAILED, exception.errorCode());
     server.verify();
+  }
+
+  @Test
+  void resendAsksSupabaseToMailTheExistingAccountAgain() {
+    server
+        .expect(requestTo(URL + "/auth/v1/resend"))
+        .andExpect(method(HttpMethod.POST))
+        .andExpect(content().json("{\"type\":\"signup\",\"email\":\"user@example.com\"}"))
+        .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+    client.resend("user@example.com");
+    server.verify();
+  }
+
+  @Test
+  void resendMapsFailuresTheSameWayAsSignUp() {
+    server
+        .expect(requestTo(URL + "/auth/v1/resend"))
+        .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+    server
+        .expect(requestTo(URL + "/auth/v1/resend"))
+        .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+    assertEquals(
+        ErrorCode.TOO_MANY_REQUESTS,
+        assertThrows(CommonException.class, () -> client.resend("user@example.com")).errorCode());
+    assertEquals(
+        ErrorCode.EMAIL_SEND_FAILED,
+        assertThrows(CommonException.class, () -> client.resend("user@example.com")).errorCode());
   }
 
   @Test

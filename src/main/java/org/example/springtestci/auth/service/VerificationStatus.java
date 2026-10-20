@@ -4,5 +4,7 @@ package org.example.springtestci.auth.service;
 public enum VerificationStatus {
   CONFIRMED,
   UNCONFIRMED,
-  UNKNOWN
+  UNKNOWN,
+  /** 대기 기록이 만료돼 더 이상 확인할 수 없다. */
+  EXPIRED
 }

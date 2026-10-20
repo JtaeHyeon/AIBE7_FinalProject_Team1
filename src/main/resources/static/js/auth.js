@@ -126,7 +126,7 @@ const auth = (() => {
       form.elements.password.value = '';
       message(form, '');
       setSession(data);
-      goto('home');
+      goto('landing');
     } catch (error) {
       form.elements.password.value = '';
       message(form, error.message);

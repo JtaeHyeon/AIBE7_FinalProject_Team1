@@ -61,16 +61,43 @@ public class SupabaseAuthClient {
         throw new CommonException(ErrorCode.EMAIL_SEND_FAILED);
       }
       return userId;
-    } catch (RestClientResponseException exception) {
-      log.warn("Supabase 가입 요청 실패: status={}", exception.getStatusCode().value());
-      throw new CommonException(
-          exception.getStatusCode().value() == 429
-              ? ErrorCode.TOO_MANY_REQUESTS
-              : ErrorCode.EMAIL_SEND_FAILED);
     } catch (RestClientException exception) {
-      log.warn("Supabase에 연결하지 못했습니다: {}", exception.getClass().getSimpleName());
+      throw sendFailure(exception);
+    }
+  }
+
+  /**
+   * 이미 만든 임시 계정으로 확인 메일을 다시 보낸다. 가입 API를 다시 부르면 이메일 열거 방지 설정 때문에 다른 id가 돌아와 기존 임시 계정을 잃을 수 있어 쓰지
+   * 않는다.
+   */
+  public void resend(String email) {
+    if (!configured) {
+      log.error("SUPABASE_URL과 SUPABASE_SECRET 설정이 없거나 올바르지 않아 인증 메일을 보낼 수 없습니다.");
       throw new CommonException(ErrorCode.EMAIL_SEND_FAILED);
     }
+    try {
+      supabaseAuthRestClient
+          .post()
+          .uri("/resend")
+          .contentType(MediaType.APPLICATION_JSON)
+          .body(Map.of("type", "signup", "email", email))
+          .retrieve()
+          .toBodilessEntity();
+    } catch (RestClientException exception) {
+      throw sendFailure(exception);
+    }
+  }
+
+  private static CommonException sendFailure(RestClientException exception) {
+    if (exception instanceof RestClientResponseException responseException) {
+      log.warn("Supabase 메일 요청 실패: status={}", responseException.getStatusCode().value());
+      return new CommonException(
+          responseException.getStatusCode().value() == 429
+              ? ErrorCode.TOO_MANY_REQUESTS
+              : ErrorCode.EMAIL_SEND_FAILED);
+    }
+    log.warn("Supabase에 연결하지 못했습니다: {}", exception.getClass().getSimpleName());
+    return new CommonException(ErrorCode.EMAIL_SEND_FAILED);
   }
 
   /** 메일의 링크를 눌러 이메일이 확인됐는지 조회한다. 조회에 실패하면 확인 여부를 알 수 없으므로 UNKNOWN을 돌려준다. */
