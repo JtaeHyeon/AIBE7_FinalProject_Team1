@@ -34,6 +34,7 @@ public class AuthService {
   private final AccessTokenBlocklist accessTokenBlocklist;
   private final String dummyHash;
 
+  /** 회원, 토큰, 이메일 인증, 로그인 제한에 필요한 구성 요소를 주입받는다. */
   public AuthService(
       UserRepository userRepository,
       PasswordEncoder passwordEncoder,
@@ -54,6 +55,7 @@ public class AuthService {
     this.dummyHash = passwordEncoder.encode(DUMMY_PASSWORD);
   }
 
+  /** 회원가입한다. 이메일과 닉네임 중복을 거부하고 인증 메일을 보낸다. */
   @Transactional
   public UserResponse signup(SignupRequest request) {
     String email = normalizeEmail(request.email());
@@ -83,6 +85,7 @@ public class AuthService {
     return UserResponse.from(saved);
   }
 
+  /** 로그인한다. 제한 중이면 거부하고, 실패는 기록하며, 미인증 계정은 인증 여부를 확인한 뒤에만 허용한다. */
   @Transactional
   public AuthTokens login(LoginRequest request, String clientIp) {
     String email = normalizeEmail(request.email());
@@ -137,6 +140,7 @@ public class AuthService {
     }
   }
 
+  /** 회원 id로 내 정보를 조회한다. */
   @Transactional(readOnly = true)
   public UserResponse getMe(long userId) {
     return userRepository
@@ -145,6 +149,7 @@ public class AuthService {
         .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
   }
 
+  /** Access Token과 Refresh Token을 새로 발급한다. */
   private AuthTokens issueTokens(User user) {
     return new AuthTokens(
         jwtTokenProvider.createAccessToken(user),
@@ -153,6 +158,7 @@ public class AuthService {
         UserResponse.from(user));
   }
 
+  /** 공백과 대소문자 차이로 같은 이메일이 다르게 취급되지 않게 정규화한다. */
   static String normalizeEmail(String email) {
     return email.trim().toLowerCase(Locale.ROOT);
   }

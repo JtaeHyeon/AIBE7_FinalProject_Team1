@@ -127,6 +127,7 @@ class ListingDraftHttpTest {
     assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
   }
 
+  /** 쿠키 인증은 CSRF 토큰이 일치할 때만 쓰기 요청을 허용한다. */
   @Test
   void acceptsTheAccessTokenFromAnHttpOnlyCookieOnlyWithAMatchingCsrfToken() throws Exception {
     String path = "/api/v1/products/101/listing-draft";
@@ -137,6 +138,7 @@ class ListingDraftHttpTest {
     assertEquals(201, sendWithCookie(path, cookie, "csrf-value").statusCode());
   }
 
+  /** 인증 API의 쓰기 요청도 CSRF 토큰이 필요하다. */
   @Test
   void authEndpointsAlsoRequireACsrfTokenForStateChangingRequests() throws Exception {
     String cookie = "XSRF-TOKEN=csrf-value";
@@ -154,6 +156,7 @@ class ListingDraftHttpTest {
     assertTrue(cleared.stream().anyMatch(value -> value.startsWith("refresh_token=;")));
   }
 
+  /** 잘못된 Access Token 쿠키는 화면 로딩을 막지 않고 API 요청에서만 거부한다. */
   @Test
   void anInvalidAccessCookieDoesNotBlockPagesButIsRejectedForApiRequests() throws Exception {
     String cookie = "access_token=not-a-valid-token";
@@ -177,6 +180,7 @@ class ListingDraftHttpTest {
     assertEquals(401, api.statusCode());
   }
 
+  /** 화면을 처음 받을 때 CSRF 쿠키를 내려준다. */
   @Test
   void issuesTheCsrfCookieWhenAPageIsFirstLoaded() throws Exception {
     var response =
@@ -267,6 +271,7 @@ class ListingDraftHttpTest {
             .statusCode());
   }
 
+  /** 로그인과 현재 소유자 여부를 확인한다. */
   @Test
   void requiresAuthenticationAndTheCurrentOwner() throws Exception {
     // CSRF 토큰은 맞지만 로그인하지 않은 요청
@@ -425,6 +430,7 @@ class ListingDraftHttpTest {
     return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
   }
 
+  /** 쿠키와 CSRF 헤더를 직접 지정해 POST 요청을 보낸다. */
   private static HttpResponse<String> sendWithCookie(String path, String cookie, String csrfHeader)
       throws Exception {
     var request =

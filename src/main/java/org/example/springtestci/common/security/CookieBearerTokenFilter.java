@@ -21,6 +21,7 @@ import org.springframework.web.util.WebUtils;
  */
 class CookieBearerTokenFilter extends OncePerRequestFilter {
 
+  /** 쿠키에 토큰이 있으면 Authorization 헤더가 있는 요청으로 바꿔 다음 필터에 넘긴다. */
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -29,6 +30,7 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
     chain.doFilter(token == null ? request : new BearerRequest(request, token), response);
   }
 
+  /** 쿠키 토큰을 쓸 요청이면 그 값을, 아니면 null을 돌려준다. API 요청에만 쓴다. */
   private static String cookieToken(HttpServletRequest request) {
     if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
       return null;
@@ -49,11 +51,13 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
 
     private final String authorization;
 
+    /** 쿠키에서 꺼낸 토큰으로 Authorization 헤더를 덧붙인 요청을 만든다. */
     BearerRequest(HttpServletRequest request, String token) {
       super(request);
       this.authorization = "Bearer " + token;
     }
 
+    /** Authorization 헤더는 쿠키에서 만든 값으로 응답한다. */
     @Override
     public String getHeader(String name) {
       return HttpHeaders.AUTHORIZATION.equalsIgnoreCase(name)
@@ -61,6 +65,7 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
           : super.getHeader(name);
     }
 
+    /** Authorization 헤더 값 목록에 쿠키에서 만든 값을 쓴다. */
     @Override
     public Enumeration<String> getHeaders(String name) {
       return HttpHeaders.AUTHORIZATION.equalsIgnoreCase(name)
@@ -68,6 +73,7 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
           : super.getHeaders(name);
     }
 
+    /** 헤더 이름 목록에 Authorization을 포함한다. */
     @Override
     public Enumeration<String> getHeaderNames() {
       Set<String> names = new LinkedHashSet<>(Collections.list(super.getHeaderNames()));

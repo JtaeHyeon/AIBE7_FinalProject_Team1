@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 @EnableConfigurationProperties(SupabaseProperties.class)
 public class SupabaseConfig {
 
+  /** Supabase Auth 호출에 쓰는 RestClient를 만든다. 비밀 키는 서버에서만 쓴다. */
   @Bean
   RestClient supabaseAuthRestClient(SupabaseProperties properties) {
     JdkClientHttpRequestFactory requestFactory =

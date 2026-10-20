@@ -27,6 +27,7 @@ class SupabaseAuthClientTest {
   private MockRestServiceServer server;
   private SupabaseAuthClient client;
 
+  /** 테스트마다 가짜 서버에 연결한 클라이언트를 만든다. */
   @BeforeEach
   void setUp() {
     RestClient.Builder builder = RestClient.builder().baseUrl(URL + "/auth/v1");
@@ -34,6 +35,7 @@ class SupabaseAuthClientTest {
     client = new SupabaseAuthClient(builder.build(), new SupabaseProperties(URL, "secret"));
   }
 
+  /** 확인 메일이 나가면 사용자 id를 돌려준다. */
   @Test
   void signUpReturnsTheUserIdWhenAConfirmationMailWasSent() {
     server
@@ -48,6 +50,7 @@ class SupabaseAuthClientTest {
     server.verify();
   }
 
+  /** 메일 없이 바로 인증되는 설정이면 거절하고 임시 계정을 지운다. */
   @Test
   void signUpRefusesWhenSupabaseConfirmsTheEmailWithoutAMail() {
     server
@@ -68,6 +71,7 @@ class SupabaseAuthClientTest {
     server.verify();
   }
 
+  /** 기존 계정으로 확인 메일을 다시 보내 달라고 요청한다. */
   @Test
   void resendAsksSupabaseToMailTheExistingAccountAgain() {
     server
@@ -80,6 +84,7 @@ class SupabaseAuthClientTest {
     server.verify();
   }
 
+  /** 재발송 실패도 가입과 같은 방식으로 오류를 구분한다. */
   @Test
   void resendMapsFailuresTheSameWayAsSignUp() {
     server
@@ -97,6 +102,7 @@ class SupabaseAuthClientTest {
         assertThrows(CommonException.class, () -> client.resend("user@example.com")).errorCode());
   }
 
+  /** 요청 한도 초과(429)를 횟수 제한 오류로 바꾼다. */
   @Test
   void signUpMapsARateLimitToTooManyRequests() {
     server
@@ -109,6 +115,7 @@ class SupabaseAuthClientTest {
     assertEquals(ErrorCode.TOO_MANY_REQUESTS, exception.errorCode());
   }
 
+  /** 설정이 없으면 메일 발송 실패로 분명히 실패한다. */
   @Test
   void signUpFailsClearlyWhenSupabaseIsNotConfigured() {
     SupabaseAuthClient unconfigured =
@@ -120,6 +127,7 @@ class SupabaseAuthClientTest {
     assertEquals(ErrorCode.EMAIL_SEND_FAILED, exception.errorCode());
   }
 
+  /** 인증 시각이 있으면 확인됨, 없으면 미확인으로 본다. */
   @Test
   void confirmationStatusReflectsEmailConfirmedAt() {
     server
@@ -138,6 +146,7 @@ class SupabaseAuthClientTest {
     assertEquals(VerificationStatus.UNCONFIRMED, client.confirmationStatus("sb-2"));
   }
 
+  /** 조회에 실패하면 알 수 없음으로 본다. */
   @Test
   void confirmationStatusIsUnknownWhenSupabaseCannotBeQueried() {
     server
@@ -147,6 +156,7 @@ class SupabaseAuthClientTest {
     assertEquals(VerificationStatus.UNKNOWN, client.confirmationStatus("sb-1"));
   }
 
+  /** 임시 계정 삭제는 실패해도 예외를 던지지 않는다. */
   @Test
   void deleteUserNeverThrows() {
     server

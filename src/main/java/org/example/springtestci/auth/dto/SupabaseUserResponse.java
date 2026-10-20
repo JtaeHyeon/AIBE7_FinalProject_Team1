@@ -11,6 +11,7 @@ public record SupabaseUserResponse(
     @JsonProperty("access_token") String accessToken,
     SupabaseUserResponse user) {
 
+  /** 응답 형태와 관계없이 Supabase 사용자 id를 꺼낸다. 없으면 null이다. */
   public String userId() {
     return id != null ? id : user != null ? user.id() : null;
   }

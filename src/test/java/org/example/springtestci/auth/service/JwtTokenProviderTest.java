@@ -24,6 +24,7 @@ class JwtTokenProviderTest {
 
   private static final String SECRET = "test-secret-test-secret-test-secret-1234";
 
+  /** HS256 토큰을 발급하고 디코더가 받아들이며, 토큰마다 jti가 다르다. */
   @Test
   void issuesAnHs256TokenThatTheResourceServerDecoderAccepts() throws Exception {
     SecretKey key = new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
@@ -51,6 +52,7 @@ class JwtTokenProviderTest {
     assertEquals(900L, provider.accessTokenExpiresInSeconds());
   }
 
+  /** id를 지정한 테스트용 회원을 만든다. */
   private static User user(long id) throws Exception {
     User user = new User("user@example.com", "hashed", "기록왕", UserRole.USER);
     Field idField = User.class.getDeclaredField("id");

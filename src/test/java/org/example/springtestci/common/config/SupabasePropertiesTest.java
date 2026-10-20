@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 class SupabasePropertiesTest {
 
+  /** 프로젝트 주소와 비밀 키가 모두 있어야 설정된 것으로 본다. */
   @Test
   void isConfiguredOnlyWithAProjectUrlAndASecret() {
     assertTrue(new SupabaseProperties("https://abc.supabase.co", "secret").configured());
@@ -17,6 +18,7 @@ class SupabasePropertiesTest {
     assertFalse(new SupabaseProperties("sb_publishable_abc", "secret").configured());
   }
 
+  /** 주소 끝의 슬래시와 REST 경로를 제거한다. */
   @Test
   void baseUrlDropsTrailingSlashesAndTheRestPath() {
     assertEquals(

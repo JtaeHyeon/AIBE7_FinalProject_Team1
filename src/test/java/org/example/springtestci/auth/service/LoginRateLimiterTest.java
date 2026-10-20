@@ -30,12 +30,14 @@ class LoginRateLimiterTest {
 
   private LoginRateLimiter limiter;
 
+  /** 테스트마다 가짜 Redis로 제한기를 만든다. */
   @BeforeEach
   void setUp() {
     limiter = new LoginRateLimiter(redisTemplate);
     lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
   }
 
+  /** 실패 횟수가 한도 아래면 허용한다. */
   @Test
   void allowsLoginsBelowTheFailureLimit() {
     when(valueOperations.get(EMAIL_KEY)).thenReturn("4");
@@ -44,6 +46,7 @@ class LoginRateLimiterTest {
     assertDoesNotThrow(() -> limiter.checkAllowed("user@example.com", "10.0.0.1"));
   }
 
+  /** 이메일이 너무 자주 실패하면 거부하고 다시 시도할 시점을 알린다. */
   @Test
   void rejectsAnEmailThatFailedTooManyTimesAndTellsWhenToRetry() {
     when(valueOperations.get(EMAIL_KEY)).thenReturn("5");
@@ -57,6 +60,7 @@ class LoginRateLimiterTest {
     assertEquals(Duration.ofSeconds(600), exception.retryAfter());
   }
 
+  /** 여러 계정에 걸쳐 너무 자주 실패한 IP를 거부한다. */
   @Test
   void rejectsAnIpThatFailedTooManyTimesAcrossAccounts() {
     when(valueOperations.get(EMAIL_KEY)).thenReturn(null);
@@ -70,6 +74,7 @@ class LoginRateLimiterTest {
     assertEquals(Duration.ofMinutes(15), exception.retryAfter());
   }
 
+  /** 제한 시간은 첫 실패에서만 시작한다. */
   @Test
   void startsTheWindowOnTheFirstFailureOnly() {
     when(valueOperations.increment(EMAIL_KEY)).thenReturn(1L);
@@ -81,6 +86,7 @@ class LoginRateLimiterTest {
     verify(redisTemplate, never()).expire(IP_KEY, Duration.ofMinutes(15));
   }
 
+  /** 초기화는 이메일 횟수만 지운다. */
   @Test
   void resetClearsOnlyTheEmailCounter() {
     limiter.reset("user@example.com");

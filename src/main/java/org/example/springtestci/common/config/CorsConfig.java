@@ -12,6 +12,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableConfigurationProperties(CorsProperties.class)
 public class CorsConfig {
 
+  /** 허용한 출처에서 쿠키와 CSRF 헤더를 포함한 요청을 받도록 CORS를 설정한다. */
   @Bean
   CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
     CorsConfiguration configuration = new CorsConfiguration();

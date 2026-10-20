@@ -4,20 +4,24 @@ const auth = (() => {
   const EMAIL_KEY = 'savedEmail';
   let user = null;
 
+  /** 저장소를 쓸 수 없는 환경에서도 예외 없이 동작하는 localStorage 래퍼. */
   const safeStorage = {
     get: (key) => { try { return localStorage.getItem(key); } catch { return null; } },
     set: (key, value) => { try { localStorage.setItem(key, value); } catch { /* 저장소를 못 쓰는 환경 */ } },
     remove: (key) => { try { localStorage.removeItem(key); } catch { /* 저장소를 못 쓰는 환경 */ } },
   };
 
+  /** 쓰기 요청이면 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 만들어 돌려준다. */
   const csrfHeaders = (method) => {
     if (!method || ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return {};
     const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
     return match ? { 'X-XSRF-TOKEN': decodeURIComponent(match[1]) } : {};
   };
 
+  /** 화면 이동 버튼(data-page)을 눌러 해당 화면으로 이동한다. */
   const goto = (page) => document.querySelector(`[data-page="${page}"]`)?.click();
 
+  /** 인증 API를 JSON으로 호출한다. 실패하면 상태·코드·항목별 오류를 담은 Error를 던진다. */
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
       method: options.method || 'POST',
@@ -36,6 +40,7 @@ const auth = (() => {
     return payload?.data ?? null;
   };
 
+  /** 로그인 여부에 따라 헤더의 계정 영역을 다시 그린다. */
   const renderHeader = () => {
     const box = document.querySelector('.landing-account');
     if (!box) return;
@@ -64,6 +69,7 @@ const auth = (() => {
   };
 
   // 마이페이지: 로그인 여부에 따라 안내/계정 정보를 보여준다. 화면 HTML이 늦게 로드될 수 있어 둘 다에서 호출한다.
+  /** 마이페이지에 로그인 여부별 안내 또는 계정 정보를 보여준다. */
   const renderMyPage = () => {
     const root = document.querySelector('#mypage');
     if (!root) return;
@@ -84,14 +90,17 @@ const auth = (() => {
     });
   };
 
+  /** 로그인 응답으로 세션 상태를 갱신하고 화면에 반영한다. */
   const setSession = (data) => {
     user = data?.user ?? null;
     renderHeader();
     renderMyPage();
   };
 
+  /** 세션 상태를 지우고 로그아웃된 모습으로 화면에 반영한다. */
   const clearSession = () => setSession(null);
 
+  /** 폼 아래 메시지 영역에 안내 문구를 보이거나 숨긴다. */
   const message = (form, text, kind = 'error') => {
     const box = form.querySelector('.au-msg');
     if (!box) return;
@@ -100,11 +109,13 @@ const auth = (() => {
     box.dataset.kind = kind;
   };
 
+  /** 요청 중에는 제출 버튼을 잠가 중복 제출을 막는다. */
   const setBusy = (form, busy) => {
     const button = form.querySelector('button[type="submit"]');
     if (button) button.disabled = busy;
   };
 
+  /** 비밀번호가 길이·영문·숫자·특수문자 규칙을 각각 지키는지 계산한다. */
   const passwordRules = (value) => ({
     length: value.length >= 8 && value.length <= 64,
     letter: /[A-Za-z]/.test(value),
@@ -112,6 +123,7 @@ const auth = (() => {
     special: /[^A-Za-z\d]/.test(value) && /^[\x21-\x7E]+$/.test(value),
   });
 
+  /** 로그인 폼을 검증하고 로그인한 뒤 홈으로 이동한다. 미인증이면 메일 재발송을 안내한다. */
   const handleLogin = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
@@ -139,6 +151,7 @@ const auth = (() => {
 
   // Refresh Token은 1회용이라 동시에 두 번 갱신하면 한쪽이 실패한다. 진행 중인 갱신이 있으면 그 결과를 같이 기다린다.
   let refreshing = null;
+  /** Refresh Token 쿠키로 세션을 갱신한다. 동시에 여러 번 불려도 한 번만 요청한다. */
   const refresh = () => {
     refreshing ??= request('/api/auth/refresh')
       .then((data) => { setSession(data); return data; })
@@ -147,6 +160,7 @@ const auth = (() => {
   };
 
   // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. 쿠키와 CSRF 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
+  /** 쿠키와 CSRF 헤더를 붙여 요청하고, 401이면 세션을 한 번 갱신해 다시 보낸다. */
   const authFetch = async (url, options = {}) => {
     const send = () => {
       const headers = new Headers(options.headers || {});
@@ -166,6 +180,7 @@ const auth = (() => {
   };
   window.PastportApi = { fetch: authFetch };
 
+  /** 회원가입 폼을 검증하고 가입한 뒤 로그인 화면으로 안내한다. */
   const handleSignup = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
@@ -207,6 +222,7 @@ const auth = (() => {
   });
 
   // 비밀번호 확인 칸 아래에 일치 여부를 바로 보여준다. 확인 칸이 비어 있으면 아무것도 보여주지 않는다.
+  /** 비밀번호 확인 칸 아래에 일치 여부를 보여준다. */
   const showPasswordMatch = (form) => {
     const { password, passwordConfirm } = form.elements;
     const box = form.querySelector('[data-match]');

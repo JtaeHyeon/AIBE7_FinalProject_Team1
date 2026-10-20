@@ -29,11 +29,13 @@ class AccessTokenBlocklistTest {
 
   private AccessTokenBlocklist blocklist;
 
+  /** 테스트마다 고정된 시계로 차단 목록을 만든다. */
   @BeforeEach
   void setUp() {
     blocklist = new AccessTokenBlocklist(redisTemplate, Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
+  /** 토큰 id를 남은 유효 기간 동안 차단한다. */
   @Test
   void blocksTheTokenIdForTheRemainingLifetime() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -43,6 +45,7 @@ class AccessTokenBlocklistTest {
     verify(valueOperations).set("auth:access:blocked:jti-1", "1", Duration.ofSeconds(600));
   }
 
+  /** 만료됐거나 id가 없는 토큰은 차단하지 않는다. */
   @Test
   void ignoresAnExpiredTokenOrOneWithoutAnId() {
     blocklist.block(jwt("jti-1", NOW.minusSeconds(1)));
@@ -51,6 +54,7 @@ class AccessTokenBlocklistTest {
     verifyNoInteractions(redisTemplate);
   }
 
+  /** 차단 목록에 있는 id만 차단된 것으로 본다. */
   @Test
   void reportsOnlyBlockedIdsAsBlocked() {
     when(redisTemplate.hasKey("auth:access:blocked:jti-1")).thenReturn(true);
@@ -61,6 +65,7 @@ class AccessTokenBlocklistTest {
     assertFalse(blocklist.isBlocked(null));
   }
 
+  /** 테스트용 JWT를 만든다. */
   private static Jwt jwt(String id, Instant expiresAt) {
     Jwt.Builder builder =
         Jwt.withTokenValue("token")

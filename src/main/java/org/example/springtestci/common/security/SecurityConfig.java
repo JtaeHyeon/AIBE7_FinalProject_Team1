@@ -37,6 +37,7 @@ public class SecurityConfig {
 
   public static final String ACCESS_TOKEN_COOKIE = "access_token";
 
+  /** CSRF 검증, 쿠키 인증, 접근 규칙을 설정한다. */
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.csrf(
@@ -88,6 +89,7 @@ public class SecurityConfig {
     return http.build();
   }
 
+  /** JWT 디코더를 만든다. 로그아웃으로 차단된 토큰은 거부한다. */
   @Bean
   JwtDecoder jwtDecoder(JwtProperties properties, AccessTokenBlocklist blocklist) {
     NimbusJwtDecoder decoder =
@@ -106,15 +108,18 @@ public class SecurityConfig {
     return decoder;
   }
 
+  /** JWT 서명용 인코더를 만든다. */
   @Bean
   JwtEncoder jwtEncoder(JwtProperties properties) {
     return new NimbusJwtEncoder(new ImmutableSecret<>(secretKey(properties)));
   }
 
+  /** 설정의 비밀 값으로 HS256 서명 키를 만든다. */
   private static SecretKey secretKey(JwtProperties properties) {
     return new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
   }
 
+  /** 비밀번호를 단방향 해시(BCrypt)로 저장하기 위한 인코더를 만든다. */
   @Bean
   PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();

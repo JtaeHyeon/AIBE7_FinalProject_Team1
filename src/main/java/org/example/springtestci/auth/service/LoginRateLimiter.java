@@ -22,6 +22,7 @@ public class LoginRateLimiter {
 
   private final StringRedisTemplate redisTemplate;
 
+  /** 실패 횟수를 저장할 Redis를 주입받는다. */
   public LoginRateLimiter(StringRedisTemplate redisTemplate) {
     this.redisTemplate = redisTemplate;
   }
@@ -32,6 +33,7 @@ public class LoginRateLimiter {
     checkKey(IP_KEY + clientIp, MAX_IP_FAILURES);
   }
 
+  /** 로그인 실패를 이메일과 IP 기준으로 한 번씩 센다. */
   public void recordFailure(String normalizedEmail, String clientIp) {
     increment(EMAIL_KEY + normalizedEmail);
     increment(IP_KEY + clientIp);
@@ -42,6 +44,7 @@ public class LoginRateLimiter {
     redisTemplate.delete(EMAIL_KEY + normalizedEmail);
   }
 
+  /** 실패 횟수가 한도에 이르렀으면 남은 제한 시간과 함께 예외를 던진다. */
   private void checkKey(String key, int max) {
     String count = redisTemplate.opsForValue().get(key);
     if (count == null || Long.parseLong(count) < max) {
@@ -52,6 +55,7 @@ public class LoginRateLimiter {
         ErrorCode.LOGIN_RATE_LIMITED, ttl == null || ttl <= 0 ? WINDOW : Duration.ofSeconds(ttl));
   }
 
+  /** 횟수를 1 올리고, 첫 실패면 제한 시간(윈도우)을 시작한다. */
   private void increment(String key) {
     Long count = redisTemplate.opsForValue().increment(key);
     if (count != null && count == 1) {

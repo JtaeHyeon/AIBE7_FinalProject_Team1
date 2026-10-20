@@ -29,6 +29,7 @@ public class SupabaseAuthClient {
   private final boolean configured;
   private final SecureRandom secureRandom = new SecureRandom();
 
+  /** Supabase 호출용 클라이언트와 설정 여부를 주입받는다. */
   public SupabaseAuthClient(RestClient supabaseAuthRestClient, SupabaseProperties properties) {
     this.supabaseAuthRestClient = supabaseAuthRestClient;
     this.configured = properties.configured();
@@ -88,6 +89,7 @@ public class SupabaseAuthClient {
     }
   }
 
+  /** 메일 요청 실패를 서비스 오류로 바꾼다. 요청 한도 초과(429)는 별도로 구분한다. */
   private static CommonException sendFailure(RestClientException exception) {
     if (exception instanceof RestClientResponseException responseException) {
       log.warn("Supabase 메일 요청 실패: status={}", responseException.getStatusCode().value());

@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 @ConfigurationProperties(prefix = "app.supabase")
 public record SupabaseProperties(String url, String secret) {
 
+  /** 주소와 비밀 키가 모두 있고 올바른 형식인지 확인한다. */
   public boolean configured() {
     return StringUtils.hasText(url)
         && StringUtils.hasText(secret)

@@ -25,6 +25,7 @@ public class EmailVerificationService {
   private final UserRepository userRepository;
   private final SupabaseAuthClient supabase;
 
+  /** Redis, 회원 저장소, Supabase 클라이언트를 주입받는다. */
   public EmailVerificationService(
       StringRedisTemplate redisTemplate,
       UserRepository userRepository,

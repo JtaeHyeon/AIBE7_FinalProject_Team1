@@ -44,20 +44,24 @@ public enum ErrorCode {
   private final String code;
   private final String message;
 
+  /** HTTP 상태, 오류 코드, 사용자에게 보여줄 메시지로 오류를 정의한다. */
   ErrorCode(HttpStatus status, String code, String message) {
     this.status = status;
     this.code = code;
     this.message = message;
   }
 
+  /** 응답에 쓸 HTTP 상태를 돌려준다. */
   public HttpStatus status() {
     return status;
   }
 
+  /** 클라이언트가 구분하는 오류 코드를 돌려준다. */
   public String code() {
     return code;
   }
 
+  /** 사용자에게 보여줄 메시지를 돌려준다. */
   public String message() {
     return message;
   }

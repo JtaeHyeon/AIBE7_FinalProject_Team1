@@ -35,11 +35,13 @@ class EmailVerificationServiceTest {
 
   private EmailVerificationService service;
 
+  /** 테스트마다 가짜 구성 요소로 서비스를 만든다. */
   @BeforeEach
   void setUp() {
     service = new EmailVerificationService(redisTemplate, userRepository, supabase);
   }
 
+  /** Supabase에 메일을 요청하고 임시 계정 id를 기억해 둔다. */
   @Test
   void sendLinkAsksSupabaseToMailAndRemembersThePendingUser() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -52,6 +54,7 @@ class EmailVerificationServiceTest {
     verify(valueOperations).set("auth:email:pending:user@example.com", "sb-1", Duration.ofHours(1));
   }
 
+  /** 임시 계정이 있으면 가입을 다시 하지 않고 메일만 다시 보낸다. */
   @Test
   void sendLinkResendsTheMailInsteadOfSigningUpAgainWhenAPendingAccountExists() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -67,6 +70,7 @@ class EmailVerificationServiceTest {
     verify(redisTemplate).expire("auth:email:pending:user@example.com", Duration.ofHours(1));
   }
 
+  /** 재발송 대기 시간 안에는 거부한다. */
   @Test
   void sendLinkWithinTheCooldownIsRejected() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -80,6 +84,7 @@ class EmailVerificationServiceTest {
     verify(supabase, never()).signUp(anyString());
   }
 
+  /** Supabase 요청이 실패하면 대기 시간을 풀어 다시 시도할 수 있게 한다. */
   @Test
   void sendLinkReleasesTheCooldownWhenSupabaseFails() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -95,6 +100,7 @@ class EmailVerificationServiceTest {
     verify(redisTemplate).delete("auth:email:cooldown:user@example.com");
   }
 
+  /** 미인증 회원에게 메일을 다시 보낸다. */
   @Test
   void resendMailsAnUnverifiedUser() {
     when(userRepository.findByEmail("user@example.com"))
@@ -109,6 +115,7 @@ class EmailVerificationServiceTest {
     verify(supabase).signUp("user@example.com");
   }
 
+  /** 이미 인증한 회원에게는 보내지 않는다. */
   @Test
   void resendDoesNothingForAnAlreadyVerifiedUser() {
     User verified = new User("user@example.com", "hash", "기록왕", UserRole.USER);
@@ -120,6 +127,7 @@ class EmailVerificationServiceTest {
     verify(supabase, never()).signUp(anyString());
   }
 
+  /** 없는 이메일에는 아무 일도 하지 않는다. */
   @Test
   void resendDoesNothingForAnUnknownEmail() {
     when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
@@ -129,6 +137,7 @@ class EmailVerificationServiceTest {
     verify(supabase, never()).signUp(anyString());
   }
 
+  /** Supabase가 확인하면 참을 돌려주고 임시 계정을 정리한다. */
   @Test
   void confirmIfVerifiedIsTrueOnceSupabaseConfirmsAndCleansUpTheTemporaryAccount() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -141,6 +150,7 @@ class EmailVerificationServiceTest {
     verify(supabase).deleteUser("sb-1");
   }
 
+  /** 링크를 누르기 전에는 거짓을 돌려준다. */
   @Test
   void confirmIfVerifiedIsFalseWhileTheLinkHasNotBeenClicked() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -151,6 +161,7 @@ class EmailVerificationServiceTest {
     verify(supabase, never()).deleteUser(anyString());
   }
 
+  /** 메일을 요청한 적이 없으면 거짓을 돌려준다. */
   @Test
   void confirmIfVerifiedIsFalseWhenNoMailWasRequested() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -160,6 +171,7 @@ class EmailVerificationServiceTest {
     verify(supabase, never()).confirmationStatus(anyString());
   }
 
+  /** 대기 기록이 사라지면 만료 상태다. */
   @Test
   void checkVerificationIsExpiredOnceThePendingRecordIsGone() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -168,6 +180,7 @@ class EmailVerificationServiceTest {
     assertEquals(VerificationStatus.EXPIRED, service.checkVerification("user@example.com"));
   }
 
+  /** Supabase를 조회하지 못하면 알 수 없음 상태다. */
   @Test
   void checkVerificationIsUnknownWhenSupabaseCannotBeQueried() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -177,6 +190,7 @@ class EmailVerificationServiceTest {
     assertEquals(VerificationStatus.UNKNOWN, service.checkVerification("user@example.com"));
   }
 
+  /** 대기 기록이 최근에 갱신된 동안만 최근 발송으로 본다. */
   @Test
   void linkSentWithinIsTrueOnlyWhileTheRecordWasRefreshedRecently() {
     when(redisTemplate.getExpire("auth:email:pending:user@example.com"))
@@ -188,6 +202,7 @@ class EmailVerificationServiceTest {
     assertFalse(service.linkSentWithin("user@example.com", Duration.ofMinutes(30)));
   }
 
+  /** 대기 중인 임시 계정을 지운다. */
   @Test
   void discardRemovesThePendingTemporaryAccount() {
     when(redisTemplate.opsForValue()).thenReturn(valueOperations);

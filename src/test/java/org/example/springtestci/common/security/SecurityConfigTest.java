@@ -29,11 +29,13 @@ class SecurityConfigTest {
   private final AccessTokenBlocklist blocklist = mock(AccessTokenBlocklist.class);
   private final JwtDecoder decoder = new SecurityConfig().jwtDecoder(properties, blocklist);
 
+  /** 로그아웃하지 않은 토큰은 받아들인다. */
   @Test
   void acceptsATokenThatWasNotLoggedOut() {
     assertEquals("7", decoder.decode(token("jti-ok")).getSubject());
   }
 
+  /** 유효 기간이 남아 있어도 로그아웃된 토큰은 거부한다. */
   @Test
   void rejectsATokenThatWasLoggedOutEvenThoughItIsStillValid() {
     when(blocklist.isBlocked("jti-blocked")).thenReturn(true);
@@ -41,6 +43,7 @@ class SecurityConfigTest {
     assertThrows(JwtValidationException.class, () -> decoder.decode(token("jti-blocked")));
   }
 
+  /** 지정한 jti로 서명한 테스트용 토큰을 만든다. */
   private String token(String jti) {
     SecretKey key = new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
     Instant now = Instant.now();

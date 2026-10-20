@@ -23,6 +23,7 @@ public class UnverifiedUserCleaner {
   private final Clock clock;
   private final Duration ttl;
 
+  /** 정리에 필요한 구성 요소와 인증 유예 시간을 주입받는다. */
   public UnverifiedUserCleaner(
       UserRepository userRepository,
       EmailVerificationService emailVerificationService,
@@ -34,6 +35,7 @@ public class UnverifiedUserCleaner {
     this.ttl = ttl;
   }
 
+  /** 유예 시간이 지난 미인증 계정을 정리한다. 확인할 수 없거나 아직 기다릴 계정은 지우지 않는다. */
   @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT1M")
   @Transactional
   public void deleteExpired() {
