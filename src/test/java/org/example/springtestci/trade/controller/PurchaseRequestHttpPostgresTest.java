@@ -26,6 +26,7 @@ import org.example.springtestci.trade.service.InternalTransferPendingWriter;
 import org.example.springtestci.trade.service.PublishedListing;
 import org.example.springtestci.trade.service.PublishedListingAccess;
 import org.example.springtestci.trade.service.PublishedListingStatus;
+import org.example.springtestci.trade.support.PendingTransferConflictTranslator;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -243,6 +245,87 @@ class PurchaseRequestHttpPostgresTest {
       jdbcTemplate.execute("drop trigger if exists fail_ownership_transfer on ownership_transfers");
       jdbcTemplate.execute("drop function if exists fail_ownership_transfer()");
     }
+  }
+
+  @Test
+  void returnsTradeConflictAndRollsBackWhenProductAlreadyHasPendingTransfer() throws Exception {
+    post("/api/v1/market/listings/1/purchase-requests", 2L, "{\"roomId\":1}");
+    long targetRequestId =
+        jdbcTemplate.queryForObject(
+            "select id from purchase_requests where room_id = 1", Long.class);
+    long otherRoomId = 2L;
+    jdbcTemplate.update(
+        "insert into chat_rooms (id, listing_id, seller_id, inquirer_id) values (?, 1, 1, 3)",
+        otherRoomId);
+    long existingRequestId =
+        jdbcTemplate.queryForObject(
+            "insert into purchase_requests (room_id, listing_id, request_status) values (?, 1, 'PENDING') returning id",
+            Long.class,
+            otherRoomId);
+    long existingTransferId =
+        jdbcTemplate.queryForObject(
+            "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (1, ?, 1, 3, 'INTERNAL', 'PENDING') returning id",
+            Long.class,
+            existingRequestId);
+
+    HttpResponse<String> response =
+        post("/api/v1/purchase-requests/" + targetRequestId + "/accept", 1L, "");
+
+    assertThat(response.statusCode()).isEqualTo(409);
+    assertThat(response.body()).contains("\"code\":\"TRADE_001\"");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select request_status from purchase_requests where id = ?",
+                String.class,
+                targetRequestId))
+        .isEqualTo("PENDING");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select transaction_status from purchase_requests where id = ?",
+                String.class,
+                targetRequestId))
+        .isNull();
+    assertThat(
+            jdbcTemplate.queryForObject("select status from listings where id = 1", String.class))
+        .isEqualTo("ACTIVE");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select id from ownership_transfers where product_id = 1 and status = 'PENDING'",
+                Long.class))
+        .isEqualTo(existingTransferId);
+    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+        .isEqualTo(1L);
+  }
+
+  @Test
+  void rejectsBuyerAcceptanceWithoutChangingPersistentState() throws Exception {
+    post("/api/v1/market/listings/1/purchase-requests", 2L, "{\"roomId\":1}");
+    long requestId =
+        jdbcTemplate.queryForObject(
+            "select id from purchase_requests where room_id = 1", Long.class);
+
+    HttpResponse<String> response =
+        post("/api/v1/purchase-requests/" + requestId + "/accept", 2L, "");
+
+    assertThat(response.statusCode()).isEqualTo(403);
+    assertThat(response.body()).contains("\"code\":\"AUTH_002\"");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select request_status from purchase_requests where id = ?",
+                String.class,
+                requestId))
+        .isEqualTo("PENDING");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select transaction_status from purchase_requests where id = ?",
+                String.class,
+                requestId))
+        .isNull();
+    assertThat(
+            jdbcTemplate.queryForObject("select status from listings where id = 1", String.class))
+        .isEqualTo("ACTIVE");
+    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+        .isZero();
   }
 
   @Test
@@ -499,15 +582,20 @@ class PurchaseRequestHttpPostgresTest {
     @Primary
     InternalTransferPendingWriter internalTransferPendingWriter(JdbcTemplate jdbcTemplate) {
       return command -> {
-        int inserted =
-            jdbcTemplate.update(
-                "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
-                command.productId(),
-                command.purchaseRequestId(),
-                command.fromUserId(),
-                command.toUserId(),
-                command.transferType(),
-                command.status());
+        int inserted;
+        try {
+          inserted =
+              jdbcTemplate.update(
+                  "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
+                  command.productId(),
+                  command.purchaseRequestId(),
+                  command.fromUserId(),
+                  command.toUserId(),
+                  command.transferType(),
+                  command.status());
+        } catch (DataAccessException exception) {
+          throw PendingTransferConflictTranslator.translate(exception);
+        }
         if (inserted != 1) {
           throw new IllegalStateException(
               "Ownership transfer insert affected an unexpected row count");

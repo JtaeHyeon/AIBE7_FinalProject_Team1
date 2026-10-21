@@ -242,6 +242,20 @@ class PurchaseRequestServiceTest {
   }
 
   @Test
+  void rejectsBuyerAcceptanceWithoutChangingRequestOrDependencies() {
+    PurchaseRequest pending = pendingRequest();
+    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(pending));
+    givenRoom();
+
+    assertError(ErrorCode.ACCESS_DENIED, () -> service.accept(REQUEST_ID, BUYER_ID));
+
+    assertThat(pending.requestStatus()).isEqualTo(PurchaseRequestStatus.PENDING);
+    assertThat(pending.transactionStatus()).isNull();
+    verify(requestRepository, never()).update(any());
+    verifyNoInteractions(listingAccess, transferWriter);
+  }
+
+  @Test
   void rejectsMismatchedRoomListingInactiveListingAndProductOwner() {
     when(roomRepository.findById(ROOM_ID))
         .thenReturn(Optional.of(new ChatRoom(ROOM_ID, 999L, SELLER_ID, BUYER_ID, Instant.now())));

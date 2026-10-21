@@ -22,6 +22,7 @@ import javax.sql.DataSource;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.example.springtestci.common.error.CommonException;
+import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.trade.dto.PurchaseRequestDirection;
 import org.example.springtestci.trade.entity.PurchaseRequest;
 import org.example.springtestci.trade.entity.PurchaseRequestStatus;
@@ -32,6 +33,7 @@ import org.example.springtestci.trade.service.PublishedListing;
 import org.example.springtestci.trade.service.PublishedListingAccess;
 import org.example.springtestci.trade.service.PublishedListingStatus;
 import org.example.springtestci.trade.service.PurchaseRequestService;
+import org.example.springtestci.trade.support.PendingTransferConflictTranslator;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -511,7 +513,9 @@ class PurchaseRequestPostgresIntegrationTest {
 
     assertThatThrownBy(
             () -> transactionTemplate.execute(status -> service.accept(targetRequestId, SELLER_ID)))
-        .isInstanceOf(DataAccessException.class);
+        .isInstanceOfSatisfying(
+            CommonException.class,
+            exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.TRADE_CONFLICT));
 
     PurchaseRequest stored = requestRepository.findById(targetRequestId).orElseThrow();
     assertThat(stored.requestStatus()).isEqualTo(PurchaseRequestStatus.PENDING);
@@ -756,15 +760,20 @@ class PurchaseRequestPostgresIntegrationTest {
 
     @Override
     public void createPending(Command command) {
-      int inserted =
-          jdbcTemplate.update(
-              "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
-              command.productId(),
-              command.purchaseRequestId(),
-              command.fromUserId(),
-              command.toUserId(),
-              command.transferType(),
-              command.status());
+      int inserted;
+      try {
+        inserted =
+            jdbcTemplate.update(
+                "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
+                command.productId(),
+                command.purchaseRequestId(),
+                command.fromUserId(),
+                command.toUserId(),
+                command.transferType(),
+                command.status());
+      } catch (DataAccessException exception) {
+        throw PendingTransferConflictTranslator.translate(exception);
+      }
       if (inserted != 1) {
         throw new IllegalStateException(
             "Ownership transfer insert affected an unexpected row count");
