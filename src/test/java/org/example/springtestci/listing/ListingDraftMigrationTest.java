@@ -1,6 +1,7 @@
 package org.example.springtestci.listing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.flywaydb.core.Flyway;
@@ -57,6 +58,10 @@ class ListingDraftMigrationTest {
           """);
       jdbc.update(
           "INSERT INTO listing_draft_images (draft_id, image_id, sort_order) VALUES (10, 302, 0), (10, 301, 1)");
+      jdbc.update(
+          "INSERT INTO chat_rooms(id, listing_id, seller_id, inquirer_id) VALUES (20, 900, 1, 2)");
+      jdbc.update(
+          "INSERT INTO chat_messages(room_id, sender_id, content) VALUES (20, 1, '기존 대화는 보존한다')");
 
       Flyway.configure()
           .dataSource(dataSource)
@@ -95,6 +100,16 @@ class ListingDraftMigrationTest {
           jdbc.queryForObject(
               "SELECT count(*) FROM information_schema.tables WHERE table_name = 'listing_draft_images'",
               Integer.class));
+      assertEquals(
+          900L, jdbc.queryForObject("SELECT listing_id FROM chat_rooms WHERE id=20", Long.class));
+      assertEquals(
+          "기존 대화는 보존한다",
+          jdbc.queryForObject("SELECT content FROM chat_messages WHERE room_id=20", String.class));
+      jdbc.update(
+          "INSERT INTO users(id,email,password_hash,nickname,role,created_at,updated_at) VALUES (1,'migration@listing-fixture.invalid','not-a-login-hash','이관테스트','USER',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+      jdbc.update(
+          "INSERT INTO listings(product_id,seller_id,title,price,condition_grade,description,status,content_version,published_at,source_draft_id,source_draft_version,active_slot) VALUES (101,1,'새 판매글',100000,4,'설명','ACTIVE',0,CURRENT_TIMESTAMP,10,7,1)");
+      assertTrue(jdbc.queryForObject("SELECT id FROM listings", Long.class) > 900);
     } finally {
       if (postgres) new JdbcTemplate(dataSource).execute("DROP SCHEMA " + schema + " CASCADE");
       dataSource.destroy();

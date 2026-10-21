@@ -1,9 +1,12 @@
 #sell [hidden]{display:none!important}
+#detail [hidden]{display:none!important}
+#detail [data-listing-content]{margin-top:20px}
+#detail [data-listing-more]{margin-top:16px}
 #sell .sl-product{grid-template-columns:96px 1fr}
-#sell .sl-specs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px;margin:16px 0 0}
-#sell .sl-specs>div{display:flex;justify-content:space-between;gap:12px;font-size:12px}
-#sell .sl-specs dt{color:#73767d}
-#sell .sl-specs dd{margin:0;text-align:right;overflow-wrap:anywhere}
+:is(#sell,.listing-detail) .sl-specs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px;margin:16px 0 0}
+:is(#sell,.listing-detail) .sl-specs>div{display:flex;justify-content:space-between;gap:12px;font-size:12px}
+:is(#sell,.listing-detail) .sl-specs dt{color:#73767d}
+:is(#sell,.listing-detail) .sl-specs dd{margin:0;text-align:right;overflow-wrap:anywhere}
 #sell [data-sale-error]{margin-bottom:16px}
 #sell .sl-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 #sell .sl-photo-choice{min-width:0}
@@ -37,5 +40,34 @@
 #sell .sl-confirm h2{margin:0;font-size:18px}
 #sell .sl-confirm p{margin:16px 0 24px;font-size:14px;line-height:1.7;white-space:pre-line}
 #sell .sl-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+#sell .sl-publication h3{margin:24px 0 8px;font-size:14px}
+#sell .sl-publication h3 small{font-size:11px;font-weight:400;color:#73767d}
+:is(#sell,.listing-detail) .sl-publication-sample{padding:10px 12px;background:var(--soft);border-radius:6px;font-size:12px}
+:is(#sell,.listing-detail) .sl-publication-timeline{list-style:none;padding:0;margin:12px 0 0;border-left:2px solid var(--line)}
+:is(#sell,.listing-detail) .sl-publication-event{position:relative;padding:0 0 22px 18px;overflow-wrap:anywhere}
+:is(#sell,.listing-detail) .sl-publication-event:before{content:'';position:absolute;left:-5px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--blue)}
+:is(#sell,.listing-detail) .sl-publication-event h4{font-size:14px;margin:8px 0}
+:is(#sell,.listing-detail) .sl-publication-event p{font-size:12px;line-height:1.7;white-space:pre-wrap;margin:6px 0;color:#626670}
+:is(#sell,.listing-detail) .sl-publication-event.is-void h4,:is(#sell,.listing-detail) .sl-publication-event.is-void .sl-publication-content{text-decoration:line-through;color:#73767d}
+:is(#sell,.listing-detail) .sl-publication-event.is-void:before{background:#959aa3}
+:is(#sell,.listing-detail) .sl-publication-event-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px}
+:is(#sell,.listing-detail) .sl-publication-badge{padding:3px 7px;border-radius:4px;background:var(--soft);color:var(--ink);font-size:11px}
+:is(#sell,.listing-detail) .sl-publication-correction{padding:8px 10px;border-left:2px solid var(--blue);background:var(--soft)}
+#sell .sl-preview{width:min(1120px,calc(100% - 32px));max-height:90vh;box-sizing:border-box;overflow-y:auto;border:1px solid var(--line);border-radius:12px;padding:28px;color:var(--ink);background:#fff}
+#sell .sl-preview::backdrop{background:rgba(20,25,35,.5)}
+#sell .sl-preview-head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+#sell .sl-preview-head h2{font-size:22px;margin:0}
+#sell .sl-preview-notice{padding:12px 16px;border-radius:8px;background:var(--soft);font-size:13px;line-height:1.7}
+#sell .sl-preview .listing-detail{grid-template-columns:minmax(0,1fr) 300px;margin-top:24px}
+.listing-detail .dt-stage{height:300px;overflow:hidden}
+.listing-detail .dt-stage img{width:100%;height:100%;object-fit:contain}
+.listing-detail-thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.listing-detail-thumbs button[aria-pressed=true]{border-color:var(--blue);background:var(--soft);color:var(--blue)}
+.listing-detail-description{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.8}
+.listing-detail-summary{min-width:0}
+.listing-detail-summary h2{font-size:22px;line-height:1.5;margin:14px 0;overflow-wrap:anywhere}
+.listing-detail-price{display:block;font-size:28px;margin:16px 0;overflow-wrap:anywhere}
+.listing-detail .dt-sec>h3{font-size:18px;margin:0 0 16px}
+@media(max-width:800px){#sell .sl-preview .listing-detail{grid-template-columns:1fr}.listing-detail-summary{grid-row:1}#sell .sl-preview{padding:18px}#sell .sl-preview-head{align-items:flex-start;flex-direction:column}}
 @media(max-width:600px){#sell .sl-draft-item{align-items:flex-start;flex-direction:column}#sell .sl-draft-actions{width:100%}#sell .sl-draft-actions .sc-btn{flex:1}#sell .sl-bar .sc-btn{flex:1 1 130px}}
-@media(max-width:480px){#sell .sl-specs{grid-template-columns:1fr}#sell .sl-product{grid-template-columns:72px 1fr}#sell .sl-bar .sc-btn{flex:1;padding:0 10px}}
+@media(max-width:480px){:is(#sell,.listing-detail) .sl-specs{grid-template-columns:1fr}#sell .sl-product{grid-template-columns:72px 1fr}#sell .sl-bar .sc-btn{flex:1;padding:0 10px}}
