@@ -66,6 +66,14 @@ class ChatStompAuthorizationInterceptorTest {
   }
 
   @Test
+  void rejectsStompConnectFrameWithoutBearerToken() {
+    StompHeaderAccessor accessor = accessor(StompCommand.STOMP, null);
+
+    assertThrows(
+        BadCredentialsException.class, () -> interceptor.preSend(message(accessor), channel));
+  }
+
+  @Test
   void permitsOnlyParticipantSubscriptionToExactRoomDestination() {
     when(subscriptionAuthorizer.canSubscribe(ROOM_ID, USER_ID)).thenReturn(true);
     StompHeaderAccessor accessor = accessor(StompCommand.SUBSCRIBE, "/sub/chat/room/" + ROOM_ID);
