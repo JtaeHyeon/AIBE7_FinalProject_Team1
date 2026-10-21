@@ -4,11 +4,14 @@
 
 - 최초 재검수 대상: `b53ffe785dd2649b450deb5a334687a646baa5f7`
 - 이번 보완 검수 기준: `527df0bc951c64650bb24a85cbbdc99df965082c`
-- 원본 최신 `upstream/main`: `1d578ce82415d486afd071f46930314c28fead04`
+- A단계 종료 승인 기준: `39d395b1d39c58f9d016009e4e5234a8ec16c825`
+- 통합한 `upstream/main`: `b43695d2ad130d975a1f08fbffbc1cd14403a2c3`
+- 통합 merge commit: `9174bf2`
 - 작업 브랜치: `fix/trade-p2-stage-a-recheck`
 - 작업 방식: 원래 브랜치를 보존하고 최신 `upstream/main`에서 전용 브랜치를 만든 뒤 `7a01de7`, `b53ffe7` 변경을 커밋 없이 이관했다.
-- 구현 기준은 `1d578ce82415d486afd071f46930314c28fead04`이고 `527df0b`까지 원격 제출했다. 이번 잔여 보완의 최종 제출 SHA는 PR 기록에서 구분한다.
-- 이후 원본 main 변경은 현재 A단계 교정과 별개이며 PR 병합 전 통합·회귀 확인 대상으로 남긴다.
+- `39d395b` 검수에서 A단계 잔여 보완 종료와 PR 진행 가능 판정을 받았다.
+- 이후 `upstream/main`의 게시 판매글 구현을 병합하고 통합·회귀 검사를 다시 수행했다.
+- `upstream/main`의 Flyway 버전과 충돌한 미적용 pending DDL은 `V2026102103__create_purchase_requests.sql`로 재번호했다.
 - 최신 제품 Migration의 `products.manufacturer_normalized NOT NULL`을 두 PostgreSQL fixture에 반영했다.
 - 거래 Controller는 자체 `Long.parseLong(authentication.getName())` 대신 공통 `CurrentUserIdResolver`를 사용한다.
 - 기능은 기본 off이며 pending 거래 DDL은 기본 Flyway 위치 밖에 유지한다.
@@ -24,7 +27,7 @@
 
 ## PostgreSQL fixture 계약
 
-- `listings`는 정식 운영 Migration이 아니라 A단계 격리 시험용이다.
+- `listings`는 최신 운영 Migration을 사용한다. A단계 테스트 어댑터가 요구하는 `current_owner_id`만 임의 스키마에 추가하고 실제 소유자 판정은 계속 `products.owner_id`를 사용한다.
 - 게시글 잠금 시 제품을 먼저 잠그고 게시글을 잠근다. 현재 소유자는 `listings.current_owner_id` 복사 값이 아니라 `products.owner_id`에서 읽는다.
 - `ownership_transfers`는 `purchase_request_id UNIQUE`와 `status = 'PENDING'`인 `product_id` 조건부 UNIQUE를 가진다.
 - 내부 이전 insert와 게시글 reserve UPDATE는 영향 행 수가 정확히 1인지 검사한다.
@@ -72,8 +75,8 @@
 
 ### PostgreSQL 전용 거래 검사
 
-- DB 제품: PostgreSQL 17 (`postgres:17-alpine` 임시 로컬 컨테이너)
-- DB: 합성 데이터만 사용하는 `p2_trade_test`
+- DB 제품: PostgreSQL 16 (`postgres:16-alpine` 임시 로컬 컨테이너)
+- DB: 합성 데이터만 사용하는 `p2trade`
 - 스키마: `p2_trade_<random>`, `p2_trade_http_<random>` 생성 후 각 클래스가 `DROP SCHEMA ... CASCADE`
 - 컨테이너: Gradle 종료 후 제거 확인
 - 명령: `P2_TRADE_TEST_ENABLED=true`와 전용 JDBC 환경변수를 설정한 뒤 `./gradlew test --tests 'org.example.springtestci.trade.*' --rerun-tasks --no-build-cache`
@@ -82,14 +85,14 @@
 ### 최종 전체 검사
 
 - 명령: `./gradlew spotlessCheck test build --rerun-tasks --no-build-cache`
-- 결과: 전체 테스트 295건, 실패 0, 오류 0, skipped 20. `spotlessCheck`, `test`, `build` 모두 성공했다.
+- 결과: 전체 테스트 330건, 실패 0, 오류 0, skipped 20. `spotlessCheck`, `test`, `build` 모두 성공했다.
 - 일반 전체 검사에서는 외부 DB 환경변수가 없으므로 PostgreSQL 전용 클래스가 조건부 skipped 된다. 위 전용 실행으로 별도 0 skipped 결과를 확보했다.
 
 ## A/B 단계 구분
 
-- A단계: 거래 코드, pending DDL, 격리 PostgreSQL·HTTP·STOMP 검증까지 완료.
+- A단계: 거래 코드, pending DDL, 격리 PostgreSQL·HTTP·STOMP 검증과 최신 `main` 통합까지 완료.
 - B단계 대기: 정식 게시글/ownership 운영 구현 연결, pending Migration 정식 버전 승인과 공유 DB 적용, 쿠키/CSRF 최종 계약.
-- 미포함: 실제 소유자 변경, P3~P5, UI, 배포, 원격 push·PR·병합 승인.
+- 미포함: 실제 소유자 변경, P3~P5, UI, 배포와 PR 병합 승인.
 
 ## 재현 명령
 

@@ -4,7 +4,7 @@
 
 `PublishedListingAccess`는 게시글 ID, 제품 ID, 고정 판매자, 현재 소유자, 상태를 제공한다. 구매 생성·수락에서는 같은 DataSource와 트랜잭션에 참여하는 잠금 조회가 필요하며, 수락 시 ACTIVE에서 RESERVED로 조건부 변경해야 한다.
 
-현재 저장소의 `listing_drafts`는 정식 게시 판매글이 아니므로 운영 어댑터로 연결하지 않았다. A단계 PostgreSQL 검증에서는 별도 `listings` fixture 테이블과 테스트 전용 JDBC 어댑터를 사용했다.
+최신 `main`에는 정식 `listings` 테이블과 게시 판매글 구현이 추가되었다. 다만 A단계 거래 포트의 운영 어댑터는 아직 연결하지 않았고, PostgreSQL 검증에서는 정식 테이블에 테스트 전용 `current_owner_id` 컬럼을 추가한 임의 스키마와 테스트 JDBC 어댑터를 사용한다.
 
 ## 내부 이전
 
@@ -21,11 +21,11 @@ Writer는 거래 Service와 같은 트랜잭션에 참여해야 한다. 생성 �
 
 ## 스키마
 
-`purchase_requests` DDL 원본은 `src/main/resources/db/pending/trade-p2`에 있다. 기본 Flyway 위치에는 포함하지 않았고, A단계 전용 PostgreSQL 스키마에서만 기본 Migration과 fixture 테이블 적용 후 명시적으로 실행했다.
+`purchase_requests` DDL 원본은 `src/main/resources/db/pending/trade-p2/V2026102103__create_purchase_requests.sql`에 있다. 기본 Flyway 위치에는 포함하지 않았고, A단계 전용 PostgreSQL 스키마에서만 기본 Migration과 테스트 보조 컬럼 적용 후 명시적으로 실행했다.
 
 ## B단계 연결 조건
 
-1. 정식 `listings` 모델의 ID·제품·판매자·현재 소유자·상태 및 잠금 순서 확정
+1. 정식 `listings` 모델과 `products.owner_id`를 사용하는 운영 어댑터 및 잠금 순서 확정
 2. 기존 채팅방 `listing_id`와 정식 게시글 ID의 연결 보장
 3. 정식 `ownership_transfers` Writer와 제품별 진행 중 이전 제약 확정
 4. 두 외부 구현이 거래 JDBC 저장소와 같은 DataSource·트랜잭션에 참여함을 검증
