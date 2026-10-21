@@ -13,8 +13,12 @@ import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.listing.dto.DraftProductResponse;
 import org.example.springtestci.listing.dto.ListingDraftPageResponse;
 import org.example.springtestci.listing.dto.ListingDraftResponse;
+import org.example.springtestci.listing.dto.ListingPreviewResponse;
+import org.example.springtestci.listing.dto.ListingPublicationResponse;
 import org.example.springtestci.listing.dto.SaveListingDraftRequest;
 import org.example.springtestci.listing.service.ListingDraftService;
+import org.example.springtestci.listing.service.ListingPreviewService;
+import org.example.springtestci.listing.service.ListingPublicationService;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
@@ -37,9 +41,59 @@ import org.springframework.web.bind.annotation.RestController;
 public class ListingDraftController {
 
   private final ListingDraftService service;
+  private final ListingPublicationService publications;
+  private final ListingPreviewService previews;
 
-  public ListingDraftController(ListingDraftService service) {
+  public ListingDraftController(
+      ListingDraftService service,
+      ListingPublicationService publications,
+      ListingPreviewService previews) {
     this.service = service;
+    this.publications = publications;
+    this.previews = previews;
+  }
+
+  @GetMapping("/products/{productId}/listing-draft/preview")
+  public ResponseEntity<ApiResponse<ListingPreviewResponse>> preview(
+      @PathVariable @Positive long productId,
+      @RequestParam @Positive long draftId,
+      @RequestParam @PositiveOrZero long version,
+      Authentication authentication,
+      @RequestParam(defaultValue = "0") @PositiveOrZero int page,
+      @RequestParam(defaultValue = "20") @Positive @Max(100) int size) {
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .body(
+            ApiResponse.success(
+                previews.get(productId, draftId, version, userId(authentication), page, size)));
+  }
+
+  @GetMapping("/products/{productId}/listing-draft/preview/images/{imageId}")
+  public ResponseEntity<Resource> previewImage(
+      @PathVariable @Positive long productId,
+      @PathVariable @Positive long imageId,
+      @RequestParam @Positive long draftId,
+      @RequestParam @PositiveOrZero long version,
+      Authentication authentication)
+      throws IOException {
+    var image = previews.image(productId, draftId, version, imageId, userId(authentication));
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .header("X-Content-Type-Options", "nosniff")
+        .contentType(MediaType.parseMediaType(image.contentType()))
+        .body(image.resource());
+  }
+
+  /** 현재 소유자에게 공개 예정 제품 정보와 전체 누적 이력의 한 페이지를 제공한다. */
+  @GetMapping("/products/{productId}/listing-draft/publication")
+  public ResponseEntity<ApiResponse<ListingPublicationResponse>> publication(
+      @PathVariable @Positive long productId,
+      Authentication authentication,
+      @RequestParam(defaultValue = "0") @PositiveOrZero int page,
+      @RequestParam(defaultValue = "20") @Positive @Max(100) int size) {
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .body(ApiResponse.success(publications.get(productId, userId(authentication), page, size)));
   }
 
   @GetMapping("/listing-drafts")

@@ -11,22 +11,34 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.example.springtestci.SpringTestCiApplication;
+import org.example.springtestci.listing.service.ListingHistoryReader;
+import org.example.springtestci.listing.service.ListingHistoryReader.Correction;
+import org.example.springtestci.listing.service.ListingHistoryReader.Event;
+import org.example.springtestci.listing.service.ListingHistoryReader.EventStatus;
+import org.example.springtestci.listing.service.ListingHistoryReader.EventType;
+import org.example.springtestci.listing.service.ListingHistoryReader.PublicText;
+import org.example.springtestci.listing.service.ListingHistoryReader.Snapshot;
+import org.example.springtestci.listing.service.ListingHistoryReader.State;
 import org.example.springtestci.product.service.SerialNumberProtector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +59,16 @@ class ListingDraftHttpTest {
   private static String schema;
   private static Path storageRoot;
   private static final Map<Long, Long> SAVED_DRAFT_IDS = new ConcurrentHashMap<>();
+  private static final AtomicReference<Snapshot> PUBLICATION_HISTORY =
+      new AtomicReference<>(Snapshot.unavailable());
+
+  @TestConfiguration(proxyBeanMethods = false)
+  static class PublicationFixtureConfig {
+    @Bean
+    ListingHistoryReader listingHistoryTestReader() {
+      return productId -> PUBLICATION_HISTORY.get();
+    }
+  }
 
   @BeforeAll
   static void start() throws Exception {
@@ -65,6 +87,7 @@ class ListingDraftHttpTest {
       Files.copy(image, storageRoot.resolve("draft-demo-front.png"));
     }
     var app = new SpringApplication(SpringTestCiApplication.class);
+    app.addPrimarySources(List.of(PublicationFixtureConfig.class));
     app.setDefaultProperties(
         Map.of("spring.main.banner-mode", "off", "logging.level.root", "WARN"));
     context =
@@ -116,6 +139,7 @@ class ListingDraftHttpTest {
 
   @BeforeEach
   void reset() {
+    PUBLICATION_HISTORY.set(Snapshot.unavailable());
     SAVED_DRAFT_IDS.clear();
     jdbc.update("DELETE FROM draft_images");
     jdbc.update("DELETE FROM listing_drafts");
@@ -829,6 +853,432 @@ class ListingDraftHttpTest {
         () -> jdbc.update("UPDATE listing_drafts SET visibility = 'PUBLIC'"));
     assertEquals(
         "PRIVATE", jdbc.queryForObject("SELECT visibility FROM listing_drafts", String.class));
+  }
+
+  @Test
+  void publicationReadsSafeProductFieldsWithoutSavingOrDecryptingSerial() throws Exception {
+    jdbc.update(
+        "UPDATE products SET title = '개인 별칭 비공개', serial_number_ciphertext = 'not-a-cipher' WHERE id = 101");
+    try {
+      var response = publication(101, "1", "");
+      assertEquals(200, response.statusCode());
+      assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+      var product = data(response).get("product");
+      assertEquals("Apple", product.get("manufacturer").asText());
+      assertEquals(18, product.get("specifications").get("ramGb").asInt());
+      assertEquals("UNAVAILABLE", data(response).get("history").get("status").asText());
+      for (String excluded :
+          List.of(
+              "개인 별칭 비공개",
+              "not-a-cipher",
+              "serialNumber",
+              "ownerId",
+              "storageKey",
+              "objectKey",
+              "documents",
+              "cost",
+              "warrantyTerms")) assertFalse(response.body().contains(excluded), excluded);
+      assertEquals(0, countDrafts());
+    } finally {
+      jdbc.update(
+          "UPDATE products SET title = 'MacBook Pro 14 M3 Pro', serial_number_ciphertext = ? WHERE id = 101",
+          context.getBean(SerialNumberProtector.class).encrypt("R01-TEST-101"));
+    }
+  }
+
+  @Test
+  void publicationDistinguishesUnavailableHistoryFromAnEmptyReadySource() throws Exception {
+    assertEquals(
+        "UNAVAILABLE", data(publication(101, "1", "")).get("history").get("status").asText());
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of()));
+    var history = data(publication(101, "1", "")).get("history");
+    assertEquals("READY", history.get("status").asText());
+    assertEquals(0, history.get("items").size());
+    assertEquals(0, history.get("page").get("totalElements").asInt());
+    assertFalse(history.get("sample").asBoolean());
+  }
+
+  @Test
+  void publicationRequiresTheCurrentOwnerAndValidPagination() throws Exception {
+    assertEquals(401, publication(101, null, "").statusCode());
+    for (long id : List.of(201L, 103L, 999L))
+      assertEquals(404, publication(id, "1", "").statusCode());
+    assertEquals(404, publication(101, "2", "").statusCode());
+    for (String query : List.of("?page=-1", "?size=0", "?size=101", "?page=wrong"))
+      assertEquals(400, publication(101, "1", query).statusCode());
+    jdbc.update("UPDATE products SET owner_id = 2 WHERE id = 101");
+    assertEquals(404, publication(101, "1", "").statusCode());
+    assertEquals(200, publication(101, "2", "").statusCode());
+  }
+
+  @Test
+  void publicationKeepsPreviousOwnerAndVoidEventsInStablePaginatedOrder() throws Exception {
+    var earlier =
+        historyEvent(701, 2L, EventType.PURCHASE, EventStatus.VALID, "2024-01-01", null, List.of());
+    var first =
+        historyEvent(702, 1L, EventType.REPAIR, EventStatus.VALID, "2025-01-01", null, List.of());
+    var second =
+        historyEvent(
+            703, 2L, EventType.INSPECTION, EventStatus.VALID, "2025-01-01", null, List.of());
+    var invalid =
+        historyEvent(704, 2L, EventType.REPAIR, EventStatus.VOID, "2025-02-01", null, List.of());
+    PUBLICATION_HISTORY.set(
+        new Snapshot(State.READY, false, List.of(first, earlier, invalid, second)));
+    var page = data(publication(101, "1", "?size=2")).get("history");
+    assertEquals(704, page.get("items").get(0).get("eventId").asInt());
+    assertEquals("VOID", page.get("items").get(0).get("status").asText());
+    assertTrue(page.get("items").get(0).get("previousOwner").asBoolean());
+    assertEquals(703, page.get("items").get(1).get("eventId").asInt());
+    assertEquals(3, page.get("validCount").asInt());
+    assertEquals(1, page.get("voidCount").asInt());
+    assertEquals(4, page.get("page").get("totalElements").asInt());
+    assertTrue(page.get("page").get("hasNext").asBoolean());
+    var next = data(publication(101, "1", "?page=1&size=2")).get("history");
+    assertEquals(702, next.get("items").get(0).get("eventId").asInt());
+    assertFalse(next.get("items").get(0).get("previousOwner").asBoolean());
+    assertEquals(701, next.get("items").get(1).get("eventId").asInt());
+    assertFalse(next.get("page").get("hasNext").asBoolean());
+    assertEquals(
+        0, data(publication(101, "1", "?page=999&size=2")).get("history").get("items").size());
+  }
+
+  @Test
+  void publicationShowsReviewedCorrectionsButHidesUnreviewedAndSensitiveText() throws Exception {
+    var corrected =
+        historyEvent(
+            705,
+            2L,
+            EventType.INSPECTION,
+            EventStatus.VALID,
+            "2025-03-01",
+            new PublicText("정기 점검", "점검 완료", "공식 서비스센터", null, true),
+            List.of(
+                new Correction(901, Instant.parse("2025-03-02T08:00:00Z"), "발생일 정정", true),
+                new Correction(902, Instant.parse("2025-03-02T08:00:00Z"), "개인 이름 미검토", false)));
+    var pending =
+        historyEvent(
+            706,
+            2L,
+            EventType.REPAIR,
+            EventStatus.VOID,
+            "2025-02-01",
+            new PublicText(
+                "개인 이름 미검토",
+                "a@private.example 010-1234-5678 500000원 SERIAL-SECRET",
+                "서울시 비공개 주소",
+                "비공개 값",
+                false),
+            List.of());
+    var unsafeApproved =
+        historyEvent(
+            707,
+            2L,
+            EventType.REPAIR,
+            EventStatus.VALID,
+            "2025-01-01",
+            new PublicText("점검", "a@private.example", null, null, true),
+            List.of());
+    var transfer =
+        historyEvent(
+            708,
+            null,
+            EventType.TRANSFER,
+            EventStatus.VALID,
+            "2024-12-01",
+            new PublicText("보내는 사람 이름", "받는 사람 이름", null, null, true),
+            List.of());
+    PUBLICATION_HISTORY.set(
+        new Snapshot(State.READY, false, List.of(pending, corrected, transfer, unsafeApproved)));
+    var response = publication(101, "1", "");
+    var items = data(response).get("history").get("items");
+    assertEquals("정기 점검", items.get(0).get("title").asText());
+    assertEquals(902, items.get(0).get("corrections").get(0).get("correctionId").asInt());
+    assertTrue(items.get(0).get("corrections").get(0).get("reason").isNull());
+    assertEquals("발생일 정정", items.get(0).get("corrections").get(1).get("reason").asText());
+    assertEquals("REVIEW_PENDING", items.get(1).get("detailsStatus").asText());
+    assertEquals("제품 수리", items.get(1).get("title").asText());
+    assertTrue(items.get(1).get("content").isNull());
+    assertEquals("REVIEW_PENDING", items.get(2).get("detailsStatus").asText());
+    assertEquals("소유권 이전 완료", items.get(3).get("title").asText());
+    assertTrue(items.get(3).get("systemGenerated").asBoolean());
+    for (String excluded :
+        List.of(
+            "개인 이름 미검토",
+            "private.example",
+            "010-1234",
+            "500000",
+            "SERIAL-SECRET",
+            "서울시",
+            "보내는 사람",
+            "받는 사람",
+            "authorId",
+            "documents",
+            "hasDocument",
+            "cost")) assertFalse(response.body().contains(excluded), excluded);
+  }
+
+  @Test
+  void publicationRejectsMixedProductAndDuplicateSourceRowsWithoutPartialData() throws Exception {
+    var valid =
+        historyEvent(709, 1L, EventType.REPAIR, EventStatus.VALID, "2025-01-01", null, List.of());
+    var foreign =
+        new Event(
+            710,
+            201,
+            2L,
+            EventType.REPAIR,
+            LocalDate.parse("2025-01-01"),
+            Instant.parse("2025-01-01T08:00:00Z"),
+            EventStatus.VALID,
+            new PublicText("다른 제품 비공개 내용", null, null, null, true),
+            List.of());
+    for (var rows : List.of(List.of(valid, foreign), List.of(valid, valid))) {
+      PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, rows));
+      var response = publication(101, "1", "");
+      assertEquals(503, response.statusCode());
+      assertFalse(response.body().contains("다른 제품 비공개 내용"));
+      assertFalse(response.body().contains("eventId"));
+    }
+  }
+
+  @Test
+  void publicationRefreshDoesNotChangeSavedContentVersionOrPhotoSelections() throws Exception {
+    var saved = data(save(101, "1", "{\"title\":\"작성 중인 글\",\"selectedImageIds\":[303,301]}"));
+    assertEquals(200, publication(101, "1", "").statusCode());
+    assertEquals(200, publication(101, "1", "").statusCode());
+    var reread = data(readDraft(101, "1"));
+    assertEquals(saved.get("draftId"), reread.get("draftId"));
+    assertEquals(saved.get("version"), reread.get("version"));
+    assertEquals(saved.get("selectedImageIds"), reread.get("selectedImageIds"));
+    assertEquals(saved.get("title"), reread.get("title"));
+  }
+
+  @Test
+  void previewRequiresAnExistingSavedDraftButAllowsIncompleteContent() throws Exception {
+    assertEquals(404, preview(101, 1, 0, "1", "").statusCode());
+    assertEquals(0, countDrafts());
+    var saved = data(save(101, "1", "{}"));
+    long id = saved.get("draftId").asLong();
+    var response = preview(101, id, 0, "1", "");
+    assertEquals(200, response.statusCode());
+    assertTrue(data(response).get("content").get("title").isNull());
+    assertTrue(data(response).get("content").get("price").isNull());
+    assertTrue(data(response).get("content").get("conditionGrade").isNull());
+    assertEquals(0, data(response).get("images").size());
+    assertEquals("UNAVAILABLE", data(response).get("history").get("status").asText());
+    assertEquals(401, preview(101, id, 0, null, "").statusCode());
+    for (String query : List.of("&page=-1", "&size=0", "&size=101", "&page=wrong")) {
+      assertEquals(400, preview(101, id, 0, "1", query).statusCode());
+    }
+    assertEquals(400, preview(101, 0, 0, "1", "").statusCode());
+    assertEquals(400, preview(101, id, -1, "1", "").statusCode());
+    assertEquals(1, countDrafts());
+  }
+
+  @Test
+  void previewUsesSavedContentAndSelectedPhotoOrderWithoutModifyingTheDraft() throws Exception {
+    var saved =
+        data(
+            save(
+                101,
+                "1",
+                """
+        {"title":"실제 저장한 제목","description":"저장한 설명","price":1500000,
+         "conditionGrade":4,"selectedImageIds":[303,301]}
+        """));
+    long id = saved.get("draftId").asLong();
+    saved = data(readDraft(101, "1"));
+    var response = preview(101, id, 0, "1", "");
+    assertEquals(200, response.statusCode());
+    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    var result = data(response);
+    assertEquals(saved.get("draftId"), result.get("draftId"));
+    assertEquals(saved.get("updatedAt"), result.get("savedAt"));
+    assertEquals("실제 저장한 제목", result.get("content").get("title").asText());
+    assertEquals(1500000, result.get("content").get("price").asInt());
+    assertEquals(4, result.get("content").get("conditionGrade").asInt());
+    assertEquals(303, result.get("images").get(0).get("imageId").asInt());
+    assertEquals(301, result.get("images").get(1).get("imageId").asInt());
+    assertEquals("Apple", result.get("product").get("manufacturer").asText());
+    assertEquals(18, result.get("product").get("specifications").get("ramGb").asInt());
+    for (String excluded :
+        List.of(
+            "authorId",
+            "ownerId",
+            "serialNumber",
+            "storageKey",
+            "warrantyTerms",
+            "documents",
+            "hasDocument",
+            "cost")) {
+      assertFalse(response.body().contains(excluded), excluded);
+    }
+    assertEquals(200, preview(101, id, 0, "1", "").statusCode());
+    assertEquals(saved, data(readDraft(101, "1")));
+    assertEquals(
+        "PRIVATE", jdbc.queryForObject("SELECT visibility FROM listing_drafts", String.class));
+  }
+
+  @Test
+  void previewAndItsImagesRequireBothTheAuthorAndTheCurrentOwner() throws Exception {
+    long id = data(save(101, "1", "{\"selectedImageIds\":[301]}")).get("draftId").asLong();
+    String image =
+        "/api/v1/products/101/listing-draft/preview/images/301?draftId=" + id + "&version=0";
+    assertEquals(404, preview(101, id, 0, "2", "").statusCode());
+    assertEquals(404, send("GET", image, "2", null).statusCode());
+    jdbc.update("UPDATE listing_drafts SET author_id = 2 WHERE id = ?", id);
+    assertEquals(404, preview(101, id, 0, "1", "").statusCode());
+    assertEquals(404, send("GET", image, "1", null).statusCode());
+    jdbc.update("UPDATE listing_drafts SET author_id = 1 WHERE id = ?", id);
+    jdbc.update("UPDATE products SET owner_id = 2 WHERE id = 101");
+    for (String user : List.of("1", "2")) {
+      assertEquals(404, preview(101, id, 0, user, "").statusCode());
+      assertEquals(404, send("GET", image, user, null).statusCode());
+    }
+  }
+
+  @Test
+  void previewRejectsModifiedAndRecreatedDraftsRatherThanReturningDifferentContent()
+      throws Exception {
+    long id =
+        data(save(101, "1", "{\"title\":\"이전 내용\",\"selectedImageIds\":[301]}"))
+            .get("draftId")
+            .asLong();
+    var changed = data(updateDraft(101, id, "1", "{\"title\":\"다른 탭에서 수정\",\"version\":0}"));
+    assertEquals(409, preview(101, id, 0, "1", "").statusCode());
+    assertEquals(
+        409,
+        send(
+                "GET",
+                "/api/v1/products/101/listing-draft/preview/images/301?draftId="
+                    + id
+                    + "&version=0",
+                "1",
+                null)
+            .statusCode());
+    assertEquals(200, preview(101, id, changed.get("version").asLong(), "1", "").statusCode());
+    assertEquals(204, deleteDraft(101, id, "1", changed.get("version").asLong()).statusCode());
+    long replacement = data(save(101, "1", "{}")).get("draftId").asLong();
+    assertNotEquals(id, replacement);
+    assertEquals(409, preview(101, id, 0, "1", "").statusCode());
+    assertEquals(200, preview(101, replacement, 0, "1", "").statusCode());
+  }
+
+  @Test
+  void previewOnlyServesSelectedPhotosAndNeverAnUnselectedOrForeignPhoto() throws Exception {
+    long id = data(save(101, "1", "{\"selectedImageIds\":[301]}")).get("draftId").asLong();
+    String suffix = "?draftId=" + id + "&version=0";
+    var response =
+        send("GET", "/api/v1/products/101/listing-draft/preview/images/301" + suffix, "1", null);
+    assertEquals(200, response.statusCode());
+    assertEquals("image/png", response.headers().firstValue("Content-Type").orElseThrow());
+    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    for (long imageId : List.of(302L, 399L, 401L, 999L)) {
+      assertEquals(
+          404,
+          send(
+                  "GET",
+                  "/api/v1/products/101/listing-draft/preview/images/" + imageId + suffix,
+                  "1",
+                  null)
+              .statusCode());
+    }
+    assertEquals(
+        401,
+        send("GET", "/api/v1/products/101/listing-draft/preview/images/301" + suffix, null, null)
+            .statusCode());
+  }
+
+  @Test
+  void previewKeepsAllHistoryStatesAndPaginationWhileHidingUnreviewedText() throws Exception {
+    long id = data(save(101, "1", "{}")).get("draftId").asLong();
+    var previousOwner =
+        historyEvent(
+            720,
+            2L,
+            EventType.REPAIR,
+            EventStatus.VOID,
+            "2025-03-01",
+            new PublicText("이메일 비공개", "a@private.example", null, null, false),
+            List.of(new Correction(920, Instant.parse("2025-03-02T08:00:00Z"), "중복 이력 정정", true)));
+    var currentOwner =
+        historyEvent(
+            721,
+            1L,
+            EventType.INSPECTION,
+            EventStatus.VALID,
+            "2025-04-01",
+            new PublicText("정기 점검", "점검 완료", null, null, true),
+            List.of());
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of(previousOwner, currentOwner)));
+    var first = data(preview(101, id, 0, "1", "&size=1")).get("history");
+    assertEquals(721, first.get("items").get(0).get("eventId").asInt());
+    assertTrue(first.get("page").get("hasNext").asBoolean());
+    var secondResponse = preview(101, id, 0, "1", "&page=1&size=1");
+    var second = data(secondResponse).get("history");
+    assertEquals(720, second.get("items").get(0).get("eventId").asInt());
+    assertEquals("VOID", second.get("items").get(0).get("status").asText());
+    assertTrue(second.get("items").get(0).get("previousOwner").asBoolean());
+    assertEquals(
+        "중복 이력 정정", second.get("items").get(0).get("corrections").get(0).get("reason").asText());
+    assertFalse(secondResponse.body().contains("private.example"));
+    assertEquals(1, second.get("validCount").asInt());
+    assertEquals(1, second.get("voidCount").asInt());
+    assertFalse(second.get("page").get("hasNext").asBoolean());
+    assertEquals(0, data(readDraft(101, "1")).get("version").asLong());
+  }
+
+  @Test
+  void aHistoryFailureDuringPreviewDoesNotDeleteOrChangeTheSavedDraft() throws Exception {
+    var saved = data(save(101, "1", "{\"title\":\"저장 완료한 글\"}"));
+    long id = saved.get("draftId").asLong();
+    saved = data(readDraft(101, "1"));
+    var event =
+        historyEvent(722, 1L, EventType.REPAIR, EventStatus.VALID, "2025-01-01", null, List.of());
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of(event, event)));
+    assertEquals(503, preview(101, id, 0, "1", "").statusCode());
+    assertEquals(saved, data(readDraft(101, "1")));
+  }
+
+  private static HttpResponse<String> preview(
+      long productId, long draftId, long version, String user, String query) throws Exception {
+    return send(
+        "GET",
+        "/api/v1/products/"
+            + productId
+            + "/listing-draft/preview?draftId="
+            + draftId
+            + "&version="
+            + version
+            + query,
+        user,
+        null);
+  }
+
+  private static Event historyEvent(
+      long id,
+      Long authorId,
+      EventType type,
+      EventStatus status,
+      String occurredOn,
+      PublicText text,
+      List<Correction> corrections) {
+    return new Event(
+        id,
+        101,
+        authorId,
+        type,
+        LocalDate.parse(occurredOn),
+        Instant.parse("2025-04-01T08:00:00Z"),
+        status,
+        text,
+        corrections);
+  }
+
+  private static HttpResponse<String> publication(long productId, String user, String query)
+      throws Exception {
+    return send(
+        "GET", "/api/v1/products/" + productId + "/listing-draft/publication" + query, user, null);
   }
 
   private static int countDrafts() {
