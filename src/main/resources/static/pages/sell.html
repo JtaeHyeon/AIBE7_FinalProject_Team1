@@ -74,7 +74,7 @@
       <button type="button" class="sc-btn" data-sale-reload hidden>저장본 다시 불러오기</button>
       <button type="button" class="sc-btn sl-draft-delete" data-sale-delete hidden>임시저장본 삭제</button>
       <button type="button" class="sc-btn" data-sale-preview disabled>미리보기</button>
-      <button type="button" class="sc-btn" disabled title="게시 기능은 준비 중이에요.">게시하기</button>
+      <button type="button" class="sc-btn primary" data-sale-publish disabled>게시하기</button>
     </div>
   </div>
   <aside class="sl-side">
@@ -92,7 +92,7 @@
 </form>
 <dialog class="sl-confirm" data-sale-confirm aria-labelledby="sale-confirm-title" aria-describedby="sale-confirm-message">
   <form method="dialog">
-    <h2 id="sale-confirm-title">임시저장본 확인</h2>
+    <h2 id="sale-confirm-title" data-sale-confirm-title>임시저장본 확인</h2>
     <p id="sale-confirm-message" data-sale-confirm-message></p>
     <div class="sl-confirm-actions"><button class="sc-btn" value="cancel" autofocus>취소</button><button class="sc-btn primary" value="confirm" data-sale-confirm-action>확인</button></div>
   </form>

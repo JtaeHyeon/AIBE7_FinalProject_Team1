@@ -15,7 +15,7 @@ class JdbcChatListingReaderTest {
   private final JdbcChatListingReader reader = new JdbcChatListingReader(null);
 
   @Test
-  void 초안_제목이_있으면_초안_제목을_쓴다() throws Exception {
+  void 게시된_판매글의_제목과_판매자를_쓴다() throws Exception {
     ResultSet row = row("초안 제목", "상품 제목", null);
 
     ChatListingSnapshot snapshot = reader.toSnapshot(row, 0);
@@ -27,10 +27,10 @@ class JdbcChatListingReaderTest {
   }
 
   @Test
-  void 초안_제목이_비어있으면_상품_제목을_쓴다() throws Exception {
-    ResultSet row = row(" ", "상품 제목", null);
-
-    assertEquals("상품 제목", reader.toSnapshot(row, 0).title());
+  void 예약_상태를_판매중으로_바꾸지_않는다() throws Exception {
+    ResultSet row = row("판매글 제목", "상품 제목", null);
+    when(row.getString("status")).thenReturn("RESERVED");
+    assertEquals(ChatListingStatus.RESERVED, reader.toSnapshot(row, 0).status());
   }
 
   @Test
@@ -43,11 +43,11 @@ class JdbcChatListingReaderTest {
   private ResultSet row(String draftTitle, String productTitle, Object archivedAt)
       throws Exception {
     ResultSet row = mock(ResultSet.class);
-    when(row.getString("draft_title")).thenReturn(draftTitle);
-    when(row.getString("product_title")).thenReturn(productTitle);
+    when(row.getString("title")).thenReturn(draftTitle);
+    when(row.getString("status")).thenReturn("ACTIVE");
     when(row.getObject("archived_at")).thenReturn(archivedAt);
     when(row.getLong("id")).thenReturn(1L);
-    when(row.getLong("author_id")).thenReturn(7L);
+    when(row.getLong("seller_id")).thenReturn(7L);
     when(row.getLong("product_id")).thenReturn(3L);
     when(row.getLong("owner_id")).thenReturn(7L);
     return row;

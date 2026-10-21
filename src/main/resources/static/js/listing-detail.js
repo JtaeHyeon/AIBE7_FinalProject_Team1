@@ -70,13 +70,13 @@
     else {
       history.append(element('p', 'sub', '유효 ' + data.history.validCount + '건 · 무효 ' + data.history.voidCount + '건'));
       if (!data.history.items.length) history.append(element('p', 'sub', '등록된 핵심 이력이 없어요.'));
-      const timeline = element('ol', 'sl-publication-timeline'); timeline.setAttribute('aria-label', '미리보기 누적 핵심 이력');
+      const timeline = element('ol', 'sl-publication-timeline'); timeline.setAttribute('aria-label', data.listingId ? '공개 누적 핵심 이력' : '미리보기 누적 핵심 이력');
       renderTimeline(timeline, data.history.items); history.append(timeline);
     }
     main.append(history);
 
     const aside = element('aside', 'listing-detail-summary sc-card');
-    aside.append(element('span', 'sc-badge', '게시 전 미리보기'));
+    aside.append(element('span', 'sc-badge', data.listingId ? ({ ACTIVE: '판매 중', RESERVED: '예약 중' }[data.status] || '판매 종료') : '게시 전 미리보기'));
     aside.append(element('h2', '', data.content.title || '제목을 입력해 주세요.'));
     aside.append(element('strong', 'listing-detail-price', data.content.price == null ? '가격 미입력' : new Intl.NumberFormat('ko-KR').format(data.content.price) + '원'));
     const grade = data.content.conditionGrade;
