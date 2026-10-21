@@ -1,4 +1,7 @@
 #sell [hidden]{display:none!important}
+#detail [hidden]{display:none!important}
+#detail [data-listing-content]{margin-top:20px}
+#detail [data-listing-more]{margin-top:16px}
 #sell .sl-product{grid-template-columns:96px 1fr}
 :is(#sell,.listing-detail) .sl-specs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 20px;margin:16px 0 0}
 :is(#sell,.listing-detail) .sl-specs>div{display:flex;justify-content:space-between;gap:12px;font-size:12px}

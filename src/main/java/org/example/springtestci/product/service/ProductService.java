@@ -181,6 +181,8 @@ public class ProductService {
   @Transactional
   public ProductResponse deleteImage(long ownerId, long productId, long imageId) {
     requireOwnedLock(ownerId, productId);
+    if (productRepository.isPublishedImage(productId, imageId))
+      throw new CommonException(ErrorCode.PRODUCT_IMAGE_IN_USE);
     ProductImageRecord image =
         productRepository
             .findImage(productId, imageId)

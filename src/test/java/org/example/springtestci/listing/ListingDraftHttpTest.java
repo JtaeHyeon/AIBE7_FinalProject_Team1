@@ -22,6 +22,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.example.springtestci.SpringTestCiApplication;
+import org.example.springtestci.chat.service.ChatListingReader;
+import org.example.springtestci.common.error.CommonException;
+import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.listing.service.ListingHistoryPublisher;
 import org.example.springtestci.listing.service.ListingHistoryReader;
 import org.example.springtestci.listing.service.ListingHistoryReader.Correction;
 import org.example.springtestci.listing.service.ListingHistoryReader.Event;
@@ -30,6 +34,7 @@ import org.example.springtestci.listing.service.ListingHistoryReader.EventType;
 import org.example.springtestci.listing.service.ListingHistoryReader.PublicText;
 import org.example.springtestci.listing.service.ListingHistoryReader.Snapshot;
 import org.example.springtestci.listing.service.ListingHistoryReader.State;
+import org.example.springtestci.listing.service.ListingPublishConstraints;
 import org.example.springtestci.product.service.SerialNumberProtector;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -61,12 +66,32 @@ class ListingDraftHttpTest {
   private static final Map<Long, Long> SAVED_DRAFT_IDS = new ConcurrentHashMap<>();
   private static final AtomicReference<Snapshot> PUBLICATION_HISTORY =
       new AtomicReference<>(Snapshot.unavailable());
+  private static final AtomicReference<ListingPublishConstraints.Snapshot> PUBLISH_CONSTRAINTS =
+      new AtomicReference<>();
+  private static final AtomicReference<Boolean> FAIL_HISTORY_PUBLICATION =
+      new AtomicReference<>(false);
 
   @TestConfiguration(proxyBeanMethods = false)
   static class PublicationFixtureConfig {
     @Bean
     ListingHistoryReader listingHistoryTestReader() {
       return productId -> PUBLICATION_HISTORY.get();
+    }
+
+    @Bean
+    ListingPublishConstraints listingPublishTestConstraints() {
+      return productId -> PUBLISH_CONSTRAINTS.get();
+    }
+
+    @Bean
+    ListingHistoryPublisher listingPublishTestHistory(JdbcTemplate jdbc) {
+      return (productId, listingId, sellerId) -> {
+        jdbc.update(
+            "UPDATE listing_history_publication_probe SET visibility = 'PUBLIC', publication_count = publication_count + 1 WHERE product_id = ?",
+            productId);
+        if (FAIL_HISTORY_PUBLICATION.get())
+          throw new CommonException(ErrorCode.LISTING_HISTORY_UNAVAILABLE);
+      };
     }
   }
 
@@ -111,6 +136,10 @@ class ListingDraftHttpTest {
             "--app.jwt.secret=" + SECRET,
             "--app.storage.local-root=" + storageRoot);
     jdbc = context.getBean(JdbcTemplate.class);
+    jdbc.execute(
+        "CREATE TABLE listing_history_publication_probe(product_id BIGINT PRIMARY KEY, visibility VARCHAR(20) NOT NULL, publication_count INTEGER NOT NULL)");
+    jdbc.update(
+        "INSERT INTO users(id, email, password_hash, nickname, role, created_at, updated_at) VALUES (1, 'owner1@listing-fixture.invalid', 'not-a-login-hash', '판매테스트1', 'USER', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), (2, 'owner2@listing-fixture.invalid', 'not-a-login-hash', '판매테스트2', 'USER', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
     new ResourceDatabasePopulator(new ClassPathResource("db/fixtures/listing-draft-products.sql"))
         .execute(context.getBean(javax.sql.DataSource.class));
     var serials = context.getBean(SerialNumberProtector.class);
@@ -139,6 +168,14 @@ class ListingDraftHttpTest {
 
   @BeforeEach
   void reset() {
+    PUBLISH_CONSTRAINTS.set(new ListingPublishConstraints.Snapshot(true, false, false));
+    FAIL_HISTORY_PUBLICATION.set(false);
+    jdbc.update("DELETE FROM listing_images");
+    jdbc.update("DELETE FROM listings");
+    jdbc.update("DELETE FROM audit_logs WHERE action = 'LISTING_PUBLISHED'");
+    jdbc.update("DELETE FROM listing_history_publication_probe");
+    jdbc.update(
+        "INSERT INTO listing_history_publication_probe VALUES (101, 'PRIVATE', 0), (102, 'PRIVATE', 0)");
     PUBLICATION_HISTORY.set(Snapshot.unavailable());
     SAVED_DRAFT_IDS.clear();
     jdbc.update("DELETE FROM draft_images");
@@ -1238,6 +1275,360 @@ class ListingDraftHttpTest {
     PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of(event, event)));
     assertEquals(503, preview(101, id, 0, "1", "").statusCode());
     assertEquals(saved, data(readDraft(101, "1")));
+  }
+
+  @Test
+  void publishAtomicallyCreatesTheListingRevealsHistoryAndRemovesOnlyTheUsedDraft()
+      throws Exception {
+    var saved = savePublishableDraft();
+    save(102, "1", "{\"title\":\"보존할 다른 제품 초안\"}");
+    var response = publish(saved, "1");
+    assertEquals(201, response.statusCode(), response.body());
+    long id = data(response).get("listingId").asLong();
+    assertEquals("/api/v1/listings/" + id, response.headers().firstValue("Location").orElseThrow());
+    assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+    assertEquals("ACTIVE", data(response).get("status").asText());
+    assertEquals("/?listingId=" + id, data(response).get("url").asText());
+    assertEquals(404, readDraft(101, "1").statusCode());
+    assertEquals(200, readDraft(102, "1").statusCode());
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM draft_images WHERE draft_id = ?",
+            Integer.class,
+            saved.get("draftId").asLong()));
+    assertEquals(
+        List.of(303L, 301L),
+        jdbc.queryForList(
+            "SELECT product_image_id FROM listing_images WHERE listing_id = ? ORDER BY sort_order",
+            Long.class,
+            id));
+    assertEquals(
+        303L,
+        jdbc.queryForObject(
+            "SELECT product_image_id FROM listing_images WHERE listing_id = ? AND is_primary = TRUE",
+            Long.class,
+            id));
+    assertEquals("PUBLIC", historyVisibility());
+    assertEquals(1, listingCount());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM audit_logs WHERE action = 'LISTING_PUBLISHED' AND target_id = ? AND actor_id = 1",
+            Integer.class,
+            id));
+  }
+
+  @Test
+  void publishingRequiresAllFinalFieldsWhileAnIncompleteDraftIsPreserved() throws Exception {
+    var saved = data(save(101, "1", "{}"));
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of()));
+    assertEquals(400, publish(saved, "1").statusCode());
+    assertEquals(200, readDraft(101, "1").statusCode());
+    for (String field :
+        List.of("title", "description", "price", "conditionGrade", "selectedImageIds")) {
+      var fields = new java.util.HashMap<String, Object>();
+      fields.put("title", "게시 제목");
+      fields.put("description", "게시 설명");
+      fields.put("price", 1200000);
+      fields.put("conditionGrade", 4);
+      fields.put("selectedImageIds", List.of(301));
+      fields.remove(field);
+      fields.put("version", data(readDraft(101, "1")).get("version").asLong());
+      saved = data(save(101, "1", JSON.writeValueAsString(fields)));
+      var response = publish(saved, "1");
+      assertEquals(400, response.statusCode(), field);
+      assertTrue(response.body().contains("SALE_001"));
+    }
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+  }
+
+  @Test
+  void publishRejectsUnauthenticatedForeignAuthorAndStaleDraftRequests() throws Exception {
+    var saved = savePublishableDraft();
+    // 인증 헤더 없는 쓰기는 공통 CSRF 필터에서 먼저 거부한다.
+    assertEquals(403, publish(saved, null).statusCode());
+    assertEquals(401, publish(saved, "not-a-user-id").statusCode());
+    assertEquals(404, publish(saved, "2").statusCode());
+    long id = saved.get("draftId").asLong();
+    assertEquals(
+        409,
+        send(
+                "POST",
+                "/api/v1/products/101/listings",
+                "1",
+                "{\"draftId\":" + id + ",\"version\":99}")
+            .statusCode());
+    jdbc.update("UPDATE listing_drafts SET author_id = 2 WHERE id = ?", id);
+    assertEquals(404, publish(saved, "1").statusCode());
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+  }
+
+  @Test
+  void publishValidatesItsReferenceBody() throws Exception {
+    savePublishableDraft();
+    for (String body :
+        List.of(
+            "{}",
+            "{\"draftId\":0,\"version\":0}",
+            "{\"draftId\":1,\"version\":-1}",
+            "{\"draftId\":1}")) {
+      assertEquals(400, send("POST", "/api/v1/products/101/listings", "1", body).statusCode());
+    }
+    assertEquals(0, listingCount());
+  }
+
+  @Test
+  void publishBlocksOngoingTradesPendingTransfersAndUnavailableChecks() throws Exception {
+    var saved = savePublishableDraft();
+    for (var state :
+        List.of(
+            new ListingPublishConstraints.Snapshot(true, true, false),
+            new ListingPublishConstraints.Snapshot(true, false, true))) {
+      PUBLISH_CONSTRAINTS.set(state);
+      var response = publish(saved, "1");
+      assertEquals(409, response.statusCode());
+      assertTrue(response.body().contains("SALE_003"));
+    }
+    PUBLISH_CONSTRAINTS.set(new ListingPublishConstraints.Snapshot(false, false, false));
+    assertEquals(503, publish(saved, "1").statusCode());
+    PUBLISH_CONSTRAINTS.set(null);
+    assertEquals(503, publish(saved, "1").statusCode());
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+    assertEquals(200, readDraft(101, "1").statusCode());
+  }
+
+  @Test
+  void unavailableOrInvalidHistoryCannotBePublishedAsAnEmptyTimeline() throws Exception {
+    var saved = savePublishableDraft();
+    PUBLICATION_HISTORY.set(Snapshot.unavailable());
+    assertEquals(503, publish(saved, "1").statusCode());
+    var event =
+        historyEvent(740, 1L, EventType.REPAIR, EventStatus.VALID, "2025-01-01", null, List.of());
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of(event, event)));
+    assertEquals(503, publish(saved, "1").statusCode());
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+  }
+
+  @Test
+  void retryingTheSamePublishReturnsTheExistingResultWithoutRepeatingSideEffects()
+      throws Exception {
+    var saved = savePublishableDraft();
+    var first = publish(saved, "1");
+    var retry = publish(saved, "1");
+    assertEquals(201, first.statusCode());
+    assertEquals(200, retry.statusCode());
+    assertEquals(data(first).get("listingId"), data(retry).get("listingId"));
+    assertEquals(1, listingCount());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT publication_count FROM listing_history_publication_probe WHERE product_id=101",
+            Integer.class));
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM audit_logs WHERE action='LISTING_PUBLISHED'", Integer.class));
+  }
+
+  @Test
+  void concurrentPublishesOfOneDraftProduceOnlyOneActiveListing() throws Exception {
+    var saved = savePublishableDraft();
+    java.util.function.Supplier<HttpResponse<String>> attempt =
+        () -> {
+          try {
+            return publish(saved, "1");
+          } catch (Exception failure) {
+            throw new java.util.concurrent.CompletionException(failure);
+          }
+        };
+    var first = CompletableFuture.supplyAsync(attempt);
+    var second = CompletableFuture.supplyAsync(attempt);
+    var responses = List.of(first.get(), second.get());
+    assertEquals(
+        List.of(200, 201), responses.stream().map(HttpResponse::statusCode).sorted().toList());
+    assertEquals(data(responses.get(0)).get("listingId"), data(responses.get(1)).get("listingId"));
+    assertEquals(1, listingCount());
+    assertEquals(0, countDrafts());
+  }
+
+  @Test
+  void aNewDraftCannotBypassAnExistingActiveOrReservedListing() throws Exception {
+    var original = savePublishableDraft();
+    long listingId = data(publish(original, "1")).get("listingId").asLong();
+    var next = savePublishableDraft();
+    assertEquals(409, publish(next, "1").statusCode());
+    jdbc.update("UPDATE listings SET status='RESERVED' WHERE id=?", listingId);
+    assertEquals(409, publish(next, "1").statusCode());
+    assertEquals(1, listingCount());
+    assertEquals(200, readDraft(101, "1").statusCode());
+    jdbc.update("UPDATE listings SET status='CANCELLED', active_slot=NULL WHERE id=?", listingId);
+    assertEquals(201, publish(next, "1").statusCode());
+    assertEquals(2, listingCount());
+  }
+
+  @Test
+  void historyPublicationFailureRollsBackTheListingAndKeepsTheEntireDraft() throws Exception {
+    var saved = savePublishableDraft();
+    var before = data(readDraft(101, "1"));
+    FAIL_HISTORY_PUBLICATION.set(true);
+    assertEquals(503, publish(saved, "1").statusCode());
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+    assertEquals(before, data(readDraft(101, "1")));
+    assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM listing_images", Integer.class));
+  }
+
+  @Test
+  void aFailureAfterDraftDeletionAlsoRestoresHistoryAndDraftPhotos() throws Exception {
+    var saved = savePublishableDraft();
+    var before = data(readDraft(101, "1"));
+    jdbc.execute(
+        "ALTER TABLE audit_logs ADD CONSTRAINT listing_publish_test_failure CHECK (action <> 'LISTING_PUBLISHED')");
+    try {
+      assertEquals(500, publish(saved, "1").statusCode());
+      assertEquals(0, listingCount());
+      assertEquals("PRIVATE", historyVisibility());
+      assertEquals(before, data(readDraft(101, "1")));
+    } finally {
+      jdbc.execute("ALTER TABLE audit_logs DROP CONSTRAINT listing_publish_test_failure");
+    }
+  }
+
+  @Test
+  void foreignSelectedPhotosAreRejectedBeforeAnyPublicationSideEffect() throws Exception {
+    var saved = savePublishableDraft();
+    jdbc.update(
+        "UPDATE draft_images SET product_image_id=401 WHERE draft_id=? AND product_image_id=303",
+        saved.get("draftId").asLong());
+    assertEquals(409, publish(saved, "1").statusCode());
+    assertEquals(0, listingCount());
+    assertEquals("PRIVATE", historyVisibility());
+  }
+
+  @Test
+  void publishedDetailsAndPhotosAreReadableByOtherMembersButNotAnonymousVisitors()
+      throws Exception {
+    long id = data(publish(savePublishableDraft(), "1")).get("listingId").asLong();
+    var response = send("GET", "/api/v1/listings/" + id, "2", null);
+    assertEquals(200, response.statusCode());
+    var detail = data(response);
+    assertEquals("게시할 노트북", detail.get("content").get("title").asText());
+    assertEquals(303, detail.get("images").get(0).get("imageId").asInt());
+    for (String excluded :
+        List.of(
+            "draftId",
+            "authorId",
+            "sellerId",
+            "ownerId",
+            "serialNumber",
+            "storageKey",
+            "documents",
+            "hasDocument",
+            "warrantyTerms")) assertFalse(response.body().contains(excluded), excluded);
+    assertEquals(401, send("GET", "/api/v1/listings/" + id, null, null).statusCode());
+    assertEquals(400, send("GET", "/api/v1/listings/" + id + "?size=101", "2", null).statusCode());
+    assertEquals(
+        200, send("GET", "/api/v1/listings/" + id + "/images/301", "2", null).statusCode());
+    assertEquals(
+        404, send("GET", "/api/v1/listings/" + id + "/images/302", "2", null).statusCode());
+    assertEquals(
+        401, send("GET", "/api/v1/listings/" + id + "/images/301", null, null).statusCode());
+  }
+
+  @Test
+  void reservedDetailsStayReadableButEndedOrTransferredListingsAreNotPublic() throws Exception {
+    long id = data(publish(savePublishableDraft(), "1")).get("listingId").asLong();
+    String path = "/api/v1/listings/" + id;
+    jdbc.update("UPDATE listings SET status='RESERVED' WHERE id=?", id);
+    assertEquals(200, send("GET", path, "2", null).statusCode());
+    for (String state : List.of("SOLD", "CANCELLED")) {
+      jdbc.update("UPDATE listings SET status=?, active_slot=NULL WHERE id=?", state, id);
+      assertEquals(404, send("GET", path, "2", null).statusCode());
+      assertEquals(404, send("GET", path + "/images/301", "2", null).statusCode());
+    }
+    jdbc.update("UPDATE listings SET status='ACTIVE', active_slot=1 WHERE id=?", id);
+    jdbc.update("UPDATE products SET owner_id=2 WHERE id=101");
+    assertEquals(404, send("GET", path, "1", null).statusCode());
+    assertEquals(404, send("GET", path + "/images/301", "2", null).statusCode());
+  }
+
+  @Test
+  void publishedImagesCannotBeDeletedOutFromUnderTheListing() throws Exception {
+    publish(savePublishableDraft(), "1");
+    var response = send("DELETE", "/api/v1/products/101/images/301", "1", null);
+    assertEquals(409, response.statusCode());
+    assertTrue(response.body().contains("PRODUCT_005"));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM product_images WHERE id=301 AND deleted_at IS NOT NULL",
+            Integer.class));
+  }
+
+  @Test
+  void chatReadsThePublishedListingInsteadOfPrivateDrafts() throws Exception {
+    var saved = savePublishableDraft();
+    var reader = context.getBean(ChatListingReader.class);
+    assertTrue(reader.findById(saved.get("draftId").asLong()).isEmpty());
+    long id = data(publish(saved, "1")).get("listingId").asLong();
+    var listing = reader.findById(id).orElseThrow();
+    assertEquals("게시할 노트북", listing.title());
+    assertEquals(1, listing.sellerId());
+    jdbc.update("UPDATE listings SET status='RESERVED' WHERE id=?", id);
+    assertEquals(
+        org.example.springtestci.chat.domain.ChatListingStatus.RESERVED,
+        reader.findById(id).orElseThrow().status());
+  }
+
+  @Test
+  void databaseRejectsTwoOpenListingsAndAnInvalidOpenSlot() throws Exception {
+    long id = data(publish(savePublishableDraft(), "1")).get("listingId").asLong();
+    assertThrows(
+        DataIntegrityViolationException.class,
+        () ->
+            jdbc.update(
+                "INSERT INTO listings(product_id,seller_id,title,price,condition_grade,description,status,content_version,published_at,source_draft_id,source_draft_version,active_slot) SELECT product_id,seller_id,title,price,condition_grade,description,'RESERVED',0,CURRENT_TIMESTAMP,source_draft_id+10000,0,1 FROM listings WHERE id=?",
+                id));
+    assertThrows(
+        DataIntegrityViolationException.class,
+        () -> jdbc.update("UPDATE listings SET active_slot=NULL WHERE id=?", id));
+    assertEquals(1, listingCount());
+  }
+
+  private static JsonNode savePublishableDraft() throws Exception {
+    PUBLICATION_HISTORY.set(new Snapshot(State.READY, false, List.of()));
+    return data(
+        save(
+            101,
+            "1",
+            "{\"title\":\"게시할 노트북\",\"description\":\"게시할 설명\",\"price\":1500000,\"conditionGrade\":4,\"selectedImageIds\":[303,301]}"));
+  }
+
+  private static HttpResponse<String> publish(JsonNode draft, String user) throws Exception {
+    return send(
+        "POST",
+        "/api/v1/products/101/listings",
+        user,
+        "{\"draftId\":"
+            + draft.get("draftId").asLong()
+            + ",\"version\":"
+            + draft.get("version").asLong()
+            + "}");
+  }
+
+  private static int listingCount() {
+    return jdbc.queryForObject("SELECT count(*) FROM listings", Integer.class);
+  }
+
+  private static String historyVisibility() {
+    return jdbc.queryForObject(
+        "SELECT visibility FROM listing_history_publication_probe WHERE product_id=101",
+        String.class);
   }
 
   private static HttpResponse<String> preview(

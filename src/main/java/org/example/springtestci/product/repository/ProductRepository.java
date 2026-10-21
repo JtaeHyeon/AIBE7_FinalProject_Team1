@@ -216,6 +216,15 @@ public class ProductRepository {
     return count == null ? 0 : count;
   }
 
+  public boolean isPublishedImage(long productId, long imageId) {
+    return jdbc.queryForObject(
+            "SELECT COUNT(*) FROM listing_images i JOIN listings l ON l.id = i.listing_id WHERE l.product_id = ? AND i.product_image_id = ? AND l.status IN ('ACTIVE', 'RESERVED')",
+            Integer.class,
+            productId,
+            imageId)
+        > 0;
+  }
+
   public long insertImage(long productId, String storageKey, String contentType, long byteSize) {
     KeyHolder keys = new GeneratedKeyHolder();
     jdbc.update(

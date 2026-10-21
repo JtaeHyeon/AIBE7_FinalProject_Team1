@@ -31,11 +31,13 @@
   let previewOpen = false;
   let previewLoad = null;
   let previewData = null;
+  let publishing = false;
+  let pendingPublish = null;
   let dragImage = null;
   const imageUrls = new Map();
   const find = selector => root.querySelector(selector);
   const dirty = () => revision !== savedRevision;
-  const busy = () => saving || loading || deleting !== null || confirming || previewing || previewOpen;
+  const busy = () => saving || loading || deleting !== null || confirming || previewing || previewOpen || publishing;
   const productPath = id => '/api/v1/products/' + id + '/listing-draft';
   const formatTime = value => new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
 
@@ -53,7 +55,9 @@
       if (response.status === 401) message = '판매글을 작성하려면 먼저 로그인해 주세요.';
       if (response.status === 404) message = '이 제품이나 저장본을 사용할 수 없어요. 현재 보유한 제품을 다시 확인해 주세요.';
       if (response.status === 409) message = '저장본이 변경되었어요. 작성 중인 내용은 유지했어요. 저장본을 다시 불러온 뒤 확인해 주세요.';
-      const failure = new Error(message); failure.status = response.status; throw failure;
+      const failure = new Error(message); failure.status = response.status; failure.code = payload.code;
+      if (payload.code?.startsWith('SALE_')) failure.message = payload.message || message;
+      throw failure;
     }
     return response;
   }
@@ -69,40 +73,44 @@
   }
 
   function status() {
+    const blocked = busy() || pendingPublish !== null;
     const saved = find('[data-sale-saved]');
     if (deleting !== null) saved.textContent = '임시저장본을 삭제하는 중이에요…';
     else if (loading) saved.textContent = '제품과 저장본을 불러오는 중이에요…';
     else if (saving) saved.textContent = '비공개로 저장하는 중이에요…';
     else if (savedAt) saved.textContent = '마지막 임시저장 ' + formatTime(savedAt) + (dirty() ? ' · 저장하지 않은 변경이 있어요.' : ' · 비공개 저장 완료');
     else saved.textContent = dirty() ? '작성한 내용을 임시저장해 주세요.' : '아직 임시저장하지 않았어요.';
-    find('[data-sale-save]').disabled = !product || busy();
+    find('[data-sale-save]').disabled = !product || blocked;
     find('[data-sale-save]').textContent = saving ? '저장 중…' : '임시저장';
-    find('[data-sale-product]').disabled = busy();
+    find('[data-sale-product]').disabled = blocked;
     find('[data-sale-reload]').hidden = !product;
-    find('[data-sale-reload]').disabled = busy();
+    find('[data-sale-reload]').disabled = blocked;
     find('[data-sale-delete]').hidden = draftId === null;
-    find('[data-sale-delete]').disabled = busy();
-    find('[data-sale-drafts-refresh]').disabled = listing || busy();
-    find('[data-sale-drafts-more]').disabled = listing || busy();
+    find('[data-sale-delete]').disabled = blocked;
+    find('[data-sale-drafts-refresh]').disabled = listing || blocked;
+    find('[data-sale-drafts-more]').disabled = listing || blocked;
     find('[data-sale-publication-refresh]').disabled = !product || publicationLoading || busy();
     find('[data-sale-publication-more]').disabled = publicationLoading || busy();
-    find('[data-sale-preview]').disabled = !product || busy();
+    find('[data-sale-preview]').disabled = !product || blocked;
+    find('[data-sale-publish]').disabled = !product || busy();
+    find('[data-sale-publish]').textContent = publishing ? '게시 중…' : pendingPublish ? '게시 결과 다시 확인' : '게시하기';
     find('[data-sale-preview]').textContent = previewing ? '미리보기 준비 중…' : '미리보기';
-    root.querySelectorAll('[data-sale-open-draft], [data-sale-delete-draft]').forEach(button => { button.disabled = busy(); });
-    root.querySelectorAll('[data-sale-title], [data-sale-price], [data-sale-description], [data-sale-grade]').forEach(input => { input.disabled = !product || loading || deleting !== null || previewing || previewOpen; });
-    root.querySelectorAll('[data-sale-image]').forEach(button => { button.disabled = loading || deleting !== null || previewing || previewOpen; });
+    root.querySelectorAll('[data-sale-open-draft], [data-sale-delete-draft]').forEach(button => { button.disabled = blocked; });
+    root.querySelectorAll('[data-sale-title], [data-sale-price], [data-sale-description], [data-sale-grade]').forEach(input => { input.disabled = !product || loading || deleting !== null || previewing || previewOpen || publishing || pendingPublish !== null; });
+    root.querySelectorAll('[data-sale-image]').forEach(button => { button.disabled = loading || deleting !== null || previewing || previewOpen || publishing || pendingPublish !== null; });
     root.querySelectorAll('[data-sale-move]').forEach(button => {
       const index = selected.indexOf(Number(button.dataset.imageId));
-      button.disabled = loading || deleting !== null || previewing || previewOpen || index < 0 || (button.dataset.saleMove === 'right' ? index === selected.length - 1 : index === 0);
+      button.disabled = loading || deleting !== null || previewing || previewOpen || publishing || pendingPublish !== null || index < 0 || (button.dataset.saleMove === 'right' ? index === selected.length - 1 : index === 0);
     });
   }
 
   function change() { revision++; counters(); status(); }
 
-  async function confirmAction(message, action) {
+  async function confirmAction(message, action, title = '임시저장본 확인') {
     const dialog = find('[data-sale-confirm]');
     find('[data-sale-confirm-message]').textContent = message;
     find('[data-sale-confirm-action]').textContent = action;
+    find('[data-sale-confirm-title]').textContent = title;
     confirming = true; status();
     try {
       return await new Promise(resolve => {
@@ -114,6 +122,7 @@
   }
 
   function reset() {
+    pendingPublish = null;
     previewLoad?.abort(); previewData = null;
     publicationLoad?.abort(); publicationLoading = false;
     publicationPage = -1; publicationHasNext = false; publicationEvents = [];
@@ -325,7 +334,7 @@
   }
 
   async function chooseProduct(next, discard = false) {
-    if (busy()) return;
+    if (busy() || pendingPublish !== null) return;
     if (!discard && dirty() && !await confirmAction('임시저장하지 않은 내용이 있어요. 저장본을 불러오면 작성 중인 내용이 바뀌어요. 계속할까요?', '불러오기')) {
       find('[data-sale-product]').value = productId || ''; return;
     }
@@ -439,7 +448,7 @@
   }
 
   async function deleteDraft(item) {
-    if (busy()) return;
+    if (busy() || pendingPublish !== null) return;
     const current = item.productId === productId;
     const message = '임시저장본을 삭제할까요? 제품과 등록된 사진은 그대로 유지돼요.' + (current && dirty() ? '\n화면에서 작성 중인 변경 내용도 지워져요.' : '');
     if (!await confirmAction(message, '삭제하기')) return;
@@ -454,6 +463,33 @@
       await refreshDrafts();
     } finally { deleting = null; status(); }
     if (removed && current) await chooseProduct(String(productId), true);
+  }
+
+  async function publishListing() {
+    if (!product || busy()) return;
+    error();
+    if (!pendingPublish) {
+      if (!find('[data-sale-title]').value.trim() || !find('[data-sale-description]').value.trim() || !find('[data-sale-price]').value.trim() || grade === null || !selected.length) {
+        error('게시하려면 제목·가격·상태 등급·설명과 대표 사진을 입력해 주세요.'); return;
+      }
+      if (!await confirmAction('판매글을 게시할까요? 선택한 제품 사진과 개인정보를 제외한 누적 핵심 이력이 함께 공개돼요.', '게시하기', '판매글 게시 확인')) return;
+    }
+    publishing = true; status();
+    try {
+      if (!pendingPublish) {
+        await persistDraft();
+        pendingPublish = { productId, draftId, version };
+      }
+      const response = await api('/api/v1/products/' + pendingPublish.productId + '/listings', { method:'POST', body:JSON.stringify({ draftId:pendingPublish.draftId, version:pendingPublish.version }) });
+      const { data } = await response.json();
+      pendingPublish = null; productId = null; reset();
+      await refreshDrafts();
+      window.PastportPublishedListing.open(data.listingId);
+    } catch (failure) {
+      // 응답 유실이면 같은 초안 ID·버전으로 재시도한다. 서버는 같은 게시 결과를 반환한다.
+      if (failure.status) pendingPublish = null;
+      error(pendingPublish ? '게시 결과를 확인하지 못했어요. 게시 결과 다시 확인을 눌러 같은 요청의 결과를 확인해 주세요.' : failure.message);
+    } finally { publishing = false; status(); }
   }
 
   async function loadProducts() {
@@ -481,6 +517,7 @@
     find('[data-sale-publication-refresh]').addEventListener('click', () => refreshPublication());
     find('[data-sale-publication-more]').addEventListener('click', () => refreshPublication(true));
     find('[data-sale-preview]').addEventListener('click', openPreview);
+    find('[data-sale-publish]').addEventListener('click', publishListing);
     find('[data-sale-preview-more]').addEventListener('click', morePreview);
     find('[data-sale-preview-close]').addEventListener('click', () => find('[data-sale-preview-dialog]').close());
     find('[data-sale-preview-dialog]').addEventListener('close', () => {
@@ -494,7 +531,7 @@
       if (open) { const item = draftItems.find(draft => draft.draftId === Number(open.dataset.saleOpenDraft)); if (item) chooseProduct(String(item.productId)); return; }
       const remove = event.target.closest('[data-sale-delete-draft]');
       if (remove) { const item = draftItems.find(draft => draft.draftId === Number(remove.dataset.saleDeleteDraft)); if (item) deleteDraft(item); return; }
-      if (!product || loading || deleting !== null || previewing || previewOpen) return;
+      if (!product || loading || deleting !== null || previewing || previewOpen || publishing || pendingPublish !== null) return;
       const gradeButton = event.target.closest('[data-sale-grade]');
       if (gradeButton && !gradeButton.disabled) {
         const next = Number(gradeButton.dataset.saleGrade); grade = grade === next ? null : next;
@@ -524,7 +561,7 @@
       event.preventDefault(); const index = selected.indexOf(target); selected = selected.filter(id => id !== dragImage); selected.splice(index, 0, dragImage); dragImage = null; renderPhotos(); change();
     });
     root.addEventListener('dragend', () => { dragImage = null; });
-    window.addEventListener('beforeunload', event => { if (dirty()) { event.preventDefault(); event.returnValue = ''; } });
+    window.addEventListener('beforeunload', event => { if (dirty() || pendingPublish) { event.preventDefault(); event.returnValue = ''; } });
     await Promise.all([loadProducts(), refreshDrafts()]);
     const requested = new URL(window.location.href).searchParams.get('draftProduct');
     if (requested && /^[1-9]\d*$/.test(requested)) await chooseProduct(requested);

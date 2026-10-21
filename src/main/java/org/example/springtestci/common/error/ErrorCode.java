@@ -22,6 +22,14 @@ public enum ErrorCode {
       HttpStatus.SERVICE_UNAVAILABLE, "SALE_DRAFT_002", "제품 정보를 아직 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
   LISTING_HISTORY_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "SALE_HISTORY_001", "공개 예정 이력을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+  LISTING_REQUIRED_FIELDS(
+      HttpStatus.BAD_REQUEST, "SALE_001", "게시하려면 제목·가격·상태 등급·설명과 대표 사진을 입력해 주세요."),
+  LISTING_ALREADY_OPEN(HttpStatus.CONFLICT, "SALE_002", "이미 판매 중이거나 예약 중인 판매글이 있습니다."),
+  LISTING_PUBLISH_BLOCKED(HttpStatus.CONFLICT, "SALE_003", "진행 중인 거래나 소유권 이전 요청이 있어 게시할 수 없습니다."),
+  LISTING_PUBLISH_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "SALE_004", "게시 조건·이력 공개 기능의 연동이 준비되지 않았습니다. 임시저장본은 유지됩니다."),
+  PRODUCT_IMAGE_IN_USE(
+      HttpStatus.CONFLICT, "PRODUCT_005", "판매 중이거나 예약 중인 판매글의 사진은 먼저 판매글에서 제외해 주세요."),
   INVALID_EXTRACTION_STATE(HttpStatus.CONFLICT, "DOC_001", "현재 상태에서는 처리할 수 없는 추출 요청입니다."),
   INVALID_DOCUMENT_FILE(
       HttpStatus.BAD_REQUEST, "DOC_002", "JPG, PNG, PDF 형식의 올바른 파일만 업로드할 수 있습니다."),

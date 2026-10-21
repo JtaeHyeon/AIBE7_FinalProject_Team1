@@ -5,7 +5,7 @@
 - 작업 기준: `Pastport_Chat_Codex_All_In_One_v1.2.md`, `Pastport_Chat_API_Migration_Extension_Spec_v1.4.md`
 - 구현 범위: TX-01 채팅 시작, TX-02 채팅·거래 진행 중 기본 채팅 API 5개, HTTP 저장 후 STOMP 실시간 수신
 - 운영 등록: 기본 비활성. `app.features.chat-api.enabled=true`일 때 HTTP Controller·Service와 WebSocket endpoint·broker·publisher가 등록된다.
-- 외부 연결: `JdbcChatListingReader`가 임시 판매글 구조를, `JpaChatUserReader`가 현재 회원 구조를 연결한다.
+- 외부 연결: R05부터 `JdbcChatListingReader`가 게시된 `listings`·`products`를, `JpaChatUserReader`가 현재 회원 구조를 연결한다.
 - 제외 범위: 완성형 화면, 파일, SockJS, 외부 broker, 주문·견적, 거래 상태 변경, 운영 배포
 
 ## API 대응표
@@ -51,7 +51,7 @@
 | `chat/service/ChatMessageDelivery.java` | 저장 트랜잭션과 실시간 전달 구현 사이의 경계 |
 | `chat/service/ChatListingReader.java` | 판매글·판매자·제품 소유자·상태·제목 조회 경계 |
 | `chat/service/ChatUserReader.java` | 상대 사용자 닉네임 벌크 조회 경계 |
-| `chat/service/JdbcChatListingReader.java` | `listing_drafts`·`products` 기반 임시 판매글 조회 구현 |
+| `chat/service/JdbcChatListingReader.java` | `listings`·`products` 기반 실제 판매글·상태 조회 구현 |
 | `chat/service/JpaChatUserReader.java` | 현재 회원 Repository 기반 닉네임 조회 구현 |
 | `chat/realtime/ChatRealtimeConfig.java` | `/ws-stomp`, `/sub` broker, inbound interceptor 설정 |
 | `chat/realtime/ChatStompAuthorizationInterceptor.java` | CONNECT 인증, SUBSCRIBE 인가, SEND 차단 |
@@ -59,7 +59,7 @@
 | `chat/repository/jpa/*` | 채팅방·메시지·확인 위치 JPA 저장 어댑터 |
 | `db/migration/V2026101302__create_chat_tables.sql` | 채팅 전용 테이블·제약·인덱스 |
 
-공유 사용자·제품·판매글 테이블의 물리 스키마가 아직 없으므로 `seller_id`, `inquirer_id`, `listing_id`에는 외부 FK를 임의로 추가하지 않았다. 채팅 내부의 메시지·확인 위치 FK와 `(listing_id, inquirer_id)`, `(room_id, user_id)` UNIQUE 제약은 적용했다.
+채팅 초기 마이그레이션에서는 외부 테이블이 없어 `seller_id`, `inquirer_id`, `listing_id` FK를 두지 않았다. R05에서 실제 판매글 테이블을 생성했으며 기존 채팅은 그대로 보존한다. `V2026102102`는 새 판매글 번호가 기존 채팅 참조 번호와 겹치지 않게 한다. 초안 기반 기존 대화의 실제 판매글 연결은 자동 추정하지 않는다. 채팅 내부 FK와 `(listing_id, inquirer_id)`, `(room_id, user_id)` UNIQUE 제약은 유지한다.
 
 ## 정책
 
@@ -75,9 +75,9 @@
 
 ## 외부 모듈 연결 상태
 
-1. `JdbcChatListingReader`가 공개 판매글 테이블 확정 전까지 `listing_drafts`와 `products`를 조회한다.
+1. `JdbcChatListingReader`가 게시된 `listings`와 `products`를 조회한다. 비공개 초안을 판매 중인 글로 제공하지 않는다.
 2. `JpaChatUserReader`가 현재 `UserRepository`에서 사용자 ID별 닉네임을 벌크 조회한다.
-3. 공개 판매글 스키마가 확정되면 `ChatListingReader` 구현만 교체하고 채팅 Service 계약은 유지한다.
+3. R05에서 Reader 구현을 교체했으며 채팅 Service 계약·고정 참여자·기존 대화 접근 정책은 유지한다.
 4. 기능 사용 환경에서는 `app.features.chat-api.enabled=true`로 설정한다.
 
 ## 검증 명령
