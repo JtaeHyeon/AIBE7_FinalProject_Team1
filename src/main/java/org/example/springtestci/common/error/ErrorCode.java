@@ -20,6 +20,8 @@ public enum ErrorCode {
       HttpStatus.CONFLICT, "SALE_DRAFT_001", "다른 저장본이 있거나 저장 후 내용이 변경되었습니다. 최신 저장본을 확인해 주세요."),
   DRAFT_PRODUCT_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "SALE_DRAFT_002", "제품 정보를 아직 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
+  LISTING_HISTORY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "SALE_HISTORY_001", "공개 예정 이력을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."),
   INVALID_EXTRACTION_STATE(HttpStatus.CONFLICT, "DOC_001", "현재 상태에서는 처리할 수 없는 추출 요청입니다."),
   INVALID_DOCUMENT_FILE(
       HttpStatus.BAD_REQUEST, "DOC_002", "JPG, PNG, PDF 형식의 올바른 파일만 업로드할 수 있습니다."),

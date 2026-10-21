@@ -22,11 +22,20 @@
   let draftItems = [];
   let draftPage = -1;
   let draftHasNext = false;
+  let publicationLoad = null;
+  let publicationLoading = false;
+  let publicationPage = -1;
+  let publicationHasNext = false;
+  let publicationEvents = [];
+  let previewing = false;
+  let previewOpen = false;
+  let previewLoad = null;
+  let previewData = null;
   let dragImage = null;
   const imageUrls = new Map();
   const find = selector => root.querySelector(selector);
   const dirty = () => revision !== savedRevision;
-  const busy = () => saving || loading || deleting !== null || confirming;
+  const busy = () => saving || loading || deleting !== null || confirming || previewing || previewOpen;
   const productPath = id => '/api/v1/products/' + id + '/listing-draft';
   const formatTime = value => new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
 
@@ -75,9 +84,17 @@
     find('[data-sale-delete]').disabled = busy();
     find('[data-sale-drafts-refresh]').disabled = listing || busy();
     find('[data-sale-drafts-more]').disabled = listing || busy();
+    find('[data-sale-publication-refresh]').disabled = !product || publicationLoading || busy();
+    find('[data-sale-publication-more]').disabled = publicationLoading || busy();
+    find('[data-sale-preview]').disabled = !product || busy();
+    find('[data-sale-preview]').textContent = previewing ? '미리보기 준비 중…' : '미리보기';
     root.querySelectorAll('[data-sale-open-draft], [data-sale-delete-draft]').forEach(button => { button.disabled = busy(); });
-    root.querySelectorAll('[data-sale-title], [data-sale-price], [data-sale-description], [data-sale-grade]').forEach(input => { input.disabled = !product || loading || deleting !== null; });
-    root.querySelectorAll('[data-sale-image]').forEach(button => { button.disabled = loading || deleting !== null; });
+    root.querySelectorAll('[data-sale-title], [data-sale-price], [data-sale-description], [data-sale-grade]').forEach(input => { input.disabled = !product || loading || deleting !== null || previewing || previewOpen; });
+    root.querySelectorAll('[data-sale-image]').forEach(button => { button.disabled = loading || deleting !== null || previewing || previewOpen; });
+    root.querySelectorAll('[data-sale-move]').forEach(button => {
+      const index = selected.indexOf(Number(button.dataset.imageId));
+      button.disabled = loading || deleting !== null || previewing || previewOpen || index < 0 || (button.dataset.saleMove === 'right' ? index === selected.length - 1 : index === 0);
+    });
   }
 
   function change() { revision++; counters(); status(); }
@@ -97,6 +114,16 @@
   }
 
   function reset() {
+    previewLoad?.abort(); previewData = null;
+    publicationLoad?.abort(); publicationLoading = false;
+    publicationPage = -1; publicationHasNext = false; publicationEvents = [];
+    find('[data-sale-publication-product]').hidden = true;
+    find('[data-sale-publication-product]').replaceChildren();
+    find('[data-sale-publication-history]').hidden = true;
+    find('[data-sale-publication-events]').replaceChildren();
+    find('[data-sale-publication-more]').hidden = true;
+    find('[data-sale-publication-count]').textContent = '';
+    find('[data-sale-publication-status]').textContent = '제품을 선택하면 공개 예정 정보를 보여드려요.';
     product = null; draftId = null; selected = []; grade = null; version = null;
     revision = 0; savedRevision = 0; savedAt = null;
     imageUrls.forEach(url => URL.revokeObjectURL(url)); imageUrls.clear();
@@ -218,6 +245,63 @@
     status();
   }
 
+  // R03에서는 제품·이력을 조회해 표시하며, 작성 내용 저장과 게시 미리보기는 수행하지 않는다.
+  function renderPublication(data) {
+    const info = data.product;
+    const specs = info.specifications || {};
+    const fields = [['제조사', info.manufacturer], ['모델', info.modelName],
+      ['구매일', info.purchaseDate], ['보증 만료일', info.warrantyExpiresAt],
+      ['CPU', specs.cpu], ['GPU', specs.gpu], ['메모리', specs.ramGb == null ? null : specs.ramGb + 'GB'],
+      ['저장장치', specs.storageGb == null ? null : specs.storageGb + 'GB ' + (specs.storageType || '')],
+      ['화면', specs.display], ['운영체제', specs.os],
+      ['배터리 상태', specs.batteryHealthPercent == null ? null : specs.batteryHealthPercent + '%']];
+    const productList = find('[data-sale-publication-product]'); productList.replaceChildren();
+    fields.forEach(([label, value]) => {
+      const row = document.createElement('div');
+      const name = document.createElement('dt'); name.textContent = label;
+      const content = document.createElement('dd'); content.textContent = value ?? '미등록';
+      row.append(name, content); productList.append(row);
+    });
+    productList.hidden = false;
+    find('[data-sale-publication-status]').textContent = '선택한 제품의 공개 예정 정보예요. 조회해도 저장하거나 공개하지 않아요.';
+    find('[data-sale-publication-history]').hidden = false;
+    find('[data-sale-publication-sample]').hidden = !data.history.sample;
+    const unavailable = data.history.status !== 'READY';
+    find('[data-sale-publication-count]').textContent = unavailable ? '' : '유효 ' + data.history.validCount + '건 · 무효 ' + data.history.voidCount + '건';
+    find('[data-sale-publication-history-status]').textContent = unavailable
+      ? '이력 연동 준비 중이에요. 실제 이력 여부는 아직 확인할 수 없어요.'
+      : publicationEvents.length ? '이전 소유자의 기록과 정정·무효 표시를 함께 보여드려요.' : '등록된 핵심 이력이 없어요.';
+    window.PastportListingDetail.renderTimeline(find('[data-sale-publication-events]'), publicationEvents);
+    find('[data-sale-publication-more]').hidden = !publicationHasNext;
+  }
+
+  async function refreshPublication(append = false) {
+    if (!product || saving || deleting !== null || confirming) return;
+    publicationLoad?.abort();
+    const controller = new AbortController(); publicationLoad = controller;
+    const requestedProduct = productId;
+    const page = append ? publicationPage + 1 : 0;
+    publicationLoading = true; status();
+    find('[data-sale-publication-status]').textContent = '공개 예정 제품 정보와 이력을 불러오는 중이에요…';
+    try {
+      const response = await api(productPath(requestedProduct) + '/publication?page=' + page + '&size=20', { signal: controller.signal });
+      const { data } = await response.json();
+      if (controller.signal.aborted || productId !== requestedProduct) return;
+      publicationEvents = data.history.status !== 'READY' ? [] : append ? [...new Map([...publicationEvents, ...data.history.items].map(item => [item.eventId, item])).values()] : data.history.items;
+      publicationPage = page; publicationHasNext = data.history.page.hasNext;
+      renderPublication(data);
+    } catch (failure) {
+      if (failure.name !== 'AbortError' && !controller.signal.aborted) {
+        publicationEvents = []; publicationHasNext = false;
+        find('[data-sale-publication-product]').hidden = true;
+        find('[data-sale-publication-history]').hidden = true;
+        find('[data-sale-publication-more]').hidden = true;
+        find('[data-sale-publication-events]').replaceChildren();
+        find('[data-sale-publication-status]').textContent = '공개 예정 정보를 확인하지 못했어요. 정보 새로고침으로 다시 시도해 주세요.';
+      }
+    } finally { if (!controller.signal.aborted) { publicationLoading = false; status(); } }
+  }
+
   async function refreshDrafts(append = false) {
     draftListLoad?.abort();
     const controller = new AbortController(); draftListLoad = controller;
@@ -264,6 +348,7 @@
       if (![...select.options].some(option => Number(option.value) === productId)) select.add(new Option(product.title, productId));
       select.value = String(productId);
       applyDraft(draft); renderProduct(); renderPhotos(); renderDrafts();
+      refreshPublication();
       product.images.forEach(async image => {
         try {
           const photo = await api(image.url, { signal: controller.signal });
@@ -278,13 +363,10 @@
     finally { if (!controller.signal.aborted) { loading = false; status(); } }
   }
 
-  async function save(event) {
-    event.preventDefault();
-    if (!product || busy()) return;
-    error();
+  async function persistDraft() {
     const rawPrice = find('[data-sale-price]').value.trim();
     const validPrice = /^(?:[1-9]\d{0,11}|[1-9]\d{0,2}(?:,\d{3}){1,3})$/;
-    if (rawPrice && !validPrice.test(rawPrice)) { error('가격은 1원 이상, 최대 12자리의 정수로 입력해 주세요.'); find('[data-sale-price]').focus(); return; }
+    if (rawPrice && !validPrice.test(rawPrice)) { find('[data-sale-price]').focus(); throw new Error('가격은 1원 이상, 최대 12자리의 정수로 입력해 주세요.'); }
     const price = rawPrice ? Number(rawPrice.replaceAll(',', '')) : null;
     const content = { title: find('[data-sale-title]').value || null, description: find('[data-sale-description]').value || null, price, conditionGrade: grade, selectedImageIds: [...selected], version };
     const savingRevision = revision;
@@ -295,8 +377,65 @@
       const { data } = await response.json();
       draftId = data.draftId; version = data.version; savedAt = data.updatedAt; savedRevision = savingRevision;
       await refreshDrafts();
-    } catch (failure) { error(failure.message); }
+      return data;
+    }
     finally { saving = false; status(); }
+  }
+
+  async function save(event) {
+    event.preventDefault();
+    if (!product || busy()) return;
+    error();
+    try { await persistDraft(); } catch (failure) { error(failure.message); }
+  }
+
+  async function fetchPreview(page) {
+    previewLoad?.abort(); const controller = new AbortController(); previewLoad = controller;
+    const response = await api(productPath(productId) + '/preview?draftId=' + draftId + '&version=' + version + '&page=' + page + '&size=20', { signal: controller.signal });
+    const { data } = await response.json();
+    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    return data;
+  }
+
+  function renderPreview() {
+    window.PastportListingDetail.render(find('[data-sale-preview-content]'), previewData);
+    find('[data-sale-preview-saved]').textContent = '임시저장 ' + formatTime(previewData.savedAt) + ' · 읽기 전용';
+    find('[data-sale-preview-more]').hidden = !previewData.history.page.hasNext;
+    find('[data-sale-preview-status]').textContent = '';
+  }
+
+  async function openPreview() {
+    if (!product || busy()) return;
+    previewing = true; status(); error();
+    let stored = false;
+    try {
+      // 저장 응답의 ID·버전으로만 조회한다. 저장 실패 시 미리보기 요청을 보내지 않는다.
+      await persistDraft(); stored = true;
+      previewData = await fetchPreview(0); renderPreview();
+      find('[data-sale-preview-dialog]').showModal(); previewOpen = true;
+      find('[data-sale-preview-dialog]').scrollTop = 0;
+      find('[data-sale-content-step]').className = '';
+      find('[data-sale-preview-step]').className = 'now';
+    } catch (failure) {
+      if (failure.name !== 'AbortError') error((stored ? '임시저장은 완료했지만 미리보기를 열지 못했어요. ' : '') + failure.message);
+    } finally { previewing = false; status(); }
+  }
+
+  async function morePreview() {
+    if (!previewOpen || previewing || !previewData?.history.page.hasNext) return;
+    previewing = true; status(); find('[data-sale-preview-more]').disabled = true;
+    find('[data-sale-preview-status]').textContent = '이력을 더 불러오는 중이에요…';
+    try {
+      const data = await fetchPreview(previewData.history.page.number + 1);
+      data.history.items = data.history.status !== 'READY' ? [] : [...new Map([...previewData.history.items, ...data.history.items].map(item => [item.eventId, item])).values()];
+      previewData = data; renderPreview();
+    } catch (failure) {
+      if (failure.name !== 'AbortError') {
+        find('[data-sale-preview-content]').replaceChildren();
+        find('[data-sale-preview-more]').hidden = true;
+        find('[data-sale-preview-status]').textContent = failure.message + ' 작성 화면으로 돌아가 다시 미리보기해 주세요.';
+      }
+    } finally { previewing = false; find('[data-sale-preview-more]').disabled = false; status(); }
   }
 
   async function deleteDraft(item) {
@@ -339,12 +478,23 @@
     find('[data-sale-delete]').addEventListener('click', () => deleteDraft({ draftId, productId, version }));
     find('[data-sale-drafts-refresh]').addEventListener('click', () => refreshDrafts());
     find('[data-sale-drafts-more]').addEventListener('click', () => refreshDrafts(true));
+    find('[data-sale-publication-refresh]').addEventListener('click', () => refreshPublication());
+    find('[data-sale-publication-more]').addEventListener('click', () => refreshPublication(true));
+    find('[data-sale-preview]').addEventListener('click', openPreview);
+    find('[data-sale-preview-more]').addEventListener('click', morePreview);
+    find('[data-sale-preview-close]').addEventListener('click', () => find('[data-sale-preview-dialog]').close());
+    find('[data-sale-preview-dialog]').addEventListener('close', () => {
+      previewLoad?.abort(); previewData = null; previewOpen = false;
+      find('[data-sale-preview-content]').replaceChildren();
+      find('[data-sale-preview-step]').className = ''; find('[data-sale-content-step]').className = 'now';
+      renderPhotos(); status();
+    });
     root.addEventListener('click', event => {
       const open = event.target.closest('[data-sale-open-draft]');
       if (open) { const item = draftItems.find(draft => draft.draftId === Number(open.dataset.saleOpenDraft)); if (item) chooseProduct(String(item.productId)); return; }
       const remove = event.target.closest('[data-sale-delete-draft]');
       if (remove) { const item = draftItems.find(draft => draft.draftId === Number(remove.dataset.saleDeleteDraft)); if (item) deleteDraft(item); return; }
-      if (!product || loading || deleting !== null) return;
+      if (!product || loading || deleting !== null || previewing || previewOpen) return;
       const gradeButton = event.target.closest('[data-sale-grade]');
       if (gradeButton && !gradeButton.disabled) {
         const next = Number(gradeButton.dataset.saleGrade); grade = grade === next ? null : next;
