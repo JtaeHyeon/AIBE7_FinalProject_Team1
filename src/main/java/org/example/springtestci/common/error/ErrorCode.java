@@ -38,6 +38,9 @@ public enum ErrorCode {
   PRODUCT_IMAGE_TOO_LARGE(
       HttpStatus.CONTENT_TOO_LARGE, "PRODUCT_003", "이미지는 최대 5MB까지 업로드할 수 있습니다."),
   PRODUCT_IMAGE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "PRODUCT_004", "제품당 이미지는 최대 10장까지 등록할 수 있습니다."),
+  TRADE_CONFLICT(HttpStatus.CONFLICT, "TRADE_001", "구매 요청을 현재 상태에서 처리할 수 없습니다."),
+  TRADE_DEPENDENCY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "TRADE_002", "거래 연동 기능을 일시적으로 사용할 수 없습니다."),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON_999", "서버 오류가 발생했습니다.");
 
   private final HttpStatus status;

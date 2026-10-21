@@ -47,7 +47,7 @@ class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
       return message;
     }
 
-    if (command == StompCommand.CONNECT) {
+    if (command == StompCommand.CONNECT || command == StompCommand.STOMP) {
       accessor.setUser(authenticate(accessor));
       return message;
     }
