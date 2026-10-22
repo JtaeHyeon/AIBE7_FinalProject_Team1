@@ -76,6 +76,9 @@ public class SecurityConfig {
                         "/swagger-ui.html")
                     .permitAll()
                     .requestMatchers(
+                        HttpMethod.GET, "/api/v1/listings", "/api/v1/listings/*/thumbnail")
+                    .permitAll()
+                    .requestMatchers(
                         HttpMethod.POST,
                         "/api/auth/email/resend",
                         "/api/auth/signup",
