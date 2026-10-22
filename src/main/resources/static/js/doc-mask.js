@@ -18,6 +18,8 @@
   let sourceType = 'image/png';
   let saving = false;
   let autoRunning = false;
+  // cleanup()마다 올라가서, 그 전에 시작한 이미지 열기·미리보기가 늦게 끝나도 결과를 버릴 수 있게 한다.
+  let generation = 0;
 
   const find = (selector) => root.querySelector(selector);
   const all = (selector) => Array.from(root.querySelectorAll(selector));
@@ -48,6 +50,7 @@
 
   // 화면을 벗어나거나 취소·저장이 끝나면 원본 이미지와 만든 사본에 대한 참조를 모두 정리한다.
   function cleanup() {
+    generation += 1;
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = null;
     blob = null;
@@ -104,11 +107,17 @@
       return;
     }
     cleanup();
+    const opening = generation;
     let image;
     try {
       image = await decode(file);
     } catch (ignored) {
+      if (opening !== generation) return;
       fail('이미지를 열 수 없어요. 다른 파일을 선택해 주세요.');
+      return;
+    }
+    if (opening !== generation) {
+      if (typeof image.close === 'function') image.close();
       return;
     }
     const scale = Math.min(1, MAX_SIDE / Math.max(image.width, image.height));
@@ -332,10 +341,12 @@
   async function preview() {
     fail('');
     if (!bitmap) return;
+    const previewing = generation;
     find('[data-dm-preview]').disabled = true;
     say('가린 결과를 만드는 중이에요…');
     try {
       const built = await buildBlob();
+      if (previewing !== generation) return;
       blob = built.encoded;
       if (resultUrl) URL.revokeObjectURL(resultUrl);
       resultUrl = URL.createObjectURL(blob);
@@ -350,6 +361,7 @@
       setStep('review');
       say('');
     } catch (error) {
+      if (previewing !== generation) return;
       fail(
         error.message === 'size'
           ? '사본이 10MB를 넘어 저장할 수 없어요. 더 작은 사진을 선택해 주세요.'
@@ -516,7 +528,7 @@
       pendingProductId = null;
     }
   });
-  window.addEventListener('pagehide', cleanup);
+  window.addEventListener('pagehide', reset);
 
   window.PastportDocMask = {
     setProduct(id) {
