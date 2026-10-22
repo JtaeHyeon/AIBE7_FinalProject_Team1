@@ -1,7 +1,8 @@
 /* 문서 마스킹 화면(docmask) 전용 스타일. 기존 .dm-*, .sc-* 클래스를 보완한다. */
 #docmask .dm-field{display:grid;gap:6px;margin:0 0 14px;font-size:13px;font-weight:700}
 #docmask .dm-field input{height:40px;padding:0 12px;border:1px solid var(--line);border-radius:4px;font-size:14px}
-#docmask .dm-field input:focus{outline:2px solid var(--blue);outline-offset:1px}
+#docmask .dm-field select{height:40px;padding:0 12px;border:1px solid var(--line);border-radius:4px;font-size:14px;background:#fff}
+#docmask .dm-field input:focus,#docmask .dm-field select:focus{outline:2px solid var(--blue);outline-offset:1px}
 #docmask .dm-drop{display:grid;gap:6px;place-items:center;padding:36px 16px;border:2px dashed #c4cdd9;border-radius:8px;background:var(--soft,#f6f8fa);text-align:center;cursor:pointer}
 #docmask .dm-drop:hover,#docmask .dm-drop.over,#docmask .dm-drop:focus-within{border-color:var(--blue);background:#eef7f5}
 #docmask .dm-drop input{position:absolute;width:1px;height:1px;opacity:0}

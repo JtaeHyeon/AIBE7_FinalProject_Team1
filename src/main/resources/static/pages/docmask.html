@@ -14,8 +14,10 @@
     <p class="dm-live" data-dm-live aria-live="polite"></p>
 
     <div data-dm-pick>
-      <label class="dm-field">제품 번호
-        <input type="number" min="1" inputmode="numeric" data-dm-product placeholder="증빙을 연결할 내 제품 번호">
+      <label class="dm-field">제품 선택
+        <select data-dm-product>
+          <option value="">제품을 불러오는 중이에요</option>
+        </select>
       </label>
       <label class="dm-drop" data-dm-drop>
         <input type="file" accept="image/jpeg,image/png" data-dm-file>

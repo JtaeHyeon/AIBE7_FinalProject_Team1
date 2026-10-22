@@ -347,7 +347,7 @@
     fail('');
     const productId = Number(find('[data-dm-product]').value);
     if (!Number.isInteger(productId) || productId < 1) {
-      fail('제품 번호를 입력해 주세요.');
+      fail('증빙을 연결할 제품을 선택해 주세요.');
       return;
     }
     saving = true;
@@ -422,9 +422,47 @@
     if (!section || !section.querySelector('[data-dm]')) return;
     root = section;
     bind();
-    const initial = new URLSearchParams(window.location.search).get('productId');
-    if (initial) find('[data-dm-product]').value = initial;
+    loadProducts(new URLSearchParams(window.location.search).get('productId'));
   }
+
+  // 내 제품 목록을 드롭다운에 채운다. wanted(제품 번호)가 목록에 있으면 선택해 둔다.
+  async function loadProducts(wanted) {
+    const select = find('[data-dm-product]');
+    const keep = wanted || select.value;
+    const setOptions = (placeholder, products = []) => {
+      select.replaceChildren(new Option(placeholder, ''));
+      for (const product of products) {
+        const label = [product.title, product.modelName].filter(Boolean).join(' · ');
+        select.add(new Option(`#${product.productId} ${label}`, String(product.productId)));
+      }
+    };
+    setOptions('제품을 불러오는 중이에요');
+    try {
+      const response = await api('/api/v1/products');
+      if (response.status === 401) {
+        setOptions('로그인 후 제품을 선택할 수 있어요');
+        return;
+      }
+      if (!response.ok) throw new Error('products');
+      const products = (await response.json()).data || [];
+      if (products.length === 0) {
+        setOptions('등록된 제품이 없어요. 제품을 먼저 등록해 주세요');
+        return;
+      }
+      setOptions('증빙을 연결할 제품을 선택해 주세요', products);
+      if (keep && products.some((product) => String(product.productId) === String(keep))) select.value = String(keep);
+    } catch (error) {
+      setOptions('제품 목록을 불러오지 못했어요. 화면을 다시 열어 주세요');
+    }
+  }
+
+  // 다른 화면의 버튼이 data-docmask-product-id="제품번호"를 달고 data-page="docmask"로 이동하면 그 제품을 미리 선택한다.
+  // 화면 전환(app.js의 click 처리)보다 먼저 값을 받아 두려고 캡처 단계에서 듣는다.
+  let pendingProductId = null;
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest?.('[data-docmask-product-id]');
+    if (button) pendingProductId = button.dataset.docmaskProductId;
+  }, true);
 
   document.addEventListener('pastport:page-loaded', (event) => {
     if (event.detail.id === 'docmask') init();
@@ -434,6 +472,11 @@
   // 다른 화면으로 이동하면 선택한 원본과 만든 사본의 메모리 참조를 정리한다.
   document.addEventListener('pastport:page-shown', (event) => {
     if (root && event.detail.id !== 'docmask') reset();
+    // 다른 화면에서 제품을 등록하거나 로그인했을 수 있으니 돌아올 때마다 목록을 새로 받는다.
+    if (root && event.detail.id === 'docmask') {
+      loadProducts(pendingProductId);
+      pendingProductId = null;
+    }
   });
   window.addEventListener('pagehide', cleanup);
 
