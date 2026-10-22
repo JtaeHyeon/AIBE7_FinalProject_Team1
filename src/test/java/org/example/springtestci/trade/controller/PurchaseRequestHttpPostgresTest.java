@@ -8,9 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,9 +21,6 @@ import org.example.springtestci.chat.domain.ChatListingStatus;
 import org.example.springtestci.chat.dto.ChatMessageResponse;
 import org.example.springtestci.chat.service.ChatListingReader;
 import org.example.springtestci.trade.service.InternalTransferPendingWriter;
-import org.example.springtestci.trade.service.PublishedListing;
-import org.example.springtestci.trade.service.PublishedListingAccess;
-import org.example.springtestci.trade.service.PublishedListingStatus;
 import org.example.springtestci.trade.support.PendingTransferConflictTranslator;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -490,84 +485,6 @@ class PurchaseRequestHttpPostgresTest {
                   listingId)
               .stream()
               .findFirst();
-    }
-
-    @Bean
-    @Primary
-    PublishedListingAccess publishedListingAccess(JdbcTemplate jdbcTemplate) {
-      return new PublishedListingAccess() {
-        @Override
-        public Optional<PublishedListing> findById(long listingId) {
-          return find(listingId, false);
-        }
-
-        @Override
-        public Optional<PublishedListing> findByIdForUpdate(long listingId) {
-          Long productId =
-              jdbcTemplate.queryForObject(
-                  "select product_id from listings where id = ?", Long.class, listingId);
-          if (productId == null) {
-            return Optional.empty();
-          }
-          jdbcTemplate.queryForObject(
-              "select owner_id from products where id = ? for update", Long.class, productId);
-          return find(listingId, true);
-        }
-
-        @Override
-        public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
-          if (listingIds.isEmpty()) {
-            return Map.of();
-          }
-          String placeholders =
-              listingIds.stream()
-                  .map(ignored -> "?")
-                  .collect(java.util.stream.Collectors.joining(","));
-          return jdbcTemplate.query(
-              "select id, status from listings where id in (" + placeholders + ")",
-              resultSet -> {
-                java.util.HashMap<Long, PublishedListingStatus> statuses =
-                    new java.util.HashMap<>();
-                while (resultSet.next()) {
-                  statuses.put(
-                      resultSet.getLong("id"),
-                      PublishedListingStatus.valueOf(resultSet.getString("status")));
-                }
-                return statuses;
-              },
-              listingIds.toArray());
-        }
-
-        @Override
-        public void reserve(long listingId) {
-          int updated =
-              jdbcTemplate.update(
-                  "update listings set status = 'RESERVED' where id = ? and status = 'ACTIVE'",
-                  listingId);
-          if (updated != 1) {
-            throw new org.example.springtestci.common.error.CommonException(
-                org.example.springtestci.common.error.ErrorCode.TRADE_CONFLICT);
-          }
-        }
-
-        private Optional<PublishedListing> find(long listingId, boolean lock) {
-          String suffix = lock ? " for update of listing" : "";
-          return jdbcTemplate
-              .query(
-                  "select listing.id, listing.product_id, listing.seller_id, product.owner_id, listing.status from listings listing join products product on product.id = listing.product_id where listing.id = ?"
-                      + suffix,
-                  (resultSet, rowNumber) ->
-                      new PublishedListing(
-                          resultSet.getLong("id"),
-                          resultSet.getLong("product_id"),
-                          resultSet.getLong("seller_id"),
-                          resultSet.getLong("owner_id"),
-                          PublishedListingStatus.valueOf(resultSet.getString("status"))),
-                  listingId)
-              .stream()
-              .findFirst();
-        }
-      };
     }
 
     @Bean
