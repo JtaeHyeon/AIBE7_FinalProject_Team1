@@ -79,7 +79,6 @@ class PurchaseRequestPostgresIntegrationTest {
         .load()
         .migrate();
     jdbcTemplate = new JdbcTemplate(schemaDataSource);
-    createExternalFixtureTables();
     Flyway.configure()
         .dataSource(schemaDataSource)
         .locations("classpath:db/migration", "classpath:db/pending/trade-p2")
@@ -499,6 +498,31 @@ class PurchaseRequestPostgresIntegrationTest {
   }
 
   @Test
+  void readsProductionListingStateFromProductsAndListings() {
+    Fixture fixture = insertFixture(BUYER_ONE_ID);
+
+    PublishedListing listing = listingAccess.findById(fixture.listingId()).orElseThrow();
+
+    assertThat(listing.productId()).isEqualTo(1L);
+    assertThat(listing.sellerId()).isEqualTo(SELLER_ID);
+    assertThat(listing.currentOwnerId()).isEqualTo(SELLER_ID);
+    assertThat(listing.status()).isEqualTo(PublishedListingStatus.ACTIVE);
+    assertThat(listingAccess.findStatuses(List.of())).isEmpty();
+    assertThat(listingAccess.findStatuses(List.of(fixture.listingId(), 999L)))
+        .containsExactly(Map.entry(fixture.listingId(), PublishedListingStatus.ACTIVE));
+
+    jdbcTemplate.update("update products set owner_id = ? where id = 1", BUYER_TWO_ID);
+    assertThat(listingAccess.findById(fixture.listingId()).orElseThrow().currentOwnerId())
+        .isEqualTo(BUYER_TWO_ID);
+
+    jdbcTemplate.update("update products set archived_at = current_timestamp where id = 1");
+    assertThat(listingAccess.findById(fixture.listingId()).orElseThrow().status())
+        .isEqualTo(PublishedListingStatus.CANCELLED);
+    assertThat(listingAccess.findStatuses(List.of(fixture.listingId())))
+        .containsExactly(Map.entry(fixture.listingId(), PublishedListingStatus.CANCELLED));
+  }
+
+  @Test
   void rollsBackAcceptanceWhenProductAlreadyHasPendingTransfer() {
     Fixture fixture = insertFixture(BUYER_ONE_ID);
     long targetRequestId = createRequest(fixture);
@@ -593,8 +617,7 @@ class PurchaseRequestPostgresIntegrationTest {
         "insert into products (id, category, manufacturer, manufacturer_normalized, model_name, serial_number_fingerprint, title, owner_id, serial_number_ciphertext) values (1, 'LAPTOP', 'maker', 'MAKER', 'model', 'fingerprint', 'title', ?, 'ciphertext')",
         SELLER_ID);
     jdbcTemplate.update(
-        "insert into listings (id, product_id, seller_id, current_owner_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, ?, ?, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)",
-        SELLER_ID,
+        "insert into listings (id, product_id, seller_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, ?, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)",
         SELLER_ID);
     return new Fixture(1L, insertRoom(1L, buyerId));
   }
@@ -616,12 +639,6 @@ class PurchaseRequestPostgresIntegrationTest {
         nickname,
         Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
-  }
-
-  private static void createExternalFixtureTables() {
-    jdbcTemplate = new JdbcTemplate(schemaDataSource);
-    jdbcTemplate.execute(
-        "alter table listings add column current_owner_id bigint references users(id)");
   }
 
   private static void createOwnershipTransferFixtureTable() {

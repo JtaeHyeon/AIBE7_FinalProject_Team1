@@ -3,6 +3,9 @@ package org.example.springtestci.trade.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Type;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,10 +19,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.example.springtestci.chat.domain.ChatListingSnapshot;
-import org.example.springtestci.chat.domain.ChatListingStatus;
 import org.example.springtestci.chat.dto.ChatMessageResponse;
-import org.example.springtestci.chat.service.ChatListingReader;
 import org.example.springtestci.trade.service.InternalTransferPendingWriter;
 import org.example.springtestci.trade.support.PendingTransferConflictTranslator;
 import org.flywaydb.core.Flyway;
@@ -35,6 +35,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -43,6 +45,7 @@ import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -61,6 +64,7 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
     properties = {
       "app.features.trade-purchase-requests.enabled=true",
       "app.features.chat-api.enabled=true",
+      "app.jwt.refresh-cookie-secure=false",
       "spring.flyway.enabled=false",
       "spring.datasource.driver-class-name=org.postgresql.Driver",
       "spring.jpa.hibernate.ddl-auto=validate"
@@ -70,11 +74,14 @@ class PurchaseRequestHttpPostgresTest {
   private static final String SCHEMA =
       "p2_trade_http_" + UUID.randomUUID().toString().replace("-", "");
   private static final String JWT_SECRET = "p2-http-test-secret-that-is-at-least-32-bytes";
+  private static final String LOGIN_PASSWORD = "TradeCookie123!";
   private static DataSource adminDataSource;
 
   @LocalServerPort private int port;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private JwtEncoder jwtEncoder;
+  @Autowired private PasswordEncoder passwordEncoder;
+  @Autowired private StringRedisTemplate redisTemplate;
   @Autowired private SubscriptionProbe subscriptionProbe;
 
   @DynamicPropertySource
@@ -91,7 +98,6 @@ class PurchaseRequestHttpPostgresTest {
         .locations("classpath:db/migration")
         .load()
         .migrate();
-    createExternalFixtureTables(new JdbcTemplate(schemaDataSource));
     Flyway.configure()
         .dataSource(schemaDataSource)
         .locations("classpath:db/migration", "classpath:db/pending/trade-p2")
@@ -103,6 +109,8 @@ class PurchaseRequestHttpPostgresTest {
     registry.add("spring.datasource.url", () -> schemaUrl);
     registry.add("spring.datasource.username", () -> user);
     registry.add("spring.datasource.password", () -> password);
+    registry.add("spring.data.redis.host", () -> requiredEnvironment("P2_TRADE_TEST_REDIS_HOST"));
+    registry.add("spring.data.redis.port", () -> requiredEnvironment("P2_TRADE_TEST_REDIS_PORT"));
     registry.add("app.jwt.secret", () -> JWT_SECRET);
   }
 
@@ -115,14 +123,18 @@ class PurchaseRequestHttpPostgresTest {
 
   @BeforeEach
   void setUpFixture() {
+    try (RedisConnection connection = redisTemplate.getConnectionFactory().getConnection()) {
+      connection.serverCommands().flushDb();
+    }
     jdbcTemplate.execute(
         "truncate table ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users restart identity cascade");
     jdbcTemplate.update(
-        "insert into users (id, email, password_hash, nickname, role, created_at, updated_at) values (1, 'seller@http.test', 'hash', 'seller', 'USER', current_timestamp, current_timestamp), (2, 'buyer@http.test', 'hash', 'buyer', 'USER', current_timestamp, current_timestamp), (3, 'other@http.test', 'hash', 'other', 'USER', current_timestamp, current_timestamp)");
+        "insert into users (id, email, password_hash, nickname, role, email_verified, created_at, updated_at) values (1, 'seller@http.test', 'hash', 'seller', 'USER', true, current_timestamp, current_timestamp), (2, 'buyer@http.test', ?, 'buyer', 'USER', true, current_timestamp, current_timestamp), (3, 'other@http.test', 'hash', 'other', 'USER', true, current_timestamp, current_timestamp)",
+        passwordEncoder.encode(LOGIN_PASSWORD));
     jdbcTemplate.update(
         "insert into products (id, category, manufacturer, manufacturer_normalized, model_name, serial_number_fingerprint, title, owner_id, serial_number_ciphertext) values (1, 'LAPTOP', 'maker', 'MAKER', 'model', 'http-fingerprint', 'title', 1, 'ciphertext')");
     jdbcTemplate.update(
-        "insert into listings (id, product_id, seller_id, current_owner_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, 1, 1, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)");
+        "insert into listings (id, product_id, seller_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, 1, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)");
     jdbcTemplate.update(
         "insert into chat_rooms (id, listing_id, seller_id, inquirer_id) values (1, 1, 1, 2)");
   }
@@ -146,6 +158,85 @@ class PurchaseRequestHttpPostgresTest {
                 "select count(*) from purchase_requests where room_id = 1 and request_status = 'PENDING'",
                 Long.class))
         .isEqualTo(1L);
+  }
+
+  @Test
+  void usesLoginCookiesCsrfRefreshRotationAndLogoutBlocklistForTradeApi() throws Exception {
+    CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+    HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build();
+    HttpResponse<String> csrfResponse =
+        client.send(
+            HttpRequest.newBuilder(uri("/")).GET().build(), HttpResponse.BodyHandlers.ofString());
+    String csrfToken = cookieValue(cookies, "XSRF-TOKEN");
+
+    HttpResponse<String> login =
+        cookiePost(
+            client,
+            "/api/auth/login",
+            csrfToken,
+            "{\"email\":\"buyer@http.test\",\"password\":\"" + LOGIN_PASSWORD + "\"}");
+    String initialAccessToken = cookieValue(cookies, "access_token");
+    String initialRefreshToken = cookieValue(cookies, "refresh_token");
+
+    HttpResponse<String> missingCsrf =
+        cookiePost(client, "/api/v1/market/listings/1/purchase-requests", null, "{\"roomId\":1}");
+    HttpResponse<String> mismatchedCsrf =
+        cookiePost(
+            client, "/api/v1/market/listings/1/purchase-requests", "mismatched", "{\"roomId\":1}");
+    assertThat(jdbcTemplate.queryForObject("select count(*) from purchase_requests", Long.class))
+        .isZero();
+
+    HttpResponse<String> create =
+        cookiePost(
+            client,
+            "/api/v1/market/listings/1/purchase-requests",
+            currentCsrfToken(client, cookies),
+            "{\"roomId\":1}");
+    HttpResponse<String> refresh =
+        cookiePost(client, "/api/auth/refresh", currentCsrfToken(client, cookies), "");
+    String rotatedAccessToken = cookieValue(cookies, "access_token");
+    String rotatedRefreshToken = cookieValue(cookies, "refresh_token");
+    String refreshedCsrfToken = currentCsrfToken(client, cookies);
+    HttpResponse<String> reusedRefresh =
+        rawCookiePost(
+            "/api/auth/refresh",
+            refreshedCsrfToken,
+            "XSRF-TOKEN=" + refreshedCsrfToken + "; refresh_token=" + initialRefreshToken);
+    HttpResponse<String> authenticatedAfterRefresh =
+        client.send(
+            HttpRequest.newBuilder(uri("/api/v1/purchase-requests?direction=SENT")).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> logout =
+        cookiePost(client, "/api/auth/logout", currentCsrfToken(client, cookies), "");
+    HttpResponse<String> blockedAccess =
+        HttpClient.newHttpClient()
+            .send(
+                HttpRequest.newBuilder(uri("/api/v1/purchase-requests?direction=SENT"))
+                    .header("Cookie", "access_token=" + rotatedAccessToken)
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> revokedRefresh =
+        rawCookiePost(
+            "/api/auth/refresh",
+            refreshedCsrfToken,
+            "XSRF-TOKEN=" + refreshedCsrfToken + "; refresh_token=" + rotatedRefreshToken);
+
+    assertThat(csrfResponse.statusCode()).isEqualTo(200);
+    assertThat(login.statusCode()).isEqualTo(200);
+    assertThat(initialAccessToken).isNotBlank();
+    assertThat(initialRefreshToken).isNotBlank();
+    assertThat(missingCsrf.statusCode()).isEqualTo(403);
+    assertThat(mismatchedCsrf.statusCode()).isEqualTo(403);
+    assertThat(create.statusCode()).isEqualTo(201);
+    assertThat(refresh.statusCode()).isEqualTo(200);
+    assertThat(rotatedAccessToken).isNotEqualTo(initialAccessToken);
+    assertThat(rotatedRefreshToken).isNotEqualTo(initialRefreshToken);
+    assertThat(reusedRefresh.statusCode()).isEqualTo(401);
+    assertThat(authenticatedAfterRefresh.statusCode()).isEqualTo(200);
+    assertThat(logout.statusCode()).isEqualTo(204);
+    assertThat(blockedAccess.statusCode()).isEqualTo(401);
+    assertThat(revokedRefresh.statusCode()).isEqualTo(401);
   }
 
   @Test
@@ -350,6 +441,53 @@ class PurchaseRequestHttpPostgresTest {
     return send(path, userId, "POST", body);
   }
 
+  private HttpResponse<String> cookiePost(
+      HttpClient client, String path, String csrfToken, String body) throws Exception {
+    HttpRequest.Builder request =
+        HttpRequest.newBuilder(uri(path)).header("Content-Type", "application/json");
+    if (csrfToken != null) {
+      request.header("X-XSRF-TOKEN", csrfToken);
+    }
+    return client.send(
+        request.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+        HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> rawCookiePost(String path, String csrfToken, String cookie)
+      throws Exception {
+    return HttpClient.newHttpClient()
+        .send(
+            HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .header("X-XSRF-TOKEN", csrfToken)
+                .header("Cookie", cookie)
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+  }
+
+  private URI uri(String path) {
+    return URI.create("http://127.0.0.1:" + port + path);
+  }
+
+  private static String cookieValue(CookieManager cookies, String name) {
+    return cookies.getCookieStore().getCookies().stream()
+        .filter(cookie -> cookie.getName().equals(name))
+        .filter(cookie -> !cookie.hasExpired())
+        .map(HttpCookie::getValue)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError(name + " cookie was not issued"));
+  }
+
+  private String currentCsrfToken(HttpClient client, CookieManager cookies) throws Exception {
+    if (cookies.getCookieStore().getCookies().stream()
+        .noneMatch(cookie -> cookie.getName().equals("XSRF-TOKEN") && !cookie.hasExpired())) {
+      client.send(
+          HttpRequest.newBuilder(uri("/")).GET().build(), HttpResponse.BodyHandlers.discarding());
+    }
+    return cookieValue(cookies, "XSRF-TOKEN");
+  }
+
   private HttpResponse<String> put(String path, long userId, String body) throws Exception {
     return send(path, userId, "PUT", body);
   }
@@ -421,11 +559,6 @@ class PurchaseRequestHttpPostgresTest {
     subscriptionProbe.awaitProcessed(destination, expectedCount);
   }
 
-  private static void createExternalFixtureTables(JdbcTemplate jdbcTemplate) {
-    jdbcTemplate.execute(
-        "alter table listings add column current_owner_id bigint references users(id)");
-  }
-
   private static void createTransferFixtureTable(JdbcTemplate jdbcTemplate) {
     jdbcTemplate.execute(
         """
@@ -465,26 +598,6 @@ class PurchaseRequestHttpPostgresTest {
     @Bean
     SubscriptionProbe subscriptionProbe() {
       return new SubscriptionProbe();
-    }
-
-    @Bean
-    @Primary
-    ChatListingReader chatListingReader(JdbcTemplate jdbcTemplate) {
-      return listingId ->
-          jdbcTemplate
-              .query(
-                  "select listing.id, listing.product_id, listing.seller_id, product.owner_id, listing.status from listings listing join products product on product.id = listing.product_id where listing.id = ?",
-                  (resultSet, rowNumber) ->
-                      new ChatListingSnapshot(
-                          resultSet.getLong("id"),
-                          resultSet.getLong("seller_id"),
-                          resultSet.getLong("product_id"),
-                          resultSet.getLong("owner_id"),
-                          ChatListingStatus.valueOf(resultSet.getString("status")),
-                          "fixture listing"),
-                  listingId)
-              .stream()
-              .findFirst();
     }
 
     @Bean

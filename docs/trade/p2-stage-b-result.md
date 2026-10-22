@@ -4,7 +4,7 @@
 
 **B 부분 연결 완료 / ownership 제공 대기**
 
-정식 판매글 연결은 구현하고 격리 PostgreSQL에서 검증했다. 정식 ownership Writer와 Migration은 원본 저장소, 원격 브랜치, 공개 PR 어디에도 제공되지 않아 임의 구현하지 않았다. 따라서 기능 플래그는 기본 `false`를 유지하며 B 전체 완료나 정식 수락 경로 완료로 판정하지 않는다.
+정식 판매글 연결과 제공된 인증·채팅 경계는 격리 PostgreSQL·Redis에서 검증했다. 정식 ownership Writer와 Migration은 원본 저장소, 원격 브랜치, 공개 PR 어디에도 제공되지 않아 임의 구현하지 않았다. 따라서 기능 플래그는 기본 `false`를 유지하며 B 전체 완료나 정식 수락 경로 완료로 판정하지 않는다.
 
 ## 기준 확인
 
@@ -24,26 +24,76 @@
 - 보관 제품 상태는 기존 `JdbcChatListingReader`와 동일하게 `CANCELLED`로 해석한다.
 - 수락 잠금 순서를 제품 → 판매글 → 구매 요청으로 맞췄다. 제품과 판매글 잠금은 production 어댑터, 구매 요청 잠금은 기존 거래 저장소가 수행한다.
 - `reserve()`는 `ACTIVE`인 판매글 한 행만 `RESERVED`로 바꾸며 그 외에는 `TRADE_001` 충돌로 실패한다.
-- PostgreSQL 통합 테스트의 판매글 fixture 구현은 production 어댑터 위임 방식으로 교체했고, HTTP 테스트의 판매글 대체 빈은 제거했다.
+- PostgreSQL 통합 테스트에서 운영에 없는 `listings.current_owner_id` 보조 컬럼을 제거했다.
+- HTTP/소켓 회귀는 대체 빈 없이 production `JdbcChatListingReader`를 사용한다.
+- 기존 로그인 API, Access·Refresh 쿠키, CSRF, Redis 회전·차단 구현을 거래 API와 연결해 검증한다.
 
 ## 검증표
 
-| ID | 상태 | 증거 등급 | 결과 |
-|---|---|---|---|
-| B-01 | PASS | SHARED | PR #32 병합 및 최신 `main` 기준 확인 |
-| B-02 | PASS | UNIT, ADAPTER-PG, E2E-PG | 정식 판매글 조회·잠금·벌크 상태·예약과 거래 회귀 통과 |
-| B-03 | BLOCKED | SHARED | 정식 ownership Writer·DDL·제약 미제공 |
-| B-04 | BLOCKED | ADAPTER-PG | pending DDL 시험은 통과했으나 공유 DB Flyway 이력과 ownership 선행 Migration 미확정 |
-| B-05 | NOT_RUN | E2E-PG | 실행한 HTTP 시험은 Bearer JWT 경로이며 실제 쿠키 로그인·CSRF 전체 흐름은 이번 범위에서 미검증 |
-| B-06 | PARTIAL | UNIT, ADAPTER-PG, E2E-PG | 가능한 회귀와 보고 완료, B-03~05 잔여 |
-| B-07 | BLOCKED | SHARED | 공유 환경 적용 승인과 구성 미제공 |
+| ID | 상태 | 필요한 증거 | 확보한 증거 | 결과 |
+|---|---|---|---|---|
+| B-01 | PASS | 사전 점검 | Git/PR/SHA 확인 | PR #32 병합 및 최신 `main` 기준 확인 |
+| B-02 | PASS | ADAPTER-PG | UNIT, ADAPTER-PG, HTTP 부분 연결 | 정식 판매글 단건·벌크·잠금·보관 제품·현재 소유자·예약 검증 |
+| B-03 | BLOCKED | E2E-PG | 테스트 fixture만 사용 | 정식 ownership Writer·DDL·제약 미제공 |
+| B-04 | BLOCKED | ADAPTER-PG fresh/upgrade | pending DDL 격리 시험 | 공유 DB 이력과 ownership 선행 Migration 미확정 |
+| B-05 | PARTIAL | E2E-PG | 실제 인증 경계 + HTTP 부분 연결 | 로그인 쿠키·CSRF·Refresh 회전·재사용 거부·로그아웃 차단 통과, 정식 ownership 미연결 |
+| B-06 | PARTIAL | 전체 검사·근거표 | UNIT, ADAPTER-PG, A 회귀, HTTP/소켓 부분 연결 | 가능한 회귀와 보고 완료, B-03·04·07 잔여 |
+| B-07 | BLOCKED | SHARED | 없음 | 공유 환경 적용 승인과 구성 미제공 |
 
-실행 결과:
+## 재현 명령과 결과
 
-- `gradlew.bat spotlessApply test --tests ...JdbcPublishedListingAccessTest --tests ...PurchaseRequestFeatureFlagTest` — PASS
-- 격리 PostgreSQL 16에서 `PurchaseRequestPostgresIntegrationTest`, `PurchaseRequestHttpPostgresTest` — PASS
-- `gradlew.bat spotlessCheck test build` — PASS
-- ownership 관련 성공은 테스트 fixture를 사용하므로 정식 ownership 검증으로 집계하지 않는다.
+작업 위치는 `<PROJECT_ROOT>`, 실행 기준은 `0563d423381bc987009a4d0653d27dd395d7d070` 기반 보강 작업 트리다. 비밀값은 실제 실행 시 로컬 임시 값으로 치환한다.
+
+```powershell
+$env:P2_TRADE_TEST_ENABLED='true'
+$env:P2_TRADE_TEST_DB_URL='jdbc:postgresql://127.0.0.1:<PG_PORT>/pastport_stageb_review'
+$env:P2_TRADE_TEST_DB_USER='postgres'
+$env:P2_TRADE_TEST_DB_PASSWORD='<REDACTED>'
+$env:P2_TRADE_TEST_REDIS_HOST='127.0.0.1'
+$env:P2_TRADE_TEST_REDIS_PORT='<REDIS_PORT>'
+.\gradlew.bat test --tests org.example.springtestci.trade.repository.PurchaseRequestPostgresIntegrationTest --tests org.example.springtestci.trade.controller.PurchaseRequestHttpPostgresTest --rerun-tasks --no-build-cache
+```
+
+- PostgreSQL/Redis 전용: tests 22, failures 0, errors 0, skipped 0.
+- 상세: `PurchaseRequestPostgresIntegrationTest` 15건, `PurchaseRequestHttpPostgresTest` 7건.
+- 결과: `build/test-results/test/TEST-org.example.springtestci.trade.repository.PurchaseRequestPostgresIntegrationTest.xml`, `build/test-results/test/TEST-org.example.springtestci.trade.controller.PurchaseRequestHttpPostgresTest.xml`.
+
+```powershell
+.\gradlew.bat spotlessCheck test build --rerun-tasks --no-build-cache
+```
+
+- 일반 전체 검사: tests 336, failures 0, errors 0, skipped 22.
+- skipped 22건은 외부 환경변수가 필요한 위 PostgreSQL 전용 15+7건이며, 별도 전용 실행에서 전부 통과했다.
+- 결과: `build/reports/tests/test/index.html`, `build/test-results/test/`.
+- 첫 전체 검사에서 패치 구간 줄바꿈 혼합을 Spotless가 탐지해 중단됐고, `gradlew.bat spotlessApply` 후 동일 명령을 강제 재실행해 통과했다.
+- ownership 관련 성공은 테스트 fixture를 사용하므로 정식 ownership E2E로 집계하지 않는다.
+
+## B-T01~22 근거
+
+| ID | 상태 | 실제 근거·미확보 사유 |
+|---|---|---|
+| B-T01 | 확보 | `9e80cae`/PR #32/기능 플래그/production 판매글·채팅 빈 확인 |
+| B-T02 | 대기 | 거래 DDL이 pending 경로여서 일반 Flyway fresh 미충족 |
+| B-T03 | 대기 | 정식 upgrade·재기동·validate 및 공유 이력 미확인 |
+| B-T04 | 확보 | `readsProductionListingStateFromProductsAndListings`, `JdbcPublishedListingAccessTest` |
+| B-T05 | 부분 | 생성·재사용·필터·취소·거절 A 회귀 통과, 정식 ownership 미연결 |
+| B-T06 | 부분 | 수락 세 상태는 테스트 ownership fixture로만 확인 |
+| B-T07 | 부분 | 실제 제품 소유자 불일치·외부 승인 필드 불변 회귀, 정식 Writer 대기 |
+| B-T08 | 부분 | 동시 수락 PostgreSQL 회귀, ownership fixture 사용 |
+| B-T09 | 확보 | 동일 방 동시 생성과 수락·취소 경합 PostgreSQL 회귀 |
+| B-T10 | 부분 | 409/`TRADE_001`·기존 행 보존·롤백 확인, ownership fixture 사용 |
+| B-T11 | 부분 | DB 트리거 실패와 예약 후 실패 전체 롤백·500 확인, ownership fixture 사용 |
+| B-T12 | 부분 | `usesLoginCookiesCsrfRefreshRotationAndLogoutBlocklistForTradeApi` 정상 쿠키+CSRF 거래 생성 성공 |
+| B-T13 | 부분 | 같은 메서드에서 CSRF 누락·불일치 403 및 거래 행 0건 확인 |
+| B-T14 | 부분 | Refresh 회전·소비 토큰 재사용 401·갱신 후 접근·로그아웃 Access/Refresh 401 확인. 만료 토큰은 기존 보안 단위 회귀 |
+| B-T15 | 부분 | 구매자 수락 거부·제품 소유자 불일치 등 A 회귀. 정식 ownership 권한 경계 대기 |
+| B-T16 | 부분 | `reservationBlocksNewChatRoomButKeepsExistingRoomMessaging`가 production `JdbcChatListingReader`로 신규 방 차단·POST/GET·읽기 위치·STOMP 수신 확인 |
+| B-T17 | 대기 | legacy 채팅 데이터와 초안 ID 판정 대상 환경 미제공 |
+| B-T18 | 확보 | 기본 off·on·필수 빈 누락 구성 시험, production 대체 빈 없음 확인 |
+| B-T19 | 부분 | pending DDL 제약 회귀 통과, 일반 Flyway 편입 전 |
+| B-T20 | 확보 | 강제 일반 전체 검사와 전용 PostgreSQL/Redis 검사 분리 통과 |
+| B-T21 | 확보 | 본 결과·Migration 계획·자원 사용보고서 보정 |
+| B-T22 | 대기 | 공유 환경 승인·구성 미제공 |
 
 ## 정식 ownership 제공 요청
 
