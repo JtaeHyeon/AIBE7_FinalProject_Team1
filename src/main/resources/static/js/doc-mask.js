@@ -17,6 +17,7 @@
   let resultUrl = null;
   let sourceType = 'image/png';
   let saving = false;
+  let autoRunning = false;
 
   const find = (selector) => root.querySelector(selector);
   const all = (selector) => Array.from(root.querySelectorAll(selector));
@@ -238,6 +239,42 @@
     find('[data-dm-wrap]').classList.toggle('remove', name === 'remove');
   }
 
+  // 자동 가리기: 브라우저 안에서 글자를 읽어 개인정보 후보를 찾고, 가릴 영역으로 추가한다. 결과는 수동 도구로 고칠 수 있다.
+  async function autoMask() {
+    const target = bitmap;
+    if (!target || autoRunning) return;
+    fail('');
+    autoRunning = true;
+    const button = find('[data-dm-auto]');
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = '분석 중…';
+    say('글자를 읽는 중이에요. 처음에는 언어 데이터를 받느라 시간이 걸릴 수 있어요.');
+    try {
+      const found = await window.PastportDocMaskAuto.detect(target, (progress) => {
+        button.textContent = '분석 중… ' + Math.round(progress * 100) + '%';
+      });
+      if (bitmap !== target) return;
+      const fresh = found.filter((box) => !masks.some((m) => m.x <= box.x && m.y <= box.y && m.x + m.w >= box.x + box.w && m.y + m.h >= box.y + box.h));
+      if (!fresh.length) {
+        say('자동으로 찾은 개인정보가 없어요. 가릴 부분이 있으면 직접 지정해 주세요.');
+        return;
+      }
+      pushHistory();
+      fresh.forEach((box) => masks.push({ x: box.x, y: box.y, w: box.w, h: box.h }));
+      drawOverlay();
+      updateCount();
+      const kinds = Array.from(new Set(fresh.map((box) => box.kind))).join(', ');
+      say('자동으로 ' + fresh.length + '곳(' + kinds + ')을 가렸어요. 놓친 곳은 직접 추가하고, 잘못 가린 곳은 해제해 주세요.');
+    } catch (ignored) {
+      fail('자동 가리기를 사용할 수 없어요. 네트워크를 확인하거나 직접 가려 주세요.');
+    } finally {
+      autoRunning = false;
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+
   // 원본 픽셀 위에 불투명한 검은색을 덮어쓰고, 다시 인코딩하면서 촬영 위치 같은 메타데이터를 제거한다.
   function render(scale = 1) {
     const out = document.createElement('canvas');
@@ -401,6 +438,7 @@
       drawOverlay();
       updateCount();
     });
+    find('[data-dm-auto]').addEventListener('click', autoMask);
     find('[data-dm-cancel]').addEventListener('click', reset);
     find('[data-dm-preview]').addEventListener('click', preview);
     find('[data-dm-back]').addEventListener('click', () => {

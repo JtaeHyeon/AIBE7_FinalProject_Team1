@@ -28,8 +28,15 @@
 
     <div data-dm-editor hidden>
       <div class="dm-tools" role="toolbar" aria-label="마스킹 도구">
-        <button class="sc-btn active" type="button" data-dm-tool="add" aria-pressed="true">▭ 영역 추가</button>
-        <button class="sc-btn" type="button" data-dm-tool="remove" aria-pressed="false">⌫ 영역 해제</button>
+        <div class="dm-tool-group" role="group" aria-label="수동 가리기">
+          <span class="dm-tool-label">수동</span>
+          <button class="sc-btn active" type="button" data-dm-tool="add" aria-pressed="true">▭ 영역 추가</button>
+          <button class="sc-btn" type="button" data-dm-tool="remove" aria-pressed="false">⌫ 영역 해제</button>
+        </div>
+        <div class="dm-tool-group" role="group" aria-label="자동 가리기">
+          <span class="dm-tool-label">자동</span>
+          <button class="sc-btn" type="button" data-dm-auto>✨ AI로 자동 가리기</button>
+        </div>
         <button class="sc-btn" type="button" data-dm-undo>↺ 되돌리기</button>
         <button class="sc-btn" type="button" data-dm-clear>모두 지우기</button>
         <span class="dm-count" data-dm-count>가린 영역 0개</span>
@@ -71,14 +78,14 @@
       <h2>이렇게 처리돼요</h2>
       <ol class="dm-steps-list">
         <li>선택한 사진은 이 화면 안에서만 열려요.</li>
-        <li>가릴 부분을 직접 드래그해서 지정해요.</li>
+        <li>가릴 부분을 직접 드래그하거나, 자동 가리기로 개인정보 후보를 찾아요. 자동으로 찾은 영역도 이 브라우저 안에서만 계산하고, 빠진 곳은 직접 추가해야 해요.</li>
         <li>가린 영역은 원본 픽셀 위에 덮어써서 다시 복원할 수 없어요.</li>
         <li>촬영 위치 같은 사진 정보도 함께 지워져요.</li>
         <li>확인한 사본만 서버에 저장하고, 원본은 이 화면을 벗어나면 사라져요.</li>
       </ol>
     </section>
     <section class="sc-card">
-      <div class="sc-note warn"><i>!</i><span>자동 마스킹 제안과 AI 제품 정보 추출은 사본을 저장한 뒤 다음 단계에서 지원돼요.</span></div>
+      <div class="sc-note warn"><i>!</i><span>자동 가리기는 제안일 뿐이라 놓치는 부분이 있을 수 있어요. 저장 전에 꼭 직접 확인해 주세요. AI 제품 정보 추출은 사본을 저장한 뒤 다음 단계에서 지원돼요.</span></div>
     </section>
   </aside>
 </div>
