@@ -7,6 +7,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * 마스킹 확인이 끝난 제품 증빙 사본. 개인정보가 포함된 원본은 서버로 전달되지 않는다.
@@ -15,6 +18,8 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "documents")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Document {
 
   @Id
@@ -49,8 +54,6 @@ public class Document {
 
   /** 처음 이력에 연결되거나 소유권 이전으로 삭제 제한이 생긴 시각. 한 번 설정하면 유지한다. */
   private Instant protectedAt;
-
-  protected Document() {}
 
   private Document(
       Long productId,
@@ -111,45 +114,5 @@ public class Document {
     this.version += 1;
     this.maskConfirmedAt = now;
     this.redactionRequiredAt = null;
-  }
-
-  public Long getId() {
-    return id;
-  }
-
-  public Long getProductId() {
-    return productId;
-  }
-
-  public Long getUploaderId() {
-    return uploaderId;
-  }
-
-  public String getObjectKey() {
-    return objectKey;
-  }
-
-  public String getContentType() {
-    return contentType;
-  }
-
-  public long getByteSize() {
-    return byteSize;
-  }
-
-  public int getVersion() {
-    return version;
-  }
-
-  public Instant getMaskConfirmedAt() {
-    return maskConfirmedAt;
-  }
-
-  public Instant getRedactionRequiredAt() {
-    return redactionRequiredAt;
-  }
-
-  public Instant getProtectedAt() {
-    return protectedAt;
   }
 }

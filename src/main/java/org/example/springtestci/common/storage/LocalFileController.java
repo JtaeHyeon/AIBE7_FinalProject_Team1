@@ -1,6 +1,7 @@
 package org.example.springtestci.common.storage;
 
 import java.io.IOException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -12,13 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
 /** 로컬·테스트 환경에서 S3 Presigned URL을 흉내 내는 임시 URL 다운로드 엔드포인트. 서명이 인증을 대신한다. */
 @RestController
 @Profile({"local", "test"})
+@RequiredArgsConstructor
 public class LocalFileController {
 
   private final LocalFileStorage storage;
-
-  public LocalFileController(LocalFileStorage storage) {
-    this.storage = storage;
-  }
 
   @GetMapping(LocalFileStorage.TEMPORARY_URL_PATH)
   ResponseEntity<Resource> download(
