@@ -2,7 +2,9 @@ package org.example.springtestci.document.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -16,12 +18,15 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.document.dto.FileUrlResponse;
 import org.example.springtestci.document.entity.Document;
+import org.example.springtestci.document.entity.DocumentExtraction;
+import org.example.springtestci.document.entity.ExtractionStatus;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
 import org.example.springtestci.document.repository.DocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -238,6 +243,80 @@ class DocumentServiceTest {
 
     assertEquals(ErrorCode.RESOURCE_NOT_FOUND, errorOf(() -> service.delete(5L, OTHER)));
     verify(fileStorage, never()).delete(anyString());
+  }
+
+  private Document replace(Long userId, boolean maskingConfirmed) {
+    return service.replace(5L, userId, maskingConfirmed, "masked.pdf", "application/pdf", PDF);
+  }
+
+  @Test
+  void 소유자는_재마스킹한_사본으로_교체하고_이전_파일은_삭제한다() throws IOException {
+    Document document = document(OWNER);
+    document.protect(NOW);
+    document.requireRedaction(NOW);
+    when(documentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(document));
+    ownerIs(OWNER);
+    when(fileStorage.store(eq("documents/100"), eq("pdf"), any(InputStream.class)))
+        .thenReturn("documents/100/new.pdf");
+
+    Document replaced = replace(OWNER, true);
+
+    assertEquals("documents/100/new.pdf", replaced.getObjectKey());
+    assertEquals(2, replaced.getVersion());
+    assertFalse(replaced.isRedactionRequired());
+    // 이력 연결(보호)은 교체해도 유지된다.
+    assertTrue(replaced.isProtected());
+    verify(fileStorage).delete("documents/100/k.pdf");
+  }
+
+  @Test
+  void 교체하면_검토_대기_중인_추출은_반려된다() throws IOException {
+    Document document = document(OWNER);
+    DocumentExtraction pending =
+        DocumentExtraction.request(5L, 1, OWNER, NOW, "v1", "model", "schema");
+    pending.startProcessing();
+    pending.completeExtraction(Map.of("productName", "값"));
+    when(documentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(document));
+    when(extractionRepository.findByDocumentIdOrderByIdDesc(5L)).thenReturn(List.of(pending));
+    ownerIs(OWNER);
+    org.mockito.Mockito.lenient()
+        .when(fileStorage.store(anyString(), anyString(), any(InputStream.class)))
+        .thenReturn("documents/100/new.pdf");
+
+    replace(OWNER, true);
+
+    assertEquals(ExtractionStatus.REJECTED, pending.getStatus());
+    assertNull(pending.getExtractedFacts());
+  }
+
+  @Test
+  void 마스킹을_확인하지_않으면_교체할_수_없다() {
+    assertEquals(ErrorCode.MASKING_NOT_CONFIRMED, errorOf(() -> replace(OWNER, false)));
+    verify(documentRepository, never()).findByIdForUpdate(any());
+  }
+
+  @Test
+  void 소유자가_아니면_교체할_수_없다() throws IOException {
+    when(documentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(document(OWNER)));
+    ownerIs(OWNER);
+
+    assertEquals(ErrorCode.RESOURCE_NOT_FOUND, errorOf(() -> replace(OTHER, true)));
+    verify(fileStorage, never()).delete(anyString());
+  }
+
+  @Test
+  void 교체_중_저장에_실패하면_새_파일을_정리하고_이전_파일은_유지한다() throws IOException {
+    Document document = document(OWNER);
+    when(documentRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(document));
+    ownerIs(OWNER);
+    when(fileStorage.store(eq("documents/100"), eq("pdf"), any(InputStream.class)))
+        .thenReturn("documents/100/new.pdf");
+    when(documentRepository.save(any(Document.class))).thenThrow(new IllegalStateException());
+
+    assertThrows(IllegalStateException.class, () -> replace(OWNER, true));
+
+    verify(fileStorage).delete("documents/100/new.pdf");
+    verify(fileStorage, never()).delete("documents/100/k.pdf");
   }
 
   @Test
