@@ -97,6 +97,14 @@ class DocumentExtractionProcessorTest {
   }
 
   @Test
+  void rejectedQueuedExtractionFailsWithBusyCode() {
+    processor.failRejected(EXTRACTION);
+
+    assertEquals(ExtractionStatus.FAILED, extraction.getStatus());
+    assertEquals("AI_BUSY", extraction.getErrorCode());
+  }
+
+  @Test
   void aiFailureRecordsErrorCodeOnly() throws Exception {
     when(extractor.extract(any(), anyString(), any(DocumentType.class)))
         .thenThrow(new DocumentFactExtractionException("AI_TIMEOUT"));

@@ -2,6 +2,7 @@ package org.example.springtestci.document.service;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
@@ -112,11 +113,20 @@ public class DocumentExtractionService {
           new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-              processor.processAsync(extractionId, type);
+              dispatch(extractionId, type);
             }
           });
     } else {
+      dispatch(extractionId, type);
+    }
+  }
+
+  /** 스레드풀이 가득 차 거부되면 QUEUED로 남겨 두지 않고 즉시 실패 처리한다. */
+  private void dispatch(Long extractionId, DocumentType type) {
+    try {
       processor.processAsync(extractionId, type);
+    } catch (RejectedExecutionException exception) {
+      processor.failRejected(extractionId);
     }
   }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.concurrent.RejectedExecutionException;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.document.ai.DocumentFactExtractor;
@@ -92,6 +94,22 @@ class DocumentExtractionServiceTest {
     assertEquals(DocumentExtractionService.SCHEMA_VERSION, saved.getSchemaVersion());
     // 트랜잭션 동기화가 없는 단위 테스트에서는 즉시 처리를 시작한다.
     verify(processor).processAsync(saved.getId(), DocumentType.RECEIPT);
+  }
+
+  @Test
+  void rejectedExecutionFailsExtractionImmediately() {
+    when(documentRepository.findByIdForUpdate(DOCUMENT)).thenReturn(Optional.of(document()));
+    when(extractionRepository.existsByDocumentIdAndStatusIn(any(), anyCollection()))
+        .thenReturn(false);
+    when(extractionRepository.save(any(DocumentExtraction.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    doThrow(new RejectedExecutionException("queue full"))
+        .when(processor)
+        .processAsync(any(), any());
+
+    DocumentExtraction saved = service.request(DOCUMENT, OWNER, request());
+
+    verify(processor).failRejected(saved.getId());
   }
 
   @Test

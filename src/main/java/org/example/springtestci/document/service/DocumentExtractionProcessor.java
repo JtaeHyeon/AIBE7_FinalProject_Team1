@@ -54,6 +54,11 @@ public class DocumentExtractionProcessor {
     process(extractionId, type);
   }
 
+  /** 처리 대기열이 가득 차 시작하지 못한 접수 건을 바로 실패로 돌려, 사용자가 곧바로 다시 요청할 수 있게 한다. */
+  public void failRejected(Long extractionId) {
+    fail(extractionId, "AI_BUSY");
+  }
+
   public void process(Long extractionId, DocumentType type) {
     DocumentExtraction started = markProcessing(extractionId);
     if (started == null) {
