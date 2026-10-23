@@ -39,6 +39,12 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
     if (!request.getRequestURI().startsWith("/api/")) {
       return null;
     }
+    // 공개 목록은 만료된 로그인 쿠키가 있어도 비회원으로 이용할 수 있다. 명시적 Bearer 헤더는 유지한다.
+    if ("GET".equals(request.getMethod())
+        && (request.getRequestURI().equals("/api/v1/listings")
+            || request.getRequestURI().matches("/api/v1/listings/[^/]+/thumbnail"))) {
+      return null;
+    }
     // 로그인·갱신·로그아웃은 만료되거나 잘못된 쿠키가 남아 있어도 막히지 않아야 한다.
     if ("POST".equals(request.getMethod()) && request.getRequestURI().startsWith("/api/auth/")) {
       return null;

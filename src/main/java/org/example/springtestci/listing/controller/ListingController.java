@@ -10,8 +10,11 @@ import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
+import org.example.springtestci.listing.dto.ListingPageResponse;
+import org.example.springtestci.listing.dto.ListingSearchRequest;
 import org.example.springtestci.listing.dto.PublishListingRequest;
 import org.example.springtestci.listing.dto.PublishedListingResponse;
+import org.example.springtestci.listing.service.ListingBrowseService;
 import org.example.springtestci.listing.service.ListingDetailService;
 import org.example.springtestci.listing.service.ListingPublishService;
 import org.springframework.core.io.Resource;
@@ -21,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,10 +38,32 @@ import org.springframework.web.bind.annotation.RestController;
 public class ListingController {
   private final ListingPublishService publisher;
   private final ListingDetailService details;
+  private final ListingBrowseService browse;
 
-  public ListingController(ListingPublishService publisher, ListingDetailService details) {
+  public ListingController(
+      ListingPublishService publisher, ListingDetailService details, ListingBrowseService browse) {
     this.publisher = publisher;
     this.details = details;
+    this.browse = browse;
+  }
+
+  @GetMapping("/listings")
+  public ResponseEntity<ApiResponse<ListingPageResponse>> list(
+      @Valid @ModelAttribute ListingSearchRequest request) {
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .body(ApiResponse.success(browse.list(request)));
+  }
+
+  @GetMapping("/listings/{listingId}/thumbnail")
+  public ResponseEntity<Resource> thumbnail(@PathVariable @Positive long listingId)
+      throws IOException {
+    var image = browse.thumbnail(listingId);
+    return ResponseEntity.ok()
+        .cacheControl(CacheControl.noStore())
+        .header("X-Content-Type-Options", "nosniff")
+        .contentType(MediaType.parseMediaType(image.contentType()))
+        .body(image.resource());
   }
 
   @PostMapping("/products/{productId}/listings")

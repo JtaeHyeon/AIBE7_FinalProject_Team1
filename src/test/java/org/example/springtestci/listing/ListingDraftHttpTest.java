@@ -1311,6 +1311,13 @@ class ListingDraftHttpTest {
             id));
     assertEquals("PUBLIC", historyVisibility());
     assertEquals(1, listingCount());
+    var browse = send("GET", "/api/v1/listings?manufacturer=apple&cpu=m3", null, null);
+    assertEquals(200, browse.statusCode(), browse.body());
+    assertEquals(1, data(browse).get("page").get("totalElements").asInt());
+    var summary = data(browse).get("items").get(0);
+    assertEquals(id, summary.get("listingId").asLong());
+    assertEquals("게시할 노트북", summary.get("title").asText());
+    assertEquals("/api/v1/listings/" + id + "/thumbnail", summary.get("thumbnailUrl").asText());
     assertEquals(
         1,
         jdbc.queryForObject(
