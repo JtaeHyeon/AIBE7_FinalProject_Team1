@@ -1,5 +1,7 @@
 # P2 A단계 구현·재검수 결과
 
+> 이 문서는 A단계 종료 당시의 실행 이력을 보존한다. pending DDL과 테스트 Writer 상태는 이후 B단계에서 해소됐으며, 현재 판정은 `p2-stage-b-result.md`와 `p2-stage-b-migration-plan.md`를 기준으로 한다.
+
 ## 기준과 통합 상태
 
 - 최초 재검수 대상: `b53ffe785dd2649b450deb5a334687a646baa5f7`
