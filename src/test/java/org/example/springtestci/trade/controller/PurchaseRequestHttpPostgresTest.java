@@ -86,6 +86,7 @@ class PurchaseRequestHttpPostgresTest {
 
   @DynamicPropertySource
   static void configureDatabase(DynamicPropertyRegistry registry) {
+    requireDedicatedRedisFlushPermission(System.getenv("P2_TRADE_TEST_REDIS_FLUSH_ALLOWED"));
     String url = requiredEnvironment("P2_TRADE_TEST_DB_URL");
     String user = requiredEnvironment("P2_TRADE_TEST_DB_USER");
     String password = requiredEnvironment("P2_TRADE_TEST_DB_PASSWORD");
@@ -586,6 +587,14 @@ class PurchaseRequestHttpPostgresTest {
       throw new IllegalStateException(name + " must be configured");
     }
     return value;
+  }
+
+  static void requireDedicatedRedisFlushPermission(String permission) {
+    if (!"true".equalsIgnoreCase(permission)) {
+      throw new IllegalStateException(
+          "P2_TRADE_TEST_REDIS_FLUSH_ALLOWED=true is required because this test runs FLUSHDB; "
+              + "use only a dedicated disposable Redis instance");
+    }
   }
 
   private static String withCurrentSchema(String url, String schema) {
