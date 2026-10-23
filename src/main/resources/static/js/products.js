@@ -160,6 +160,7 @@
             <div class="product-fact"><span>등록일</span><b>${dateTime(product.createdAt)}</b></div>
             <div class="product-fact"><span>등록 이미지</span><b>${product.images?.length || 0}장</b></div>
           </div>
+          <button class="button primary" type="button" data-page="docmask" data-docmask-product-id="${escapeHtml(product.productId)}">증빙 문서 올리기</button>
         </section>
       </div>
       <section class="product-spec-card"><h2>노트북 사양</h2><div class="product-spec-list">
@@ -182,6 +183,11 @@
     try {
       if (!state.selectedId) {
         await loadProducts();
+        if (state.products.length > 1) {
+          status.hidden = true;
+          document.querySelector('[data-page="home"]')?.click();
+          return;
+        }
         state.selectedId = state.products[0]?.productId || null;
       }
       if (!state.selectedId) {

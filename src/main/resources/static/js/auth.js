@@ -138,7 +138,9 @@ const auth = (() => {
       form.elements.password.value = '';
       message(form, '');
       setSession(data);
-      goto('landing');
+      const listingId = new URL(window.location.href).searchParams.get('listingId');
+      if (/^[1-9]\d*$/.test(listingId || '') && window.PastportPublishedListing) window.PastportPublishedListing.open(listingId);
+      else goto('landing');
     } catch (error) {
       form.elements.password.value = '';
       message(form, error.message);
