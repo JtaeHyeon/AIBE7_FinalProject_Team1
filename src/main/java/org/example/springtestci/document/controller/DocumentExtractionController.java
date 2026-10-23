@@ -1,6 +1,7 @@
 package org.example.springtestci.document.controller;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.response.ApiResponse;
@@ -18,15 +19,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 문서의 AI 제품 정보 추출 API. 요청·조회는 {@link DocumentExtractionService}, 확정·반려는 {@link
+ * DocumentExtractionReviewService}가 처리한다.
+ */
 @RestController
 @RequestMapping("/api/v1/documents/{documentId}/extractions")
+@RequiredArgsConstructor
 public class DocumentExtractionController {
 
   private final DocumentExtractionService extractionService;
-
-  public DocumentExtractionController(DocumentExtractionService extractionService) {
-    this.extractionService = extractionService;
-  }
 
   /** 외부 AI 분석을 요청한다. 접수만 하고 202로 응답하며, 결과는 조회 API로 확인한다. */
   @PostMapping
@@ -39,6 +41,7 @@ public class DocumentExtractionController {
         .body(ApiResponse.success(ExtractionResponse.from(extraction)));
   }
 
+  /** 문서의 가장 최근 추출 기록을 조회한다. 재요청하면 새 기록이 생기므로 번호가 가장 큰 것을 준다. */
   @GetMapping("/latest")
   ApiResponse<ExtractionResponse> latest(
       @AuthenticationPrincipal Jwt jwt, @PathVariable Long documentId) {
@@ -46,6 +49,7 @@ public class DocumentExtractionController {
         ExtractionResponse.from(extractionService.latest(documentId, userId(jwt))));
   }
 
+  /** 추출 번호로 기록 하나를 조회한다. 상태(QUEUED~EXTRACTED 등)와 추출된 후보값을 확인한다. */
   @GetMapping("/{extractionId}")
   ApiResponse<ExtractionResponse> get(
       @AuthenticationPrincipal Jwt jwt,

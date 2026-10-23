@@ -3,6 +3,7 @@ package org.example.springtestci.document.service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.document.ai.DocumentFactExtractionException;
 import org.example.springtestci.document.ai.DocumentFactExtractor;
@@ -13,8 +14,6 @@ import org.example.springtestci.document.entity.DocumentType;
 import org.example.springtestci.document.entity.ExtractionStatus;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
 import org.example.springtestci.document.repository.DocumentRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -27,10 +26,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>요청 사이에 문서가 교체·삭제되었거나 이미 다른 상태로 바뀐 경우 늦게 도착한 결과는 버린다. 이미지·응답 본문·추출 값은 로그에 남기지 않고, 실패는 분류 코드만
  * 기록한다.
  */
+@Slf4j
 @Component
 public class DocumentExtractionProcessor {
-
-  private static final Logger log = LoggerFactory.getLogger(DocumentExtractionProcessor.class);
 
   private final DocumentExtractionRepository extractionRepository;
   private final DocumentRepository documentRepository;

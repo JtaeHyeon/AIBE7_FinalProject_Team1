@@ -4,21 +4,19 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.example.springtestci.document.entity.DocumentExtraction;
 import org.example.springtestci.document.entity.ExtractionStatus;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 서버 재시작이나 오류로 처리 중에 멈춘 추출을 실패로 정리한다. 정리된 문서는 사용자가 새 요청으로 다시 시도할 수 있다. */
+@Slf4j
 @Component
 public class StaleExtractionCleaner {
-
-  private static final Logger log = LoggerFactory.getLogger(StaleExtractionCleaner.class);
 
   private final DocumentExtractionRepository extractionRepository;
   private final Clock clock;

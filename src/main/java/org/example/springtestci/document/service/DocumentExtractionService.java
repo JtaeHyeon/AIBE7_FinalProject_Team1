@@ -2,6 +2,7 @@ package org.example.springtestci.document.service;
 
 import java.util.EnumSet;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.document.ai.DocumentFactExtractor;
@@ -25,6 +26,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 허용하며, 실패하거나 반려한 뒤에는 새 요청으로 다시 시도한다.
  */
 @Service
+@RequiredArgsConstructor
 public class DocumentExtractionService {
 
   static final String SCHEMA_VERSION = "product-facts-v1";
@@ -41,21 +43,6 @@ public class DocumentExtractionService {
   private final ObjectProvider<DocumentFactExtractor> extractor;
   private final DocumentExtractionProcessor processor;
   private final java.time.Clock clock;
-
-  public DocumentExtractionService(
-      DocumentRepository documentRepository,
-      DocumentExtractionRepository extractionRepository,
-      ProductOwnerReader productOwnerReader,
-      ObjectProvider<DocumentFactExtractor> extractor,
-      DocumentExtractionProcessor processor,
-      java.time.Clock clock) {
-    this.documentRepository = documentRepository;
-    this.extractionRepository = extractionRepository;
-    this.productOwnerReader = productOwnerReader;
-    this.extractor = extractor;
-    this.processor = processor;
-    this.clock = clock;
-  }
 
   /** 추출 요청을 접수하고(QUEUED) 커밋 뒤에 비동기로 처리를 시작한다. */
   @Transactional
