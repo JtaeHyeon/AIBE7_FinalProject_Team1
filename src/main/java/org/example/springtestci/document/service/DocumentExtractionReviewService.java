@@ -1,6 +1,7 @@
 package org.example.springtestci.document.service;
 
 import java.time.Clock;
+import lombok.RequiredArgsConstructor;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.document.dto.ExtractedFields;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>확정에는 AI 후보값이 아니라 사용자가 검토한 값만 사용한다. 같은 추출에 대한 확정·반려가 동시에 들어와도 행을 잠가 한 번만 처리한다.
  */
 @Service
+@RequiredArgsConstructor
 public class DocumentExtractionReviewService {
 
   private final DocumentRepository documentRepository;
@@ -26,19 +28,6 @@ public class DocumentExtractionReviewService {
   private final ProductOwnerReader productOwnerReader;
   private final ObjectProvider<ProductEventWriter> eventWriter;
   private final Clock clock;
-
-  public DocumentExtractionReviewService(
-      DocumentRepository documentRepository,
-      DocumentExtractionRepository extractionRepository,
-      ProductOwnerReader productOwnerReader,
-      ObjectProvider<ProductEventWriter> eventWriter,
-      Clock clock) {
-    this.documentRepository = documentRepository;
-    this.extractionRepository = extractionRepository;
-    this.productOwnerReader = productOwnerReader;
-    this.eventWriter = eventWriter;
-    this.clock = clock;
-  }
 
   /** 검토한 값으로 이력을 만들고 문서를 보호(삭제 불가) 상태로 바꾼다. */
   @Transactional

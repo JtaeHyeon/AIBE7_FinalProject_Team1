@@ -74,6 +74,7 @@ public class DocumentExtractionController {
             reviewService.confirm(documentId, extractionId, userId(jwt), request.reviewedData())));
   }
 
+  /** 추출 결과를 반려한다. 후보값은 지우고, 같은 문서에 다시 추출을 요청할 수 있게 된다. */
   @PostMapping("/{extractionId}/reject")
   ApiResponse<ExtractionResponse> reject(
       @AuthenticationPrincipal Jwt jwt,
