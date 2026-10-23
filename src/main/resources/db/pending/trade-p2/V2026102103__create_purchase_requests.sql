@@ -27,4 +27,12 @@ CREATE TABLE purchase_requests (
         )
 );
 
+CREATE UNIQUE INDEX uq_purchase_requests_pending_room
+    ON purchase_requests (room_id)
+    WHERE request_status = 'PENDING';
+
+CREATE UNIQUE INDEX uq_purchase_requests_reserved_listing
+    ON purchase_requests (listing_id)
+    WHERE transaction_status = 'RESERVED';
+
 CREATE INDEX ix_purchase_requests_listing ON purchase_requests (listing_id);

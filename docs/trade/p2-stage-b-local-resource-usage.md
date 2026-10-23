@@ -107,19 +107,20 @@
 - 전용 시험 종료 후 두 컨테이너를 삭제하고 외부 시험 환경변수를 제거한 별도 Gradle 프로세스에서 일반 전체 검사를 수행했다.
 - PostgreSQL 17 이미지는 기존 프로젝트 컨테이너가 사용하던 로컬 캐시이므로 유지했고, 이번 작업에서 새로 받은 Redis 8 이미지만 삭제했다.
 
-## 8. Stage B 잔여 연결 검증
+## 8. `a9fc04b` 리뷰 보정 후 재실행
 
 | 항목 | 기록 |
 |---|---|
 | 작업 일시 | 2026-10-23 KST |
-| 실행 기준 | `e5284ae` + `upstream/main` `1f50021` 병합 기반 작업 트리 |
-| PostgreSQL | `postgres:17-alpine`, `pastport-p2-stageb-pg`, `127.0.0.1:55432`, 합성 데이터 전용 DB |
-| Redis | `redis:8-alpine`, `pastport-p2-stageb-redis`, `127.0.0.1:56379`, 명시 승인 후 초기화 |
-| 전용 시험 | 24건, failures/errors/skipped 0 |
-| 일반 전체 검사 | 356건, failures/errors 0, skipped 24 |
+| 실행 기준 | `a9fc04b` 작업 트리에서 미승인 ownership·일반 Migration을 분리한 상태 |
+| PostgreSQL | 기존 `postgres:17-alpine`, `pastport-p2-correction-pg`, `127.0.0.1:32768`, 합성 데이터 전용 DB |
+| Redis | 새로 받은 `redis:8-alpine`, `pastport-p2-correction-redis`, `127.0.0.1:32769`, 명시 승인 후 초기화 |
+| 전용 시험 | 22건, failures/errors/skipped 0 |
+| 일반 전체 검사 | 354건, failures/errors 0, skipped 22 |
 | 공유 자원 | 공유 DB·Redis·배포 환경 접근 없음 |
 | 종료 상태 | 두 임시 컨테이너와 새 Redis 이미지 삭제, Rancher Desktop 중지 상태 복원 |
 
-- PostgreSQL fresh·upgrade·validate와 production ownership Writer를 실제 DB에서 검증했다.
-- upgrade fixture의 legacy 채팅 번호는 합성 데이터이며 공유 환경 데이터 확인을 대신하지 않는다.
-- 기존 PostgreSQL 17 이미지 캐시는 유지하고 이번 실행에서 새로 받은 Redis 8 이미지만 삭제했다.
+- 외부 전용 시험은 pending 거래 DDL과 테스트 전용 ownership fixture를 사용했다. 정식 ownership E2E로 집계하지 않는다.
+- 첫 정리 시 Rancher Hyper-V 백엔드 응답이 끊겨 삭제가 실패했다. Rancher를 재기동하고 정확한 컨테이너 이름과 이미지를 재확인한 뒤 삭제했다.
+- 최종 확인에서 `pastport-p2-correction-*` 컨테이너와 `redis:8-alpine` 이미지가 각각 0건임을 확인했다.
+- 작업 전부터 있던 PostgreSQL 17 이미지는 유지하고 `rdctl shutdown`으로 작업 전 중지 상태를 복원했다.
