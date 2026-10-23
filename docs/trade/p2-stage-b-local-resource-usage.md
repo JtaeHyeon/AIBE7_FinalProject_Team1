@@ -89,3 +89,20 @@
 - loopback 주소나 별도 DB 번호만으로 전용 자원임을 가정하지 않는다. 기존 개발·공유 Redis에는 이 시험을 연결하지 않는다.
 - 전용 시험 후 `P2_TRADE_TEST_ENABLED=false`로 전환하고 DB·Redis 접속 환경변수와 초기화 승인 값을 제거한 뒤 일반 전체 검사를 실행한다.
 - 비밀번호·토큰·쿠키 등 임시 비밀값은 문서와 로그에 남기지 않고 실행 세션 종료 전에 제거한다.
+
+## 7. 상위 리뷰 후 보완 재실행
+
+| 항목 | 기록 |
+|---|---|
+| 작업 일시 | 2026-10-23 KST |
+| 실행 기준 | `5dc6ffe04e8d42f4b5876a55da6b5f8d96bbccab` 기반 보강 작업 트리 |
+| PostgreSQL | `postgres:17-alpine`, `pastport-p2-review-pg`, `127.0.0.1:55432`, 합성 데이터 전용 DB |
+| Redis | `redis:8-alpine`, `pastport-p2-review-redis`, `127.0.0.1:56379`, `FLUSHDB` 승인 후 사용 |
+| 전용 시험 | 22건, failures/errors/skipped 0 |
+| 일반 전체 검사 | 338건, failures/errors 0, skipped 22 |
+| 공유 자원 | 공유 DB·Redis·배포 환경 접근 없음 |
+| 종료 상태 | 두 임시 컨테이너와 새 Redis 이미지 삭제, Rancher Desktop 작업 전 중지 상태 복원 |
+
+- 전용 시험에서는 PostgreSQL·Redis endpoint와 컨테이너 이름을 고정해 대상 자원을 확인한 뒤 `P2_TRADE_TEST_REDIS_FLUSH_ALLOWED=true`를 설정했다.
+- 전용 시험 종료 후 두 컨테이너를 삭제하고 외부 시험 환경변수를 제거한 별도 Gradle 프로세스에서 일반 전체 검사를 수행했다.
+- PostgreSQL 17 이미지는 기존 프로젝트 컨테이너가 사용하던 로컬 캐시이므로 유지했고, 이번 작업에서 새로 받은 Redis 8 이미지만 삭제했다.

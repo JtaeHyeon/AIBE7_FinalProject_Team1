@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ class ChatRepositoryIntegrationTest {
   @Autowired private ChatMessageRepository messageRepository;
   @Autowired private ChatReadPositionRepository readPositionRepository;
   @Autowired private EntityManager entityManager;
+  @Autowired private JdbcTemplate jdbcTemplate;
 
   @Test
   void storesRoomsMessagesAndPersonalReadPositions() {
@@ -86,7 +88,12 @@ class ChatRepositoryIntegrationTest {
   void participantRoomPageUsesLatestActivityOrder() {
     ChatRoom olderRoom = roomRepository.create(100L, 10L, 20L);
     ChatRoom activeRoom = roomRepository.create(101L, 10L, 20L);
-    messageRepository.append(olderRoom.roomId(), 10L, "최근 활동");
+    ChatMessage latestMessage = messageRepository.append(olderRoom.roomId(), 10L, "최근 활동");
+    jdbcTemplate.update(
+        "update chat_messages set created_at = ? where id = ?",
+        activeRoom.createdAt().plusSeconds(1),
+        latestMessage.messageId());
+    entityManager.clear();
 
     List<Long> roomIds =
         roomRepository.findByParticipantId(20L, PageRequest.of(0, 20)).stream()

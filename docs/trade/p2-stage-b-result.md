@@ -13,12 +13,13 @@
 - 일반 전체 검사는 `P2_TRADE_TEST_ENABLED=false`로 전환하고 접속 환경변수를 제거한 뒤 실행하도록 재현 절차를 분리했다.
 - 정식 ownership Writer·Migration, 일반 Flyway 편입, legacy 데이터 검증, 공유 환경 적용은 외부 제공 또는 승인이 필요한 잔여 항목으로 유지한다.
 
-### 반영 후 검증 (2026-10-23)
+### 상위 리뷰 후 보완 검증 (2026-10-23)
 
-- `PurchaseRequestHttpPostgresSafetyTest`: 통과. 명시 승인 `true`만 허용하고 누락·`false`를 거부함을 확인했다.
-- 일반 전체 검사: tests 338, failures 0, errors 0, skipped 22. `spotlessCheck test build --rerun-tasks --no-build-cache`가 성공했다.
-- 첫 전체 검사에서 기존 `ChatRepositoryIntegrationTest.participantRoomPageUsesLatestActivityOrder`가 시간 정렬 경합으로 1회 실패했으나, 해당 시험 단독 재실행과 동일 전체 명령 재실행은 통과했다. 이번 변경 범위에는 포함하지 않았다.
-- 폐기 가능한 PostgreSQL·Redis를 새로 준비하지 않았으므로 외부 전용 22건은 재실행하지 않았다. 기존 전용 실행 결과와 이번 일반 검사 결과를 구분한다.
+- `ChatRepositoryIntegrationTest.participantRoomPageUsesLatestActivityOrder`는 메시지 활동 시각을 두 번째 방 생성 시각보다 1초 뒤로 명시해 DB 시간 정밀도에 따른 동률을 제거했고, 해당 저장소 시험 전체가 통과했다.
+- 폐기 가능한 PostgreSQL 17·Redis 8 컨테이너를 별도 loopback 포트에 준비하고 새 승인값을 포함해 외부 전용 시험을 재실행했다. tests 22, failures 0, errors 0, skipped 0이다.
+- 전용 자원을 삭제하고 외부 시험 환경변수를 제거한 뒤 일반 전체 검사를 재실행했다. tests 338, failures 0, errors 0, skipped 22이며 `spotlessCheck test build --rerun-tasks --no-build-cache`가 성공했다.
+- `PurchaseRequestHttpPostgresSafetyTest`를 포함한 일반 검사에서 명시 승인 `true`만 허용하고 누락·`false`를 거부하는 안전조건을 유지했다.
+- 정식 ownership Writer·Migration, 일반 Flyway 편입, legacy 데이터와 공유 환경 검증은 제공·승인 대기 상태이므로 B 전체 완료 판정은 유지하지 않는다.
 
 ## 기준 확인
 
@@ -56,7 +57,7 @@
 
 ## 재현 명령과 결과
 
-작업 위치는 `<PROJECT_ROOT>`, 실행 기준은 `0563d423381bc987009a4d0653d27dd395d7d070` 기반 보강 작업 트리다. 비밀값은 실제 실행 시 로컬 임시 값으로 치환한다.
+작업 위치는 `<PROJECT_ROOT>`, 실행 기준은 `5dc6ffe04e8d42f4b5876a55da6b5f8d96bbccab` 기반 보강 작업 트리다. 비밀값은 실제 실행 시 로컬 임시 값으로 치환한다.
 
 ```powershell
 $env:P2_TRADE_TEST_ENABLED='true'
@@ -84,10 +85,10 @@ Remove-Item Env:P2_TRADE_TEST_REDIS_FLUSH_ALLOWED -ErrorAction SilentlyContinue
 .\gradlew.bat spotlessCheck test build --rerun-tasks --no-build-cache
 ```
 
-- 일반 전체 검사: tests 336, failures 0, errors 0, skipped 22.
-- skipped 22건은 외부 환경변수가 필요한 위 PostgreSQL 전용 15+7건이며, 별도 전용 실행에서 전부 통과했다.
+- 일반 전체 검사: tests 338, failures 0, errors 0, skipped 22.
+- skipped 22건은 외부 환경변수가 필요한 위 PostgreSQL 전용 15+7건이며, 새 승인값을 포함한 별도 전용 실행에서 전부 통과했다.
 - 결과: `build/reports/tests/test/index.html`, `build/test-results/test/`.
-- 첫 전체 검사에서 패치 구간 줄바꿈 혼합을 Spotless가 탐지해 중단됐고, `gradlew.bat spotlessApply` 후 동일 명령을 강제 재실행해 통과했다.
+- 채팅 활동 정렬 시험의 시각을 명시적으로 고정한 뒤 해당 저장소 시험과 일반 전체 검사가 모두 통과했다.
 - ownership 관련 성공은 테스트 fixture를 사용하므로 정식 ownership E2E로 집계하지 않는다.
 
 ## B-T01~22 근거
