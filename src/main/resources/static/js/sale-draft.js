@@ -543,7 +543,7 @@
       if (!find('[data-sale-title]').value.trim() || !find('[data-sale-description]').value.trim() || !find('[data-sale-price]').value.trim() || grade === null || !selected.length) {
         error('게시하려면 제목·가격·상태 등급·설명과 대표 사진을 입력해 주세요.'); return;
       }
-      if (!await confirmAction('판매글을 게시할까요? 선택한 제품 사진과 개인정보를 제외한 누적 핵심 이력이 함께 공개돼요.', '게시하기', '판매글 게시 확인')) return;
+      if (!await confirmAction('판매글을 게시할까요? 선택한 제품 사진과 개인정보를 제외한 누적 핵심 이력이 함께 공개돼요. 게시 후 공개 제품 정보·이력으로 AI 상태 요약을 생성해요. 사진·증빙·채팅은 AI에 보내지 않아요.', '게시하기', '판매글 게시 확인')) return;
     }
     publishing = true; status();
     try {

@@ -75,6 +75,13 @@
     }
     main.append(history);
 
+    if (data.listingId) {
+      const summary = section('AI 제품 상태 요약');
+      summary.classList.add('listing-ai-summary'); summary.dataset.listingSummary = '';
+      summary.append(element('p', 'sub', 'AI 요약 상태를 확인하고 있어요.'));
+      main.append(summary);
+    }
+
     const aside = element('aside', 'listing-detail-summary sc-card');
     aside.append(element('span', 'sc-badge', data.listingId ? ({ ACTIVE: '판매 중', RESERVED: '예약 중' }[data.status] || '판매 종료') : '게시 전 미리보기'));
     aside.append(element('h2', '', data.content.title || '제목을 입력해 주세요.'));

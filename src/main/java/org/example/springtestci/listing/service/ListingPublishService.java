@@ -8,10 +8,12 @@ import org.example.springtestci.listing.dto.PublishListingRequest;
 import org.example.springtestci.listing.dto.PublishedListingResponse;
 import org.example.springtestci.listing.entity.Listing;
 import org.example.springtestci.listing.entity.ListingStatus;
+import org.example.springtestci.listing.event.ListingPublished;
 import org.example.springtestci.listing.repository.ListingAuditRepository;
 import org.example.springtestci.listing.repository.ListingRepository;
 import org.example.springtestci.product.service.ProductService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ public class ListingPublishService {
   private final ListingAuditRepository audit;
   private final ObjectProvider<ListingPublishConstraints> constraints;
   private final ObjectProvider<ListingHistoryPublisher> historyPublishers;
+  private final ApplicationEventPublisher events;
 
   public ListingPublishService(
       ProductService products,
@@ -32,7 +35,8 @@ public class ListingPublishService {
       ListingRepository listings,
       ListingAuditRepository audit,
       ObjectProvider<ListingPublishConstraints> constraints,
-      ObjectProvider<ListingHistoryPublisher> historyPublishers) {
+      ObjectProvider<ListingHistoryPublisher> historyPublishers,
+      ApplicationEventPublisher events) {
     this.products = products;
     this.drafts = drafts;
     this.previews = previews;
@@ -40,6 +44,7 @@ public class ListingPublishService {
     this.audit = audit;
     this.constraints = constraints;
     this.historyPublishers = historyPublishers;
+    this.events = events;
   }
 
   /** 이력 공개·초안 삭제·감사 기록까지 같은 트랜잭션에서 처리한다. */
@@ -81,6 +86,7 @@ public class ListingPublishService {
     publisher.publish(productId, listing.getId(), userId);
     drafts.delete(productId, draft.draftId(), userId, draft.version());
     audit.published(productId, userId, listing.getId());
+    events.publishEvent(new ListingPublished(listing.getId()));
     return new Result(PublishedListingResponse.from(listing), true);
   }
 

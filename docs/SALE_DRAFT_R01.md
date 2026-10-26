@@ -7,6 +7,7 @@
 기준은 [요구사항의 SALE-01·SALE-03](REQUIREMENTS.md)과 [ERD의 listing_drafts·draft_images](ERD.md)다.
 
 AI 제목·본문 제안은 [R08 구현 문서](AI_LISTING_R08.md)를 따른다. 생성·화면 적용은 저장·게시와 별개이며, 명시적 임시저장은 기존 초안 API를 사용한다.
+게시 후 비동기 상태 요약은 [R09 구현 문서](AI_SUMMARY_R09.md)를 따른다. 요약 실패가 게시나 기본 상세 조회를 중단하지 않는다.
 
 ## API
 

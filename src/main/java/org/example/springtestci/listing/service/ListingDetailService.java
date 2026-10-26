@@ -1,6 +1,7 @@
 package org.example.springtestci.listing.service;
 
 import java.io.IOException;
+import org.example.springtestci.ai.service.ListingSummaryStore;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
@@ -16,12 +17,17 @@ public class ListingDetailService {
   private final ListingRepository listings;
   private final ProductService products;
   private final ListingPublicationService publications;
+  private final ListingSummaryStore summaries;
 
   public ListingDetailService(
-      ListingRepository listings, ProductService products, ListingPublicationService publications) {
+      ListingRepository listings,
+      ProductService products,
+      ListingPublicationService publications,
+      ListingSummaryStore summaries) {
     this.listings = listings;
     this.products = products;
     this.publications = publications;
+    this.summaries = summaries;
   }
 
   @Transactional
@@ -48,7 +54,8 @@ public class ListingDetailService {
             .toList(),
         publication.product(),
         publication.history(),
-        listing.getSellerId() == userId);
+        listing.getSellerId() == userId,
+        summaries.get(listingId, userId));
   }
 
   @Transactional

@@ -53,6 +53,11 @@ public enum ErrorCode {
       "AI_006",
       "전체 제품·이력이 AI 입력 한도를 초과했습니다. 이력을 생략하지 않으므로 직접 작성해 주세요."),
   AI_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AI_007", "AI 요청이 많습니다. 잠시 후 재시도하거나 직접 작성해 주세요."),
+  SUMMARY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      "AI_SUMMARY_001",
+      "AI 요약 기능을 현재 사용할 수 없습니다. 제품 정보와 이력은 계속 확인할 수 있습니다."),
+  SUMMARY_RETRY_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AI_SUMMARY_002", "AI 요약을 잠시 후 다시 요청해 주세요."),
   INVALID_EXTRACTION_STATE(HttpStatus.CONFLICT, "DOC_001", "현재 상태에서는 처리할 수 없는 추출 요청입니다."),
   INVALID_DOCUMENT_FILE(
       HttpStatus.BAD_REQUEST, "DOC_002", "JPG, PNG, PDF 형식의 올바른 파일만 업로드할 수 있습니다."),
