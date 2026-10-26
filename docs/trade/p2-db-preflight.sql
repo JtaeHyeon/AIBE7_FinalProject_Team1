@@ -3,7 +3,7 @@
 -- 저장소의 .env나 애플리케이션 접속값을 자동으로 읽지 않는다.
 -- 실행 전 아래 두 값을 승인된 대상으로 직접 바꾼다.
 \set target_database 'REPLACE_WITH_APPROVED_DATABASE'
-\set target_schema 'public'
+\set target_schema 'REPLACE_WITH_APPROVED_SCHEMA'
 \set ON_ERROR_STOP on
 
 SELECT current_database() = :'target_database' AS target_database_matches,

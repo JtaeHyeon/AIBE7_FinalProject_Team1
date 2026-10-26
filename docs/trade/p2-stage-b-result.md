@@ -136,13 +136,23 @@ Remove-Item Env:P2_TRADE_TEST_REDIS_FLUSH_ALLOWED -ErrorAction SilentlyContinue
 
 | 항목 | 이번 확인 |
 |---|---|
-| 기준 SHA | `6193bbeac53a6c698b77e34527e5bd348c5e47a9`와 현재 HEAD 일치 |
+| 작업 시작 HEAD | 기준 SHA `6193bbeac53a6c698b77e34527e5bd348c5e47a9`와 일치 |
 | 현재 브랜치 | `feature/trade-p2-stage-b-completion` (지시서 기재 브랜치와 다르나 강제 reset·이동하지 않음) |
 | 시작 작업 트리 | 미커밋 변경 없음 |
 | 기존 충족 | 여섯 API, production 판매글 어댑터, 쿠키·Bearer·CSRF 보안 경로, off·pending·test-only 경계 |
 | 이번 완료 | 인증 계약 정정, ownership 포트 계약 보강, 수동 DB 사전점검 자료 작성 |
 | 요청에 따라 미실행 | 전체 회귀, PostgreSQL·Redis 전용 회귀, 로컬 API, 공유 환경 조회 |
 | 의존 대기 | 정식 ownership 코드·DDL·제약, 승인된 DB 구조·Migration 이력·legacy 결과, 통합 회귀·공유 적용 승인 |
+
+### W1~W5 이행 대조
+
+| 작업 | 이행 결과 | 근거 |
+|---|---|---|
+| W1 완료·누락·보류 분리 | 완료 | 기존 B-01~07·B-T01~22 표를 재사용해 구현·과거 근거·부분·대기를 구분하고 잔여 작업 입력을 유지 |
+| W2 API·인증·연결 계약 | 완료 | 실제 보안 코드와 HTTP 시험에 맞춰 인증 계약을 정정하고 기존 ownership 포트의 입력·저장·트랜잭션·실패 계약을 명시 |
+| W3 DB 사전점검 자료 | 완료 | 승인 대상 DB·스키마를 필수 입력으로 둔 읽기 전용 SQL과 판정·보안·재개 안내 작성, 실제 실행은 `NOT_RUN` |
+| W4 활성화·패키징 경계 | 기존 충족 확인 | 거래 기본 off, 필수 빈 누락 시 구성 실패, pending DDL과 test-only fixture 경계를 소스·기존 구성 시험·정적 대조로 확인 |
+| W5 실행자료·보류 인계 | 완료 | 실제 변경·재사용·검사·미실행·필요 입력·재개 지점·자원 사용을 이 문서와 연결 문서에 일원화 |
 
 ### 실제 변경
 
