@@ -124,3 +124,18 @@
 - 첫 정리 시 Rancher Hyper-V 백엔드 응답이 끊겨 삭제가 실패했다. Rancher를 재기동하고 정확한 컨테이너 이름과 이미지를 재확인한 뒤 삭제했다.
 - 최종 확인에서 `pastport-p2-correction-*` 컨테이너와 `redis:8-alpine` 이미지가 각각 0건임을 확인했다.
 - 작업 전부터 있던 PostgreSQL 17 이미지는 유지하고 `rdctl shutdown`으로 작업 전 중지 상태를 복원했다.
+
+## 9. 외부 자료 비의존 선행작업 (2026-10-26)
+
+| 항목 | 기록 |
+|---|---|
+| 실행 기준 | `6193bbeac53a6c698b77e34527e5bd348c5e47a9`, 시작 작업 트리 clean |
+| 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
+| 주요 명령 | `spotlessApply`, `spotlessCheck classes testClasses`, 외부 자원 없는 거래 단위시험 2개 선택 실행 |
+| 외부 자원 | DB·Redis·Rancher·로컬 API·공유 서비스 미사용 |
+| DB 사전점검 | SQL·안내 문서만 정적 검토, 실제 실행 `NOT_RUN` |
+| 생성·변경 | 저장소 문서·포트 Javadoc, `build` 결과와 일반 Gradle 캐시 |
+| 종료 상태 | 컨테이너·이미지·네트워크·외부 데이터 생성 없음. Gradle 데몬과 캐시는 기본 정책대로 유지 |
+
+셸의 기본 Java 8은 Gradle 요구 버전을 충족하지 않아 첫 검사가 실행 전에 실패했다. 시스템 전역 설정은 변경하지 않고
+각 검증 명령의 프로세스 환경에만 `JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot`을 지정했다.

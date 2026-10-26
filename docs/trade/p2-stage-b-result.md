@@ -127,3 +127,53 @@ Remove-Item Env:P2_TRADE_TEST_REDIS_FLUSH_ALLOWED -ErrorAction SilentlyContinue
 - 검증 대상 브랜치·PR·SHA와 제공 담당자
 
 제공 전에는 테스트 Writer를 production으로 이동하거나 새로운 ownership 테이블·API를 만들지 않는다.
+
+## 외부 자료 비의존 선행작업 결과 (2026-10-26)
+
+**P2 B 외부 자료 비의존 선행작업 완료 / 정식 ownership 연결·Migration 편입·통합 회귀·공유 환경 검증 대기**
+
+### 기준과 범위
+
+| 항목 | 이번 확인 |
+|---|---|
+| 기준 SHA | `6193bbeac53a6c698b77e34527e5bd348c5e47a9`와 현재 HEAD 일치 |
+| 현재 브랜치 | `feature/trade-p2-stage-b-completion` (지시서 기재 브랜치와 다르나 강제 reset·이동하지 않음) |
+| 시작 작업 트리 | 미커밋 변경 없음 |
+| 기존 충족 | 여섯 API, production 판매글 어댑터, 쿠키·Bearer·CSRF 보안 경로, off·pending·test-only 경계 |
+| 이번 완료 | 인증 계약 정정, ownership 포트 계약 보강, 수동 DB 사전점검 자료 작성 |
+| 요청에 따라 미실행 | 전체 회귀, PostgreSQL·Redis 전용 회귀, 로컬 API, 공유 환경 조회 |
+| 의존 대기 | 정식 ownership 코드·DDL·제약, 승인된 DB 구조·Migration 이력·legacy 결과, 통합 회귀·공유 적용 승인 |
+
+### 실제 변경
+
+| 파일 | 변경 이유와 범위 |
+|---|---|
+| `p2-api-contract.md` | 실제 로그인·쿠키·CSRF·JWT 주체·헤더 우선순위·갱신·로그아웃 계약으로 오래된 대기 문구 정정 |
+| `p2-integration-boundaries.md` | 기존 `InternalTransferPendingWriter`에 공급자가 맞춰야 할 입력·저장·트랜잭션·실패 계약과 미확정 항목 구분 |
+| `InternalTransferPendingWriter.java` | 시그니처 변경 없이 호출 전제·성공 효과·실패 전파 Javadoc 추가 |
+| `p2-db-preflight.sql`, `p2-db-preflight.md` | 대상 명시, 메타데이터 선확인, 승인된 집계 선택, 판정·보안·재개 절차를 갖춘 읽기 전용 수동 자료 추가 |
+| `p2-stage-b-migration-plan.md` | 사전점검 자료 연결과 실제 DB 미실행 상태 명시 |
+
+새 운영 ownership 구현, 새 상태·API, 일반 Flyway Migration은 추가하지 않았다. 테스트 fixture의
+`uq_ownership_transfers_pending_product`도 정식 제약명으로 승격하지 않았다.
+
+### 이번 검사
+
+| 시각(KST) | 명령·검토 | 결과 |
+|---|---|---|
+| 2026-10-26 09:32 | `gradlew.bat spotlessCheck classes testClasses` (세션 `JAVA_HOME`을 Temurin 17로 지정) | 중단 후 재개한 현재 작업 트리에서 성공 |
+| 2026-10-26 09:32 | `gradlew.bat test --tests '...PurchaseRequestServiceTest' --tests '...PurchaseRequestFeatureFlagTest' --rerun-tasks --no-build-cache` | 재실행 22건 성공, 실패·오류·건너뜀 0 |
+| 2026-10-26 09:24 | 기능 기본값, pending DDL 위치, fixture 제약명 위치, SQL 쓰기 명령 정적 대조 | off·pending·test-only 경계 유지, 활성 쓰기 명령 없음 |
+| 2026-10-26 | `p2-db-preflight.sql` 실제 PostgreSQL 실행 | `NOT_RUN` — 대상·접근·조회 승인 없음 |
+
+첫 형식·컴파일 시도는 셸 기본 Java 8 때문에 Gradle 실행 전에 실패했다. Java 17을 현재 명령 세션에만 지정한 뒤
+Spotless가 지적한 새 Javadoc 줄바꿈을 `spotlessApply`로 정리하고 위 검사를 다시 실행했다. 테스트 결과 파일은
+`build/test-results/test/TEST-org.example.springtestci.trade.service.PurchaseRequestServiceTest.xml`과
+`build/test-results/test/TEST-org.example.springtestci.trade.controller.PurchaseRequestFeatureFlagTest.xml`이다.
+
+### 재개 지점
+
+1. 정식 ownership 구현·DDL·담당 승인·기준 SHA 제공 후 B-03의 실제 매핑, 동일 트랜잭션, 충돌·실패 전파를 검증한다.
+2. 승인된 DB·스키마·Migration 이력·legacy 결과 제공 후 `p2-db-preflight.md` 절차로 B-04 편입 순서를 확정한다.
+3. 사용자 재개 지시와 전용 데이터·구성이 제공되면 B-05~06 통합 회귀를 별도 실행한다.
+4. 공유 환경 대상·접근·적용 승인이 제공되면 B-07 Migration·활성화·smoke를 수행한다.

@@ -15,6 +15,9 @@
 4. ownership Migration이 `purchase_requests`를 참조하는지 확인해 최종 실행 순서를 확정한다.
 5. 충돌 없는 새 버전으로 pending 파일을 일반 경로에 한 번만 편입하고 fresh·upgrade 시험을 다시 수행한다.
 
+읽기 전용 사전점검은 `p2-db-preflight.md`의 승인·판정 절차와 `p2-db-preflight.sql`의 수동 쿼리를 사용한다.
+두 자료는 자동 Migration이나 애플리케이션 기동에 연결하지 않으며, 2026-10-26 현재 실제 DB에서는 실행하지 않았다.
+
 ## 보류 사유
 
 공유 DB 접근·적용 승인이 없고 ownership DDL의 의존 방향도 확정되지 않았다. 현재 파일을 이동하면 애플리케이션 기동만으로 모든 환경에 DDL이 적용되므로 이번 변경에서는 정식 경로로 편입하지 않는다. `IF NOT EXISTS`, `repair`, `baseline`, `clean` 또는 기존 Migration 수정으로 차이를 숨기지 않는다.
