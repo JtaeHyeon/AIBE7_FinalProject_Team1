@@ -133,6 +133,36 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     }
   }
 
+  @Override
+  public void confirmSeller(long requestId, long factsVersion) {
+    updateConfirmation("seller_confirmed_version", requestId, factsVersion);
+  }
+
+  @Override
+  public void confirmBuyer(long requestId, long factsVersion) {
+    updateConfirmation("buyer_confirmed_version", requestId, factsVersion);
+  }
+
+  /** 요청·거래 상태와 양측 확인 버전을 SQL 조건으로 다시 검증해 마지막 확인의 경합을 차단한다. */
+  @Override
+  public void complete(long requestId, long factsVersion) {
+    int updated =
+        jdbcTemplate.update(
+            "update purchase_requests set transaction_status = 'COMPLETED' where id = ? and request_status = 'ACCEPTED' and transaction_status = 'RESERVED' and seller_confirmed_version = ? and buyer_confirmed_version = ?",
+            requestId,
+            factsVersion,
+            factsVersion);
+    requireSingleTradeUpdate(updated);
+  }
+
+  @Override
+  public int rejectPendingByListingId(long listingId, long completedRequestId) {
+    return jdbcTemplate.update(
+        "update purchase_requests set request_status = 'REJECTED' where listing_id = ? and id <> ? and request_status = 'PENDING' and transaction_status is null",
+        listingId,
+        completedRequestId);
+  }
+
   /** actor 방향·상태·선택 방 조건을 SQL에 적용하고 DTO 페이지 계산용 전체 건수를 함께 반환한다. */
   @Override
   public PageResult findAll(
@@ -177,6 +207,25 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
 
   private Optional<PurchaseRequest> queryOne(String sql, Object... parameters) {
     return jdbcTemplate.query(sql, ROW_MAPPER, parameters).stream().findFirst();
+  }
+
+  /** 컬럼명은 내부 상수 호출만 허용하고 값은 바인딩하여 현재 예약 한 행만 갱신한다. */
+  private void updateConfirmation(String column, long requestId, long factsVersion) {
+    int updated =
+        jdbcTemplate.update(
+            "update purchase_requests set "
+                + column
+                + " = ? where id = ? and request_status = 'ACCEPTED' and transaction_status = 'RESERVED'",
+            factsVersion,
+            requestId);
+    requireSingleTradeUpdate(updated);
+  }
+
+  private void requireSingleTradeUpdate(int updated) {
+    if (updated != 1) {
+      throw new org.example.springtestci.common.error.CommonException(
+          org.example.springtestci.common.error.ErrorCode.TRADE_CONFLICT);
+    }
   }
 
   /** NULL 가능한 거래 상태·확인 버전·취소 메타데이터를 도메인 상태와 enum으로 복원한다. */

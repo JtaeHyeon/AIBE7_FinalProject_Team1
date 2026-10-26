@@ -149,7 +149,12 @@ public class ReservationChangeService {
 
   /** 완료 단계가 호출할 수 있도록 미확인 변경 존재 여부를 제공한다. */
   public boolean hasUnreviewedChanges(long purchaseRequestId) {
-    return reviewRepository.countUnreviewed(purchaseRequestId) > 0;
+    return countUnreviewedChanges(purchaseRequestId) > 0;
+  }
+
+  /** 완료 context가 미확인 변경 건수를 그대로 안내할 수 있도록 저장된 집계를 제공한다. */
+  public long countUnreviewedChanges(long purchaseRequestId) {
+    return reviewRepository.countUnreviewed(purchaseRequestId);
   }
 
   /** 미확인 변경이 하나라도 있으면 거래 완료 진행을 409로 차단하는 P4 연동 가드다. */

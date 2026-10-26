@@ -29,6 +29,18 @@ public interface PurchaseRequestRepository {
 
   void clearConfirmedVersions(long requestId);
 
+  /** ACCEPTED/RESERVED인 판매자의 완료 확인 버전만 조건부 저장한다. */
+  void confirmSeller(long requestId, long factsVersion);
+
+  /** ACCEPTED/RESERVED인 선택 구매자의 완료 확인 버전만 조건부 저장한다. */
+  void confirmBuyer(long requestId, long factsVersion);
+
+  /** 양측 확인값이 같은 최신 버전인 요청 하나만 COMPLETED로 조건부 전환한다. */
+  void complete(long requestId, long factsVersion);
+
+  /** 완료된 요청을 제외한 같은 판매글의 PENDING 요청만 REJECTED로 정리한다. */
+  int rejectPendingByListingId(long listingId, long completedRequestId);
+
   PageResult findAll(
       long actorId,
       PurchaseRequestDirection direction,

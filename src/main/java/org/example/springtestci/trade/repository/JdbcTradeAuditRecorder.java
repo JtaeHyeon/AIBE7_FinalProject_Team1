@@ -45,6 +45,36 @@ public class JdbcTradeAuditRecorder implements TradeAuditRecorder {
     }
   }
 
+  @Override
+  public void tradeCompleted(
+      long productId,
+      long actorId,
+      long purchaseRequestId,
+      long confirmedFactsVersion,
+      Instant completedAt) {
+    String afterFacts =
+        objectMapper.writeValueAsString(
+            new CompletionFacts(
+                "ACCEPTED", "COMPLETED", "SOLD", confirmedFactsVersion, completedAt));
+    int inserted =
+        jdbcTemplate.update(
+            "insert into audit_logs (product_id, actor_id, target_id, action, after_facts) values (?, ?, ?, 'TRADE_COMPLETED', ?)",
+            productId,
+            actorId,
+            purchaseRequestId,
+            afterFacts);
+    if (inserted != 1) {
+      throw new IllegalStateException("Trade audit insert affected an unexpected row count");
+    }
+  }
+
   private record CancellationFacts(
       String requestStatus, String transactionStatus, Instant cancelledAt) {}
+
+  private record CompletionFacts(
+      String requestStatus,
+      String transactionStatus,
+      String listingStatus,
+      long confirmedFactsVersion,
+      Instant completedAt) {}
 }

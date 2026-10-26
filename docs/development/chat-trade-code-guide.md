@@ -1,6 +1,6 @@
 # 채팅·거래 코드 흐름 안내
 
-이 문서는 P1 채팅, P2 구매 요청·예약, P3 예약 취소·변경 확인 코드의 진입점과 책임 경계를 연결한다. 기능 계약은 각 단계의 별도 API·결과 문서를 우선하며, 여기서는 코드를 읽는 순서와 외부 연동 상태를 설명한다.
+이 문서는 P1 채팅, P2 구매 요청·예약, P3 예약 취소·변경 확인, P4 양측 거래완료 코드의 진입점과 책임 경계를 연결한다. 기능 계약은 각 단계의 별도 API·결과 문서를 우선하며, 여기서는 코드를 읽는 순서와 외부 연동 상태를 설명한다.
 
 ## 공통 계층
 
@@ -70,6 +70,17 @@ INTERNAL/PENDING 이전 취소
 4. `ReservationChangeService.review()`는 제품·판매글 → 구매 요청 → review 순서로 잠그고 최신 결정을 먼저 판정한다.
 5. KEEP은 해당 사건만 확정한다. CANCEL은 공통 예약 취소와 review 결정을 같은 트랜잭션에서 처리한다.
 6. `requireNoUnreviewedChanges()`는 향후 P4 완료 처리에서 미확인 변경이 있는 거래를 차단하는 가드다.
+
+## P4 양측 거래완료
+
+1. `TradeCompletionController#getContext()`와 `#complete()`가 P3 Controller와 분리된 기능 플래그 경계에서 요청을 받는다.
+2. `TradeCompletionService#getContext()`는 원래 당사자와 예약 상태를 확인하고 제품→판매글→판매글별 구매 요청 ID 순서로 잠근다.
+3. `ProductService#getForListing()`의 `factsVersion`과 `ListingDetailService#get()`의 공개 projection을 같은 잠금 범위에서 조합한다. READY가 아니거나 샘플인 이력은 완료 근거로 사용하지 않는다.
+4. `TradeCompletionService#complete()`는 종료 재요청을 먼저 반환하고, 진행 중 거래에는 최신 버전·정식 공개 이력·미확인 변경 0건을 다시 검사한 뒤 인증 사용자의 확인만 저장한다.
+5. 양측 확인이 같은 현재 버전이면 `PurchaseRequestRepository#complete()`, `PublishedListingAccess#sell()`, `#rejectPendingByListingId()` 순서로 거래 측 상태를 확정한다.
+6. `InternalTradeCompletionPort#complete()`와 `TradeAuditRecorder#tradeCompleted()`가 같은 트랜잭션에 참여한다. 운영 완료 포트는 아직 없으며 기능 활성화 시 필수 Bean이다.
+
+완료된 거래의 재요청은 원래 방 당사자에게 최소 상태만 반환한다. 이후 제품 소유자 변경이나 facts 버전 증가를 이유로 과거 완료를 다시 수행하지 않는다.
 
 ## 주석 유지 기준
 

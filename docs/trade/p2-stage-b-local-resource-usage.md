@@ -122,6 +122,17 @@
 
 - 외부 전용 시험은 pending 거래 DDL과 테스트 전용 ownership fixture를 사용했다. 정식 ownership E2E로 집계하지 않는다.
 - 첫 정리 시 Rancher Hyper-V 백엔드 응답이 끊겨 삭제가 실패했다. Rancher를 재기동하고 정확한 컨테이너 이름과 이미지를 재확인한 뒤 삭제했다.
+
+## P4 거래완료 작업 추가 기록
+
+| 항목 | 결과 |
+|---|---|
+| 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
+| 외부 자원 | PostgreSQL·Redis·Rancher·Docker·로컬 API·공유 서비스 미사용 |
+| 실행 범위 | `gradlew.bat spotlessApply spotlessCheck classes testClasses test`에 14개 관련 클래스 선택, 99건 성공 |
+| 잔여 프로세스 | Gradle `--no-daemon` 단일 실행 종료, 신규 외부 프로세스 없음 |
+
+P4 전용 `TradeP4PostgresIntegrationTest`의 P4-DB01~07은 `P4_TRADE_TEST_ENABLED=true`일 때만 동작하도록 작성하고 `testClasses`로 컴파일했다. 환경변수를 설정하거나 PostgreSQL을 기동·접속하지 않았으므로 실제 결과는 `NOT_RUN`이다.
 - 최종 확인에서 `pastport-p2-correction-*` 컨테이너와 `redis:8-alpine` 이미지가 각각 0건임을 확인했다.
 - 작업 전부터 있던 PostgreSQL 17 이미지는 유지하고 `rdctl shutdown`으로 작업 전 중지 상태를 복원했다.
 

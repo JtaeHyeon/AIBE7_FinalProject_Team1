@@ -57,4 +57,58 @@ class PurchaseRequestTest {
     assertThat(request.cancelReason()).isEqualTo(TradeCancellationReason.CONDITION_MISMATCH);
     assertThat(request.cancelledAt()).isEqualTo(cancelledAt);
   }
+
+  @Test
+  void completesOnlyWhenBothPartiesConfirmedSameVersion() {
+    PurchaseRequest request =
+        PurchaseRequest.restore(
+            1L, 2L, 3L, PurchaseRequestStatus.ACCEPTED, TransactionStatus.RESERVED);
+
+    request.confirmSeller(200L);
+    request.confirmBuyer(200L);
+    request.complete(200L);
+
+    assertThat(request.isCompleted()).isTrue();
+    assertThat(request.requestStatus()).isEqualTo(PurchaseRequestStatus.ACCEPTED);
+    assertThat(request.transactionStatus()).isEqualTo(TransactionStatus.COMPLETED);
+  }
+
+  @Test
+  void boxedConfirmationVersionsUseValueEquality() {
+    PurchaseRequest request =
+        PurchaseRequest.restore(
+            1L,
+            2L,
+            3L,
+            PurchaseRequestStatus.ACCEPTED,
+            TransactionStatus.RESERVED,
+            Long.valueOf(200L),
+            Long.valueOf(200L),
+            null,
+            null,
+            null);
+
+    request.complete(200L);
+
+    assertThat(request.isCompleted()).isTrue();
+  }
+
+  @Test
+  void refusesCompletionWhenEitherConfirmationIsMissingOrStale() {
+    PurchaseRequest request =
+        PurchaseRequest.restore(
+            1L,
+            2L,
+            3L,
+            PurchaseRequestStatus.ACCEPTED,
+            TransactionStatus.RESERVED,
+            7L,
+            6L,
+            null,
+            null,
+            null);
+
+    assertThatThrownBy(() -> request.complete(7L)).isInstanceOf(CommonException.class);
+    assertThat(request.transactionStatus()).isEqualTo(TransactionStatus.RESERVED);
+  }
 }

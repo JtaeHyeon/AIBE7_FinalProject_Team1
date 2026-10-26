@@ -38,7 +38,7 @@ class JdbcPublishedListingAccessTest {
     jdbcTemplate.execute(
         "create table products (id bigint primary key, owner_id bigint not null, archived_at timestamp with time zone)");
     jdbcTemplate.execute(
-        "create table listings (id bigint primary key, product_id bigint not null, seller_id bigint not null, status varchar(20) not null)");
+        "create table listings (id bigint primary key, product_id bigint not null, seller_id bigint not null, status varchar(20) not null, active_slot smallint)");
     jdbcTemplate.update("insert into products (id, owner_id) values (1, 10), (2, 20)");
     jdbcTemplate.update("update products set archived_at = current_timestamp where id = 2");
     jdbcTemplate.update(
@@ -95,6 +95,21 @@ class JdbcPublishedListingAccessTest {
             jdbcTemplate.queryForObject("select status from listings where id = 100", String.class))
         .isEqualTo("ACTIVE");
     assertThatThrownBy(() -> listingAccess.releaseReservation(100))
+        .isInstanceOf(CommonException.class)
+        .extracting(exception -> ((CommonException) exception).errorCode())
+        .isEqualTo(ErrorCode.TRADE_CONFLICT);
+  }
+
+  @Test
+  void sellsOnlyAReservedListingAndClearsActiveSlot() {
+    jdbcTemplate.update("update listings set status = 'RESERVED', active_slot = 1 where id = 100");
+
+    listingAccess.sell(100);
+
+    assertThat(jdbcTemplate.queryForMap("select status, active_slot from listings where id = 100"))
+        .containsEntry("STATUS", "SOLD")
+        .containsEntry("ACTIVE_SLOT", null);
+    assertThatThrownBy(() -> listingAccess.sell(100))
         .isInstanceOf(CommonException.class)
         .extracting(exception -> ((CommonException) exception).errorCode())
         .isEqualTo(ErrorCode.TRADE_CONFLICT);

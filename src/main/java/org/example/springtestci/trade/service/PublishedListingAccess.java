@@ -19,4 +19,7 @@ public interface PublishedListingAccess {
 
   /** RESERVED 판매글 하나만 ACTIVE로 조건부 복구한다. */
   void releaseReservation(long listingId);
+
+  /** RESERVED 판매글 하나를 SOLD로 전환하고 활성 슬롯을 해제한다. */
+  void sell(long listingId);
 }

@@ -12,4 +12,12 @@ public interface TradeAuditRecorder {
       long purchaseRequestId,
       TradeCancellationReason reason,
       Instant cancelledAt);
+
+  /** 양측 최신 확인으로 확정된 거래 완료 사실을 기존 감사 저장소에 기록한다. */
+  void tradeCompleted(
+      long productId,
+      long actorId,
+      long purchaseRequestId,
+      long confirmedFactsVersion,
+      Instant completedAt);
 }

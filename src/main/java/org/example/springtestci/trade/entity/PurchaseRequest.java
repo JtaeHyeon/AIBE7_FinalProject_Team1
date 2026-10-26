@@ -126,9 +126,45 @@ public class PurchaseRequest {
     buyerConfirmedVersion = null;
   }
 
+  /** 판매자가 확인한 현재 제품 사실 버전을 기록한다. 예약 중 거래가 아니면 완료 확인을 허용하지 않는다. */
+  public void confirmSeller(long factsVersion) {
+    requireReserved();
+    sellerConfirmedVersion = factsVersion;
+  }
+
+  /** 선택 구매자가 확인한 현재 제품 사실 버전을 기록한다. 예약 중 거래가 아니면 완료 확인을 허용하지 않는다. */
+  public void confirmBuyer(long factsVersion) {
+    requireReserved();
+    buyerConfirmedVersion = factsVersion;
+  }
+
+  /** 양측이 같은 최신 버전을 확인한 예약만 COMPLETED로 전환한다. 요청 상태는 ACCEPTED를 유지한다. */
+  public void complete(long factsVersion) {
+    requireReserved();
+    Long expectedVersion = factsVersion;
+    if (!expectedVersion.equals(sellerConfirmedVersion)
+        || !expectedVersion.equals(buyerConfirmedVersion)) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+    transactionStatus = TransactionStatus.COMPLETED;
+  }
+
   public boolean isReserved() {
     return requestStatus == PurchaseRequestStatus.ACCEPTED
         && transactionStatus == TransactionStatus.RESERVED;
+  }
+
+  public boolean isCompleted() {
+    return requestStatus == PurchaseRequestStatus.ACCEPTED
+        && transactionStatus == TransactionStatus.COMPLETED;
+  }
+
+  public boolean sellerConfirmedAt(long factsVersion) {
+    return Long.valueOf(factsVersion).equals(sellerConfirmedVersion);
+  }
+
+  public boolean buyerConfirmedAt(long factsVersion) {
+    return Long.valueOf(factsVersion).equals(buyerConfirmedVersion);
   }
 
   public boolean isReservedCancellation() {
@@ -141,6 +177,12 @@ public class PurchaseRequest {
 
   private void requirePending() {
     if (requestStatus != PurchaseRequestStatus.PENDING || transactionStatus != null) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+  }
+
+  private void requireReserved() {
+    if (!isReserved()) {
       throw new CommonException(ErrorCode.TRADE_CONFLICT);
     }
   }

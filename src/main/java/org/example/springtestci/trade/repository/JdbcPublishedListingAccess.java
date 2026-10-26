@@ -126,6 +126,18 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     }
   }
 
+  /** 완료된 예약의 판매글만 SOLD로 전환하며 활성 판매글 유일 슬롯을 함께 비운다. */
+  @Override
+  public void sell(long listingId) {
+    int updated =
+        jdbcTemplate.update(
+            "update listings set status = 'SOLD', active_slot = null where id = ? and status = 'RESERVED'",
+            listingId);
+    if (updated != 1) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+  }
+
   private Optional<PublishedListing> queryOne(String sql, Object... parameters) {
     return jdbcTemplate.query(sql, this::mapListing, parameters).stream().findFirst();
   }

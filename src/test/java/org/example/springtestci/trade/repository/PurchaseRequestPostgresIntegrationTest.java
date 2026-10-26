@@ -717,6 +717,11 @@ class PurchaseRequestPostgresIntegrationTest {
     public void releaseReservation(long listingId) {
       delegate.releaseReservation(listingId);
     }
+
+    @Override
+    public void sell(long listingId) {
+      delegate.sell(listingId);
+    }
   }
 
   /** pending ownership 테이블 fixture에 직접 쓰는 시험 전용 어댑터다. */
