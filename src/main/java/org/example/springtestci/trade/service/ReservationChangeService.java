@@ -22,6 +22,12 @@ import tools.jackson.databind.JsonNode;
 @Service
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
 @Transactional(readOnly = true)
+/**
+ * RESERVED 거래 중 제품 이력 변경 사본과 구매자의 KEEP/CANCEL 결정을 관리한다.
+ *
+ * <p>{@link #recordChange(long, long, long, long, JsonNode)}는 정식 history/product 연동 전용 내부 계약이며 공개
+ * 생성 API가 아니다. 공급자는 개인정보를 제외한 공개 안전 사본만 전달해야 한다.
+ */
 public class ReservationChangeService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -47,6 +53,11 @@ public class ReservationChangeService {
   }
 
   @Transactional
+  /**
+   * 같은 사건의 불변 JSON 사본을 한 번 저장하고 새 사건일 때만 양측 완료 확인 버전을 초기화한다.
+   *
+   * <p>호출자는 운영 product event가 커밋되는 동일 트랜잭션에서 이 메서드를 호출해야 한다.
+   */
   public ChangeReviewResponse recordChange(
       long productId,
       long purchaseRequestId,
@@ -98,6 +109,11 @@ public class ReservationChangeService {
   }
 
   @Transactional
+  /**
+   * 선택 구매자의 KEEP/CANCEL 결정을 기록한다.
+   *
+   * <p>동일 결정 재전송은 저장 결과를 반환하고 다른 결정 덮어쓰기는 거부한다. CANCEL은 예약 취소와 결정 저장을 같은 트랜잭션에서 수행한다.
+   */
   public ChangeReviewResponse review(
       long purchaseRequestId,
       long eventId,
@@ -110,6 +126,7 @@ public class ReservationChangeService {
     if (actorId != room.inquirerId()) {
       throw new CommonException(ErrorCode.ACCESS_DENIED);
     }
+    // 최신 결정이 먼저 확정된 경합을 판정할 수 있도록 제품·판매글→요청→review 순서로 잠근다.
     PublishedListing listing = requireLockedListing(initial.listingId());
     PurchaseRequest lockedRequest = requireLockedRequest(purchaseRequestId);
     ReservationChangeReview locked =

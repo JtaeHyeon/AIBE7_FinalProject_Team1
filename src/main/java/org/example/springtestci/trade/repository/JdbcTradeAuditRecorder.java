@@ -10,6 +10,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Repository
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
+/** 기존 `audit_logs`에 예약 취소 사실을 기록하며 삽입 실패를 거래 트랜잭션에 전파한다. */
 public class JdbcTradeAuditRecorder implements TradeAuditRecorder {
 
   private final JdbcTemplate jdbcTemplate;

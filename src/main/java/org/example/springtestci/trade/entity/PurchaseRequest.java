@@ -4,6 +4,11 @@ import java.time.Instant;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 
+/**
+ * P2 구매 요청과 예약 거래 상태를 함께 표현하는 도메인 모델이다.
+ *
+ * <p>PENDING 요청 취소는 거래 상태와 취소 메타데이터가 없고, RESERVED 취소만 거래 상태 CANCELLED와 최초 취소 메타데이터를 가진다.
+ */
 public class PurchaseRequest {
 
   private final Long id;
@@ -79,6 +84,7 @@ public class PurchaseRequest {
         cancelledAt);
   }
 
+  /** PENDING 요청을 ACCEPTED/RESERVED로 전환한다. */
   public void accept() {
     requirePending();
     requestStatus = PurchaseRequestStatus.ACCEPTED;
@@ -95,6 +101,7 @@ public class PurchaseRequest {
     requestStatus = PurchaseRequestStatus.CANCELLED;
   }
 
+  /** 예약 거래를 취소하고 양측 완료 확인 버전과 최초 취소 메타데이터를 함께 갱신한다. */
   public void cancelReserved(
       long actorId, TradeCancellationReason reason, Instant cancellationTime) {
     if (requestStatus != PurchaseRequestStatus.ACCEPTED

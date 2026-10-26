@@ -28,6 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/trades")
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
+/**
+ * P3 예약 취소와 예약 중 변경 확인 API 진입점이다.
+ *
+ * <p>외부 변경 사본 생성 API는 제공하지 않는다. 변경 사본은 정식 history/product 연동이 내부 서비스 계약으로 공급해야 한다.
+ */
 public class TradeController {
 
   private final TradeCancellationService cancellationService;

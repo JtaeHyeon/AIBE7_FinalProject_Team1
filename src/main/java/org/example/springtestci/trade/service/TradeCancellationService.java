@@ -17,6 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
 @Transactional(readOnly = true)
+/**
+ * P3 RESERVED 거래 취소의 공통 원자 처리 서비스다.
+ *
+ * <p>원래 판매자 또는 선택 구매자만 취소할 수 있다. INTERNAL/PENDING 이전, 구매 요청, 판매글 예약과 감사 기록을 같은 트랜잭션에서 변경하며 어느 단계든
+ * 실패하면 전체를 롤백한다.
+ */
 public class TradeCancellationService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -42,11 +48,13 @@ public class TradeCancellationService {
   }
 
   @Transactional
+  /** 예약 취소 API용 진입점으로, 이미 끝난 동일 예약 취소는 최초 기록을 보존해 멱등 반환한다. */
   public TradeCancellationResponse cancel(
       long purchaseRequestId, long actorId, TradeCancellationReason reason) {
     return cancel(purchaseRequestId, actorId, reason, true);
   }
 
+  /** 변경 review가 공통 잠금을 확보한 뒤 호출하는 내부 경로다. */
   void cancelForChangeReview(
       PurchaseRequest request,
       ChatRoom room,
@@ -89,6 +97,7 @@ public class TradeCancellationService {
     return response(locked, PublishedListingStatus.ACTIVE);
   }
 
+  /** R07 판매 중지 트랜잭션이 이미 CANCELLED로 바꾼 판매글을 복구하지 않고 거래만 정리한다. */
   void cancelForListingShutdown(
       PurchaseRequest request,
       ChatRoom room,
@@ -120,6 +129,7 @@ public class TradeCancellationService {
       throw new CommonException(ErrorCode.TRADE_CONFLICT);
     }
 
+    // 외부 이전 취소부터 감사까지 모두 현재 Spring 트랜잭션에 참여해야 한다.
     transferCancellation.cancelPending(
         new InternalTransferCancellationPort.Command(
             listing.productId(), request.id(), listing.sellerId(), room.inquirerId()));

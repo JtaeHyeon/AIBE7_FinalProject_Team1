@@ -21,6 +21,7 @@ import org.springframework.stereotype.Repository;
     prefix = "app.features.trade-purchase-requests",
     name = "enabled",
     havingValue = "true")
+/** 제품을 먼저 잠근 뒤 게시 판매글을 읽고 ACTIVE/RESERVED 상태를 조건부 갱신하는 JDBC 어댑터다. */
 public class JdbcPublishedListingAccess implements PublishedListingAccess {
 
   private static final String SELECT_LISTING =

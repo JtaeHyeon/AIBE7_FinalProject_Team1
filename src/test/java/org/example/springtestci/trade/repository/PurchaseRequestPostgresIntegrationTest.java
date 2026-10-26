@@ -48,6 +48,11 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @EnabledIfEnvironmentVariable(named = "P2_TRADE_TEST_ENABLED", matches = "true")
+/**
+ * 승인된 PostgreSQL에서만 실행하는 P2 잠금·원자성 시험이다.
+ *
+ * <p>내부 {@code JdbcTransferWriter}는 ownership 운영 구현이 아니라 동일 트랜잭션 롤백을 관찰하기 위한 시험 전용 대역이다.
+ */
 class PurchaseRequestPostgresIntegrationTest {
 
   private static final long SELLER_ID = 1L;
@@ -714,6 +719,7 @@ class PurchaseRequestPostgresIntegrationTest {
     }
   }
 
+  /** pending ownership 테이블 fixture에 직접 쓰는 시험 전용 어댑터다. */
   private static class JdbcTransferWriter implements InternalTransferPendingWriter {
 
     private final JdbcTemplate jdbcTemplate;

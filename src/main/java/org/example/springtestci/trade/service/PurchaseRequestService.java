@@ -25,6 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
     name = "enabled",
     havingValue = "true")
 @Transactional(readOnly = true)
+/**
+ * P2 구매 요청 생성·조회와 PENDING 요청의 취소·거절·수락을 처리한다.
+ *
+ * <p>수락은 제품→판매글→구매 요청 순으로 잠그고, 요청 RESERVED 전이·판매글 예약·INTERNAL/PENDING 이전 생성을 같은 트랜잭션에서 처리한다.
+ * 비당사자에게는 거래 존재를 숨기기 위해 404 계약을 사용한다.
+ */
 public class PurchaseRequestService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -44,6 +50,7 @@ public class PurchaseRequestService {
   }
 
   @Transactional
+  /** 구매 문의자만 요청할 수 있으며 같은 방의 기존 PENDING 요청은 멱등하게 반환한다. */
   public CreateResult create(long listingId, long roomId, long actorId) {
     ChatRoom room = requireRoomParticipant(roomId, actorId);
     if (actorId != room.inquirerId()) {
@@ -101,6 +108,7 @@ public class PurchaseRequestService {
   }
 
   @Transactional
+  /** 구매자가 아직 수락되지 않은 자신의 PENDING 요청만 취소한다. */
   public PurchaseRequestResponse cancel(long requestId, long actorId) {
     PurchaseRequest request = requireLockedRequest(requestId);
     ChatRoom room = requireRoomParticipant(request.roomId(), actorId);
@@ -113,6 +121,7 @@ public class PurchaseRequestService {
   }
 
   @Transactional
+  /** 판매자가 자신의 판매글에 연결된 PENDING 요청을 거절한다. */
   public PurchaseRequestResponse reject(long requestId, long actorId) {
     PurchaseRequest request = requireLockedRequest(requestId);
     ChatRoom room = requireRoomParticipant(request.roomId(), actorId);
@@ -125,6 +134,11 @@ public class PurchaseRequestService {
   }
 
   @Transactional
+  /**
+   * 판매자가 요청을 수락해 예약을 확정한다.
+   *
+   * <p>{@link InternalTransferPendingWriter} 실패를 삼키지 않아 요청·판매글 변경도 함께 롤백한다.
+   */
   public PurchaseRequestResponse accept(long requestId, long actorId) {
     PurchaseRequest initial = requireRequest(requestId);
     ChatRoom room = requireRoomParticipant(initial.roomId(), actorId);
@@ -132,6 +146,7 @@ public class PurchaseRequestService {
       throw new CommonException(ErrorCode.ACCESS_DENIED);
     }
 
+    // 모든 예약·취소 경로가 공유하는 제품→판매글→요청 잠금 순서를 유지한다.
     PublishedListing listing = requireLockedListing(initial.listingId());
     PurchaseRequest request = requireLockedRequest(requestId);
     requireRoomListing(room, request.listingId());

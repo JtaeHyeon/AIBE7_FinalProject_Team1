@@ -8,6 +8,7 @@ import org.example.springtestci.auth.repository.UserRepository;
 import org.springframework.stereotype.Component;
 
 @Component
+/** 운영 사용자 저장소를 통해 채팅 목록에 필요한 닉네임만 조회하는 어댑터다. */
 public class JpaChatUserReader implements ChatUserReader {
 
   private final UserRepository userRepository;

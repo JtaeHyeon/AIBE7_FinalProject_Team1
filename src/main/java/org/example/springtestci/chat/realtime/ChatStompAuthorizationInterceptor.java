@@ -19,6 +19,11 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
 @Component
+/**
+ * STOMP CONNECT의 JWT를 검증하고 방별 SUBSCRIBE 권한을 강제한다.
+ *
+ * <p>클라이언트 SEND는 허용하지 않으며 메시지 쓰기는 인증·검증이 적용되는 HTTP API만 사용한다.
+ */
 class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
 
   private static final String AUTHORIZATION_HEADER = "Authorization";

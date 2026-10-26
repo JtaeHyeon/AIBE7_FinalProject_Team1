@@ -12,6 +12,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 @Component
 @ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
+/**
+ * 커밋된 채팅 메시지만 방별 STOMP 구독 경로로 발행하는 운영 어댑터다.
+ *
+ * <p>브로커 발행 실패는 이미 커밋된 DB 쓰기를 되돌릴 수 없으므로 식별자만 오류 로그에 남긴다.
+ */
 public class ChatMessageRealtimePublisher implements ChatMessageDelivery {
 
   private static final Logger log = LoggerFactory.getLogger(ChatMessageRealtimePublisher.class);

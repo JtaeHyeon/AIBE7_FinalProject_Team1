@@ -6,6 +6,7 @@ import org.example.springtestci.trade.dto.PurchaseRequestDirection;
 import org.example.springtestci.trade.entity.PurchaseRequest;
 import org.example.springtestci.trade.entity.PurchaseRequestStatus;
 
+/** P2/P3 구매 요청 상태와 조건부 잠금·갱신을 제공하는 영속성 포트다. */
 public interface PurchaseRequestRepository {
 
   Optional<PurchaseRequest> findById(long requestId);
@@ -16,12 +17,14 @@ public interface PurchaseRequestRepository {
 
   Optional<PurchaseRequest> findReservedByListingId(long listingId);
 
+  /** 판매글에 연결된 모든 요청을 식별자 순으로 잠가 판매 중지 경합의 잠금 순서를 고정한다. */
   List<PurchaseRequest> findByListingIdForUpdate(long listingId);
 
   PurchaseRequest save(PurchaseRequest request);
 
   void update(PurchaseRequest request);
 
+  /** ACCEPTED/RESERVED 한 건만 취소 메타데이터와 함께 조건부 갱신한다. */
   void cancelReserved(PurchaseRequest request);
 
   void clearConfirmedVersions(long requestId);

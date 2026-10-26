@@ -21,6 +21,7 @@ import org.springframework.stereotype.Repository;
     prefix = "app.features.trade-purchase-requests",
     name = "enabled",
     havingValue = "true")
+/** 구매 요청 도메인 모델과 `purchase_requests` 테이블을 명시적으로 매핑하는 JDBC 어댑터다. */
 public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository {
 
   private static final String SELECT_REQUEST =

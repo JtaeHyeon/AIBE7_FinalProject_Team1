@@ -33,6 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
     prefix = "app.features.trade-purchase-requests",
     name = "enabled",
     havingValue = "true")
+/**
+ * P2 구매 요청·예약 API 진입점이다.
+ *
+ * <p>인증 사용자 식별과 입력 검증만 담당하며 구매자·판매자 권한, 상태 전이와 트랜잭션은 {@link PurchaseRequestService}에 위임한다.
+ */
 public class PurchaseRequestController {
 
   private static final String DEFAULT_PAGE = "0";

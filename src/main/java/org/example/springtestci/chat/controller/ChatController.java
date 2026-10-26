@@ -31,6 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1")
 @ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
+/**
+ * P1 채팅 HTTP 진입점이다.
+ *
+ * <p>인증 주체의 사용자 번호만 서비스에 전달하며 방 참여자 확인, 판매글 상태 및 메시지 처리 같은 업무 규칙은 {@link ChatService}가 담당한다.
+ */
 public class ChatController {
 
   private static final String DEFAULT_PAGE = "0";

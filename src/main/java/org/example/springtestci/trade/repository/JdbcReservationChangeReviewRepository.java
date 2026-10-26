@@ -15,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Repository
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
+/** JSONB 변경 사본을 불변 저장하고 결정 행 잠금을 제공하는 P3 JDBC 어댑터다. */
 public class JdbcReservationChangeReviewRepository implements ReservationChangeReviewRepository {
 
   private static final String SELECT_REVIEW =

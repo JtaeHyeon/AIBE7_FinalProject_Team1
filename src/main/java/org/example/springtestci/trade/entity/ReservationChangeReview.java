@@ -5,6 +5,11 @@ import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import tools.jackson.databind.JsonNode;
 
+/**
+ * 예약 중 발생한 제품 변경 사건의 불변 공개 사본과 구매자 결정을 표현한다.
+ *
+ * <p>동일 사건은 같은 결정만 멱등하게 재적용할 수 있으며 다른 결정으로 덮어쓸 수 없다.
+ */
 public class ReservationChangeReview {
 
   private final long purchaseRequestId;
@@ -49,6 +54,7 @@ public class ReservationChangeReview {
         purchaseRequestId, eventId, factsVersion, changeFacts, decision, reviewedAt);
   }
 
+  /** 최초 결정만 시각과 함께 기록하고 같은 결정 재요청은 기존 값을 유지한다. */
   public void decide(ChangeReviewDecision requestedDecision, Instant decisionTime) {
     if (decision != null) {
       if (decision != requestedDecision) {

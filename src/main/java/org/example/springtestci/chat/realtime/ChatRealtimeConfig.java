@@ -15,6 +15,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 @ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
+/** P1 STOMP 엔드포인트, 구독 브로커와 인바운드 인증 인터셉터를 구성한다. */
 public class ChatRealtimeConfig implements WebSocketMessageBrokerConfigurer {
 
   private final CorsProperties corsProperties;
