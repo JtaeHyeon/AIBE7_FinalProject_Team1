@@ -110,23 +110,8 @@ public class ReservationChangeService {
     if (actorId != room.inquirerId()) {
       throw new CommonException(ErrorCode.ACCESS_DENIED);
     }
-    ReservationChangeReview existing = requireReview(purchaseRequestId, eventId);
-    if (existing.decision() != null) {
-      existing.decide(decision, existing.reviewedAt());
-      return response(existing);
-    }
-    if (!initial.isReserved()) {
-      throw new CommonException(ErrorCode.TRADE_CONFLICT);
-    }
-
-    if (decision == ChangeReviewDecision.CANCEL) {
-      cancellationService.cancelForChangeReview(purchaseRequestId, actorId, reason);
-    } else {
-      PublishedListing listing = requireLockedListing(initial.listingId());
-      PurchaseRequest lockedRequest = requireLockedRequest(purchaseRequestId);
-      requireReservedConnection(listing.productId(), lockedRequest, listing);
-    }
-
+    PublishedListing listing = requireLockedListing(initial.listingId());
+    PurchaseRequest lockedRequest = requireLockedRequest(purchaseRequestId);
     ReservationChangeReview locked =
         reviewRepository
             .findForUpdate(purchaseRequestId, eventId)
@@ -134,6 +119,10 @@ public class ReservationChangeService {
     if (locked.decision() != null) {
       locked.decide(decision, locked.reviewedAt());
       return response(locked);
+    }
+    requireReservedConnection(listing.productId(), lockedRequest, listing);
+    if (decision == ChangeReviewDecision.CANCEL) {
+      cancellationService.cancelForChangeReview(lockedRequest, room, listing, actorId, reason);
     }
     locked.decide(decision, clock.instant());
     reviewRepository.updateDecision(locked);

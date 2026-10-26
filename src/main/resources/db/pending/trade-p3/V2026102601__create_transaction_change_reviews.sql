@@ -6,8 +6,9 @@ ALTER TABLE purchase_requests
     CHECK (
         (
             request_status = 'CANCELLED'
-            AND transaction_status = 'CANCELLED'
+            AND transaction_status IS NOT DISTINCT FROM 'CANCELLED'
             AND cancelled_by_id IS NOT NULL
+            AND cancel_reason IS NOT NULL
             AND cancel_reason IN (
                 'SELF_CIRCUMSTANCES',
                 'MUTUAL_AGREEMENT',

@@ -33,6 +33,8 @@ history CRUD, ownership 운영 테이블, 새 채팅 프로토콜은 추가하�
 - 예약 취소는 제품→판매글→구매 요청 잠금 뒤 이전·요청·판매글·감사를 같은 Spring 트랜잭션에서 처리한다.
 - 반복 취소는 최초 사유·수행자·시각·감사를 유지하며 현재 판매글이나 새 예약을 변경하지 않는다.
 - 변경 review는 `(purchase_request_id, event_id)` 사본을 덮어쓰지 않으며 새 사건에서만 완료 확인 버전을 초기화한다.
+- 변경 응답은 제품→판매글→구매 요청 잠금 뒤 review를 잠가 최신 결정을 우선 판정한다. 동일 CANCEL 재전송은 저장 결과를 반환하고, 일반 취소 후 남은 미응답 review와 다른 결정 덮어쓰기는 거부한다.
+- 예약 취소 메타데이터 CHECK는 거래 상태와 사유의 NULL을 명시적으로 차단하면서 기존 PENDING 취소의 NULL 메타데이터를 허용한다.
 - `V2026102601__create_transaction_change_reviews.sql`은 pending 경로에만 두었다. P2 DDL과 일반 Flyway 위치는 수정하지 않았다.
 
 ## 검증 결과
@@ -41,6 +43,7 @@ history CRUD, ownership 운영 테이블, 새 채팅 프로토콜은 추가하�
 |---|---|---|
 | 2026-10-26 10:45 | `gradlew.bat spotlessCheck classes testClasses` | 성공 |
 | 2026-10-26 10:47 | 신규 P3와 직접 영향받는 P2 단위·Controller·H2 저장소 시험 선택 실행 | 67건 성공, 실패·오류·건너뜀 0 |
+| 2026-10-26 | 상위 검수 R1·R2 보정 후 `spotlessCheck classes testClasses`와 관련 서비스 시험 실행 | 21건 성공, 실패·오류·건너뜀 0 |
 | 2026-10-26 | `TradeP3PostgresIntegrationTest` 실제 PostgreSQL 실행 | `NOT_RUN` — 외부 DB 실행 보류 |
 
 선택 시험은 다음 클래스를 실제 실행했다.
@@ -70,6 +73,7 @@ PostgreSQL 전용 `TradeP3PostgresIntegrationTest`는 다음 코드를 준비했
 - 양측 동시 취소의 최초 기록·감사 단일성
 - JSON 사본·미확인 건수·KEEP 결정 보존
 - 판매 중지와 거래 정리에서 CANCELLED 판매글 비복구
+- 정상 예약/PENDING 취소 허용과 취소 사유·거래 상태 NULL 허점 차단
 
 ## 정식 연결·인수 대기
 

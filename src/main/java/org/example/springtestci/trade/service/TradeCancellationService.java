@@ -47,9 +47,13 @@ public class TradeCancellationService {
     return cancel(purchaseRequestId, actorId, reason, true);
   }
 
-  TradeCancellationResponse cancelForChangeReview(
-      long purchaseRequestId, long actorId, TradeCancellationReason reason) {
-    return cancel(purchaseRequestId, actorId, reason, false);
+  void cancelForChangeReview(
+      PurchaseRequest request,
+      ChatRoom room,
+      PublishedListing listing,
+      long actorId,
+      TradeCancellationReason reason) {
+    cancelLocked(request, room, listing, actorId, reason, true);
   }
 
   private TradeCancellationResponse cancel(

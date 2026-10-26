@@ -2,6 +2,7 @@ package org.example.springtestci.trade.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -28,6 +29,7 @@ import org.example.springtestci.trade.repository.ReservationChangeReviewReposito
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.JsonNode;
@@ -114,12 +116,7 @@ class ReservationChangeServiceTest {
   void buyerKeepsOneChangeWithoutCompletingTrade() {
     PurchaseRequest request = reservedRequest();
     ReservationChangeReview pending = pendingReview();
-    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
-    givenRoom();
-    when(reviewRepository.find(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(pending));
-    when(listingAccess.findByIdForUpdate(LISTING_ID)).thenReturn(Optional.of(reservedListing()));
-    when(requestRepository.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(request));
-    when(reviewRepository.findForUpdate(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(pending));
+    givenReviewLocks(request, pending, reservedListing());
 
     var response = service.review(REQUEST_ID, EVENT_ID, BUYER_ID, ChangeReviewDecision.KEEP, null);
 
@@ -134,10 +131,8 @@ class ReservationChangeServiceTest {
   void buyerCancellationDecidesReviewAndUsesCommonCancellationFlow() {
     PurchaseRequest request = reservedRequest();
     ReservationChangeReview pending = pendingReview();
-    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
-    givenRoom();
-    when(reviewRepository.find(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(pending));
-    when(reviewRepository.findForUpdate(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(pending));
+    PublishedListing listing = reservedListing();
+    ChatRoom room = givenReviewLocks(request, pending, listing);
 
     var response =
         service.review(
@@ -148,21 +143,48 @@ class ReservationChangeServiceTest {
             TradeCancellationReason.CONDITION_MISMATCH);
 
     assertThat(response.decision()).isEqualTo(ChangeReviewDecision.CANCEL);
+    InOrder lockOrder = inOrder(listingAccess, requestRepository, reviewRepository);
+    lockOrder.verify(listingAccess).findByIdForUpdate(LISTING_ID);
+    lockOrder.verify(requestRepository).findByIdForUpdate(REQUEST_ID);
+    lockOrder.verify(reviewRepository).findForUpdate(REQUEST_ID, EVENT_ID);
     verify(cancellationService)
-        .cancelForChangeReview(REQUEST_ID, BUYER_ID, TradeCancellationReason.CONDITION_MISMATCH);
+        .cancelForChangeReview(
+            request, room, listing, BUYER_ID, TradeCancellationReason.CONDITION_MISMATCH);
     verify(reviewRepository).updateDecision(pending);
   }
 
   @Test
-  void doesNotWriteLateCancelDecisionWhenTradeWasAlreadyCancelled() {
-    PurchaseRequest request = reservedRequest();
+  void returnsConcurrentSameCancelDecisionWithoutRepeatingSideEffects() {
+    PurchaseRequest initial = reservedRequest();
+    PurchaseRequest cancelledRequest = cancelledRequest();
+    ReservationChangeReview cancelledReview = pendingReview();
+    cancelledReview.decide(ChangeReviewDecision.CANCEL, NOW);
+    givenReviewLocks(initial, cancelledRequest, cancelledReview, activeListing());
+
+    var response =
+        service.review(
+            REQUEST_ID,
+            EVENT_ID,
+            BUYER_ID,
+            ChangeReviewDecision.CANCEL,
+            TradeCancellationReason.CONDITION_MISMATCH);
+
+    assertThat(response.decision()).isEqualTo(ChangeReviewDecision.CANCEL);
+    assertThat(response.reviewedAt()).isEqualTo(NOW);
+    InOrder lockOrder = inOrder(listingAccess, requestRepository, reviewRepository);
+    lockOrder.verify(listingAccess).findByIdForUpdate(LISTING_ID);
+    lockOrder.verify(requestRepository).findByIdForUpdate(REQUEST_ID);
+    lockOrder.verify(reviewRepository).findForUpdate(REQUEST_ID, EVENT_ID);
+    verifyNoInteractions(cancellationService);
+    verify(reviewRepository, never()).updateDecision(cancelledReview);
+  }
+
+  @Test
+  void rejectsPendingReviewWhenGeneralCancellationCompletedFirst() {
+    PurchaseRequest initial = reservedRequest();
+    PurchaseRequest cancelled = cancelledRequest();
     ReservationChangeReview pending = pendingReview();
-    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
-    givenRoom();
-    when(reviewRepository.find(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(pending));
-    org.mockito.Mockito.doThrow(new CommonException(ErrorCode.TRADE_CONFLICT))
-        .when(cancellationService)
-        .cancelForChangeReview(REQUEST_ID, BUYER_ID, TradeCancellationReason.CONDITION_MISMATCH);
+    givenReviewLocks(initial, cancelled, pending, activeListing());
 
     assertError(
         ErrorCode.TRADE_CONFLICT,
@@ -175,22 +197,17 @@ class ReservationChangeServiceTest {
                 TradeCancellationReason.CONDITION_MISMATCH));
 
     verify(reviewRepository, never()).updateDecision(pending);
+    verifyNoInteractions(cancellationService);
   }
 
   @Test
-  void repeatedSameDecisionReturnsStoredResultAndDifferentDecisionConflicts() {
-    PurchaseRequest request = reservedRequest();
+  void rejectsDifferentDecisionAfterConcurrentReviewAndKeepsRecord() {
+    PurchaseRequest initial = reservedRequest();
+    PurchaseRequest cancelled = cancelledRequest();
     ReservationChangeReview kept = pendingReview();
     kept.decide(ChangeReviewDecision.KEEP, NOW);
-    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(request));
-    givenRoom();
-    when(reviewRepository.find(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(kept));
+    givenReviewLocks(initial, cancelled, kept, activeListing());
 
-    assertThat(
-            service
-                .review(REQUEST_ID, EVENT_ID, BUYER_ID, ChangeReviewDecision.KEEP, null)
-                .reviewedAt())
-        .isEqualTo(NOW);
     assertError(
         ErrorCode.TRADE_CONFLICT,
         () ->
@@ -261,6 +278,25 @@ class ReservationChangeServiceTest {
         .thenReturn(Optional.of(new ChatRoom(ROOM_ID, LISTING_ID, SELLER_ID, BUYER_ID, NOW)));
   }
 
+  private ChatRoom givenReviewLocks(
+      PurchaseRequest request, ReservationChangeReview review, PublishedListing listing) {
+    return givenReviewLocks(request, request, review, listing);
+  }
+
+  private ChatRoom givenReviewLocks(
+      PurchaseRequest initialRequest,
+      PurchaseRequest lockedRequest,
+      ReservationChangeReview review,
+      PublishedListing listing) {
+    ChatRoom room = new ChatRoom(ROOM_ID, LISTING_ID, SELLER_ID, BUYER_ID, NOW);
+    when(requestRepository.findById(REQUEST_ID)).thenReturn(Optional.of(initialRequest));
+    when(roomRepository.findById(ROOM_ID)).thenReturn(Optional.of(room));
+    when(listingAccess.findByIdForUpdate(LISTING_ID)).thenReturn(Optional.of(listing));
+    when(requestRepository.findByIdForUpdate(REQUEST_ID)).thenReturn(Optional.of(lockedRequest));
+    when(reviewRepository.findForUpdate(REQUEST_ID, EVENT_ID)).thenReturn(Optional.of(review));
+    return room;
+  }
+
   private PurchaseRequest reservedRequest() {
     return PurchaseRequest.restore(
         REQUEST_ID,
@@ -278,6 +314,25 @@ class ReservationChangeServiceTest {
   private PublishedListing reservedListing() {
     return new PublishedListing(
         LISTING_ID, PRODUCT_ID, SELLER_ID, SELLER_ID, PublishedListingStatus.RESERVED);
+  }
+
+  private PurchaseRequest cancelledRequest() {
+    return PurchaseRequest.restore(
+        REQUEST_ID,
+        ROOM_ID,
+        LISTING_ID,
+        PurchaseRequestStatus.CANCELLED,
+        TransactionStatus.CANCELLED,
+        null,
+        null,
+        BUYER_ID,
+        TradeCancellationReason.CONDITION_MISMATCH,
+        NOW);
+  }
+
+  private PublishedListing activeListing() {
+    return new PublishedListing(
+        LISTING_ID, PRODUCT_ID, SELLER_ID, SELLER_ID, PublishedListingStatus.ACTIVE);
   }
 
   private ReservationChangeReview pendingReview() {

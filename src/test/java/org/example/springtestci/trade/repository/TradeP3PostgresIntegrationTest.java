@@ -297,6 +297,41 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
   }
 
+  @Test
+  void cancellationMetadataConstraintRejectsNullGapsAndKeepsValidCancellationStates() {
+    Fixture fixture = insertReservedFixture();
+
+    jdbc.update(
+        "insert into purchase_requests (room_id, listing_id, request_status, transaction_status, cancelled_by_id, cancel_reason, cancelled_at) values (?, ?, 'CANCELLED', 'CANCELLED', ?, 'MUTUAL_AGREEMENT', ?)",
+        fixture.roomId(),
+        LISTING_ID,
+        SELLER_ID,
+        Timestamp.from(NOW));
+    jdbc.update(
+        "insert into purchase_requests (room_id, listing_id, request_status) values (?, ?, 'CANCELLED')",
+        fixture.roomId(),
+        LISTING_ID);
+
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "insert into purchase_requests (room_id, listing_id, request_status, transaction_status, cancelled_by_id, cancelled_at) values (?, ?, 'CANCELLED', 'CANCELLED', ?, ?)",
+                    fixture.roomId(),
+                    LISTING_ID,
+                    SELLER_ID,
+                    Timestamp.from(NOW)))
+        .hasMessageContaining("ck_purchase_requests_cancellation_metadata");
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "insert into purchase_requests (room_id, listing_id, request_status, cancelled_by_id, cancel_reason, cancelled_at) values (?, ?, 'CANCELLED', ?, 'MUTUAL_AGREEMENT', ?)",
+                    fixture.roomId(),
+                    LISTING_ID,
+                    SELLER_ID,
+                    Timestamp.from(NOW)))
+        .hasMessageContaining("ck_purchase_requests_cancellation_metadata");
+  }
+
   private static void createExternalFixtureTables() {
     jdbc.execute(
         "create table product_events (id bigint primary key, product_id bigint not null references products(id))");
