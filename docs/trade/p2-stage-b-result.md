@@ -4,7 +4,7 @@
 
 **B 부분 연결 완료 / ownership 제공 대기**
 
-최신 `main` 통합과 정식 판매글·인증·채팅 경계는 보존했다. 정식 ownership Writer와 Migration은 원본 저장소, 원격 브랜치, 공개 PR 어디에도 제공되지 않아 임의 구현하지 않았다. 따라서 기능 플래그는 기본 `false`를 유지하며 B 전체 완료나 정식 수락 경로 완료로 판정하지 않는다.
+최신 `main` 통합과 정식 판매글·인증·채팅 경계는 보존했다. 정식 ownership이 미제공인 상태에서 `a9fc04b`에 추가한 운영 Writer와 공통 DDL은 `6193bbe`에서 현재 작업 트리에서 제외했다. 현재는 테스트 전용 구현을 유지하며 정식 공급과 승인을 기다린다. 따라서 기능 플래그는 기본 `false`를 유지하며 B 전체 완료나 정식 수락 경로 완료로 판정하지 않는다.
 
 ## 이번 리뷰 반영
 
@@ -172,7 +172,7 @@ Remove-Item Env:P2_TRADE_TEST_REDIS_FLUSH_ALLOWED -ErrorAction SilentlyContinue
 | 시각(KST) | 명령·검토 | 결과 |
 |---|---|---|
 | 2026-10-26 09:32 | `gradlew.bat spotlessCheck classes testClasses` (세션 `JAVA_HOME`을 Temurin 17로 지정) | 중단 후 재개한 현재 작업 트리에서 성공 |
-| 2026-10-26 09:32 | `gradlew.bat test --tests '...PurchaseRequestServiceTest' --tests '...PurchaseRequestFeatureFlagTest' --rerun-tasks --no-build-cache` | 재실행 22건 성공, 실패·오류·건너뜀 0 |
+| 2026-10-26 09:32 | `gradlew.bat test --tests org.example.springtestci.trade.service.PurchaseRequestServiceTest --tests org.example.springtestci.trade.controller.PurchaseRequestFeatureFlagTest --rerun-tasks --no-build-cache` | 재실행 22건 성공, 실패·오류·건너뜀 0 |
 | 2026-10-26 09:24 | 기능 기본값, pending DDL 위치, fixture 제약명 위치, SQL 쓰기 명령 정적 대조 | off·pending·test-only 경계 유지, 활성 쓰기 명령 없음 |
 | 2026-10-26 | `p2-db-preflight.sql` 실제 PostgreSQL 실행 | `NOT_RUN` — 대상·접근·조회 승인 없음 |
 
@@ -187,3 +187,12 @@ Spotless가 지적한 새 Javadoc 줄바꿈을 `spotlessApply`로 정리하고 �
 2. 승인된 DB·스키마·Migration 이력·legacy 결과 제공 후 `p2-db-preflight.md` 절차로 B-04 편입 순서를 확정한다.
 3. 사용자 재개 지시와 전용 데이터·구성이 제공되면 B-05~06 통합 회귀를 별도 실행한다.
 4. 공유 환경 대상·접근·적용 승인이 제공되면 B-07 Migration·활성화·smoke를 수행한다.
+
+### `f690147` 후속 검토 반영
+
+- `information_schema`에서 보이지 않는다는 이유만으로 객체 부재를 확정하지 않도록, SQL에서 카탈로그상 존재·스키마
+  USAGE·테이블 SELECT·정보 스키마 노출을 별도 결과로 분리했다.
+- 카탈로그 조회 자체가 실패하면 `구조 미확인`, 카탈로그에 객체가 없으면 `카탈로그상 객체 없음`, 객체는 있으나 필요한
+  권한이나 노출이 없으면 `권한 비가시성`으로 판정한다.
+- 과거 ownership 운영 구현의 추가·제외 이력을 정정하고 선택 단위시험 명령을 전체 클래스명으로 기록했다.
+- 문서와 SQL 템플릿만 정적으로 검토했으며 실제 PostgreSQL 실행은 계속 `NOT_RUN`이다.

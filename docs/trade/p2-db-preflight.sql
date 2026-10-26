@@ -7,6 +7,7 @@
 \set ON_ERROR_STOP on
 
 SELECT current_database() = :'target_database' AS target_database_matches,
+       :'target_schema' <> 'REPLACE_WITH_APPROVED_SCHEMA' AS target_schema_supplied,
        current_database() AS connected_database,
        current_user AS connected_user,
        :'target_schema' AS target_schema
@@ -18,32 +19,74 @@ SELECT current_database() = :'target_database' AS target_database_matches,
   \quit
 \endif
 
+\if :target_schema_supplied
+\else
+  \echo '대상 스키마가 입력되지 않았습니다. 아무 점검도 실행하지 않습니다.'
+  \quit
+\endif
+
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '10s';
 SET LOCAL lock_timeout = '2s';
 
--- 1단계: 객체와 컬럼 존재 여부. 이 결과를 먼저 저장하고 후속 절을 선택한다.
+-- 1단계: 카탈로그상 객체 존재와 점검 계정 권한을 분리한다.
+-- pg_catalog 조회 자체가 실패하면 부재로 판단하지 않고 STRUCTURE_UNCONFIRMED로 기록한다.
 SELECT :'target_schema' AS target_schema,
-       CASE WHEN EXISTS (
-         SELECT 1 FROM information_schema.schemata WHERE schema_name = :'target_schema'
-       ) THEN 'SCHEMA_PRESENT' ELSE 'SCHEMA_MISSING' END AS result;
+       CASE WHEN namespace_info.oid IS NULL
+         THEN 'SCHEMA_NOT_FOUND_IN_CATALOG'
+         ELSE 'SCHEMA_PRESENT_IN_CATALOG'
+       END AS catalog_state,
+       CASE WHEN namespace_info.oid IS NULL THEN NULL
+         ELSE has_schema_privilege(namespace_info.oid, 'USAGE')
+       END AS usage_granted,
+       information_schema_info.schema_name IS NOT NULL AS information_schema_visible
+FROM (SELECT 1) seed
+LEFT JOIN pg_namespace namespace_info
+  ON namespace_info.nspname = :'target_schema'
+LEFT JOIN information_schema.schemata information_schema_info
+  ON information_schema_info.schema_name = :'target_schema';
 
 SELECT expected.object_name,
-       CASE WHEN table_info.table_name IS NULL THEN 'OBJECT_MISSING' ELSE 'OBJECT_PRESENT' END AS result
+       CASE
+         WHEN namespace_info.oid IS NULL THEN 'SCHEMA_NOT_FOUND_IN_CATALOG'
+         WHEN relation.oid IS NULL THEN 'OBJECT_NOT_FOUND_IN_CATALOG'
+         ELSE 'OBJECT_PRESENT_IN_CATALOG'
+       END AS catalog_state,
+       CASE WHEN namespace_info.oid IS NULL THEN NULL
+         ELSE has_schema_privilege(namespace_info.oid, 'USAGE')
+       END AS schema_usage_granted,
+       CASE WHEN relation.oid IS NULL THEN NULL
+         ELSE has_table_privilege(relation.oid, 'SELECT')
+       END AS select_granted,
+       table_info.table_name IS NOT NULL AS information_schema_visible
 FROM (VALUES ('users'), ('products'), ('listings'), ('chat_rooms'),
              ('purchase_requests'), ('ownership_transfers'), ('flyway_schema_history'))
      AS expected(object_name)
+LEFT JOIN pg_namespace namespace_info
+  ON namespace_info.nspname = :'target_schema'
+LEFT JOIN pg_class relation
+  ON relation.relnamespace = namespace_info.oid
+ AND relation.relname = expected.object_name
+ AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
 LEFT JOIN information_schema.tables table_info
   ON table_info.table_schema = :'target_schema'
  AND table_info.table_name = expected.object_name
 ORDER BY expected.object_name;
 
-SELECT table_name, column_name, data_type, is_nullable
-FROM information_schema.columns
-WHERE table_schema = :'target_schema'
-  AND table_name IN ('users', 'products', 'listings', 'chat_rooms',
-                     'purchase_requests', 'ownership_transfers', 'flyway_schema_history')
-ORDER BY table_name, ordinal_position;
+SELECT relation.relname AS table_name,
+       attribute.attname AS column_name,
+       format_type(attribute.atttypid, attribute.atttypmod) AS data_type,
+       NOT attribute.attnotnull AS is_nullable
+FROM pg_attribute attribute
+JOIN pg_class relation ON relation.oid = attribute.attrelid
+JOIN pg_namespace namespace_info ON namespace_info.oid = relation.relnamespace
+WHERE namespace_info.nspname = :'target_schema'
+  AND relation.relname IN ('users', 'products', 'listings', 'chat_rooms',
+                           'purchase_requests', 'ownership_transfers', 'flyway_schema_history')
+  AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND attribute.attnum > 0
+  AND NOT attribute.attisdropped
+ORDER BY relation.relname, attribute.attnum;
 
 -- 2단계: 확인된 객체의 PK·FK·UNIQUE·CHECK와 인덱스 메타데이터.
 SELECT relation.relname AS table_name,
