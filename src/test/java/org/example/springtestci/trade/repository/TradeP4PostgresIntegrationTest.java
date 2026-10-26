@@ -23,12 +23,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
+import org.example.springtestci.common.error.CommonException;
+import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
 import org.example.springtestci.listing.dto.ListingPreviewResponse;
 import org.example.springtestci.listing.dto.ListingPublicationResponse;
 import org.example.springtestci.listing.entity.ListingStatus;
 import org.example.springtestci.listing.service.ListingDetailService;
 import org.example.springtestci.listing.service.ListingHistoryReader;
+import org.example.springtestci.listing.service.ListingTradeCanceller;
 import org.example.springtestci.product.dto.ProductResponse;
 import org.example.springtestci.product.service.ProductService;
 import org.example.springtestci.trade.entity.TradeCancellationReason;
@@ -38,6 +41,7 @@ import org.example.springtestci.trade.service.ReservationChangeService;
 import org.example.springtestci.trade.service.TradeAuditRecorder;
 import org.example.springtestci.trade.service.TradeCancellationService;
 import org.example.springtestci.trade.service.TradeCompletionService;
+import org.example.springtestci.trade.service.TradeListingCanceller;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -78,6 +82,7 @@ class TradeP4PostgresIntegrationTest {
   private static FaultInjectingAuditRecorder audit;
   private static TradeCompletionService completions;
   private static TradeCancellationService cancellations;
+  private static TradeListingCanceller listingCanceller;
   private static ProductService products;
   private static ListingDetailService details;
   private static ReservationChangeService changes;
@@ -104,18 +109,42 @@ class TradeP4PostgresIntegrationTest {
         .migrate();
 
     jdbc = new JdbcTemplate(schemaDataSource);
-    createExternalFixtureTables();
+    createProductEventFixtureTable();
+    Flyway.configure()
+        .dataSource(schemaDataSource)
+        .locations(
+            "classpath:db/migration",
+            "classpath:db/pending/trade-p2",
+            "classpath:db/pending/trade-p3")
+        .outOfOrder(true)
+        .load()
+        .migrate();
+    createCompletionFixtureTables();
     transactions = new TransactionTemplate(new DataSourceTransactionManager(schemaDataSource));
     requests = new JdbcPurchaseRequestRepository(jdbc);
     listings = new JdbcPublishedListingAccess(jdbc);
     products = mock(ProductService.class);
     details = mock(ListingDetailService.class);
-    changes = mock(ReservationChangeService.class);
     completionPort = new FixtureCompletionPort(jdbc);
-    audit =
-        new FaultInjectingAuditRecorder(
-            new JdbcTradeAuditRecorder(jdbc, JsonMapper.builder().build()));
+    var json = JsonMapper.builder().build();
+    audit = new FaultInjectingAuditRecorder(new JdbcTradeAuditRecorder(jdbc, json));
     var rooms = new JdbcRoomRepository(jdbc);
+    cancellations =
+        new TradeCancellationService(
+            requests,
+            rooms,
+            listings,
+            new FixtureCancellationPort(jdbc),
+            audit,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+    changes =
+        new ReservationChangeService(
+            requests,
+            new JdbcReservationChangeReviewRepository(jdbc, json),
+            rooms,
+            listings,
+            cancellations,
+            Clock.fixed(NOW, ZoneOffset.UTC));
     completions =
         new TradeCompletionService(
             requests,
@@ -127,14 +156,7 @@ class TradeP4PostgresIntegrationTest {
             completionPort,
             audit,
             Clock.fixed(NOW, ZoneOffset.UTC));
-    cancellations =
-        new TradeCancellationService(
-            requests,
-            rooms,
-            listings,
-            new FixtureCancellationPort(jdbc),
-            audit,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+    listingCanceller = new TradeListingCanceller(requests, rooms, listings, cancellations);
   }
 
   @AfterAll
@@ -147,13 +169,13 @@ class TradeP4PostgresIntegrationTest {
   @BeforeEach
   void resetFixtures() {
     jdbc.execute(
-        "truncate table completion_drafts, completion_documents, product_history_state, product_events, ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users, audit_logs restart identity cascade");
+        "truncate table transaction_change_reviews, completion_drafts, completion_documents, product_history_state, product_events, ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users, audit_logs restart identity cascade");
     insertUser(SELLER_ID, "seller-p4@example.test", "seller-p4");
     insertUser(BUYER_ID, "buyer-p4@example.test", "buyer-p4");
     insertUser(OTHER_BUYER_ID, "buyer2-p4@example.test", "buyer2-p4");
     completionPort.failAfterWrites.set(false);
     audit.failAfterInsert.set(false);
-    reset(products, details, changes);
+    reset(products, details);
     when(products.getForListing(SELLER_ID, PRODUCT_ID)).thenAnswer(ignored -> currentProduct());
     when(details.get(anyLong(), anyLong(), anyInt(), anyInt())).thenReturn(officialDetail());
   }
@@ -249,9 +271,50 @@ class TradeP4PostgresIntegrationTest {
     if (transactionStatus.equals("COMPLETED")) {
       assertThat(listingStatus).isEqualTo("SOLD");
       assertThat(transferStatus).isEqualTo("ACCEPTED");
+      assertThat(
+              jdbc.queryForObject(
+                  "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
+          .isEqualTo(BUYER_ID);
+      assertThat(
+              value(
+                  "select visibility from product_history_state where product_id = ?", PRODUCT_ID))
+          .isEqualTo("PRIVATE");
+      assertThat(
+              count(
+                  "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
+                  fixture.requestId()))
+          .isEqualTo(1L);
+      assertThat(
+              count(
+                  "select count(*) from audit_logs where action = 'TRADE_RESERVATION_CANCELLED' and target_id = ?",
+                  fixture.requestId()))
+          .isZero();
     } else {
       assertThat(listingStatus).isEqualTo("ACTIVE");
       assertThat(transferStatus).isEqualTo("CANCELLED");
+      assertThat(
+              jdbc.queryForObject(
+                  "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
+          .isEqualTo(SELLER_ID);
+      assertThat(
+              value(
+                  "select visibility from product_history_state where product_id = ?", PRODUCT_ID))
+          .isEqualTo("PUBLIC");
+      assertThat(
+              count(
+                  "select count(*) from product_events where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isZero();
+      assertThat(
+              count(
+                  "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
+                  fixture.requestId()))
+          .isZero();
+      assertThat(
+              count(
+                  "select count(*) from audit_logs where action = 'TRADE_RESERVATION_CANCELLED' and target_id = ?",
+                  fixture.requestId()))
+          .isEqualTo(1L);
     }
   }
 
@@ -265,17 +328,24 @@ class TradeP4PostgresIntegrationTest {
         () ->
             transactions.executeWithoutResult(
                 ignored -> {
-                  jdbc.queryForObject(
-                      "select id from products where id = ? for update", Long.class, PRODUCT_ID);
+                  listings.findByIdForUpdate(LISTING_ID).orElseThrow();
                   int changed =
                       jdbc.update(
                           "update products set facts_version = facts_version + 1 where id = ? and owner_id = ?",
                           PRODUCT_ID,
                           SELLER_ID);
                   if (changed == 1) {
-                    jdbc.update(
-                        "update purchase_requests set seller_confirmed_version = null, buyer_confirmed_version = null where id = ? and transaction_status = 'RESERVED'",
-                        fixture.requestId());
+                    long eventId =
+                        jdbc.queryForObject(
+                            "insert into product_events (product_id, event_type) values (?, 'SPEC_CHANGE') returning id",
+                            Long.class,
+                            PRODUCT_ID);
+                    changes.recordChange(
+                        PRODUCT_ID,
+                        fixture.requestId(),
+                        eventId,
+                        FACTS_VERSION + 1,
+                        JsonMapper.builder().build().createObjectNode().put("field", "ram"));
                   }
                 }));
 
@@ -286,6 +356,11 @@ class TradeP4PostgresIntegrationTest {
               jdbc.queryForObject(
                   "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
           .isEqualTo(BUYER_ID);
+      assertThat(
+              count(
+                  "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isZero();
     } else {
       assertThat(
               jdbc.queryForObject(
@@ -297,6 +372,17 @@ class TradeP4PostgresIntegrationTest {
                   Long.class,
                   fixture.requestId()))
           .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select seller_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+      assertThat(
+              count(
+                  "select count(*) from transaction_change_reviews where purchase_request_id = ? and decision is null",
+                  fixture.requestId()))
+          .isEqualTo(1L);
     }
   }
 
@@ -316,12 +402,13 @@ class TradeP4PostgresIntegrationTest {
                           "update listings set status = 'CANCELLED', active_slot = null where id = ? and status = 'RESERVED'",
                           LISTING_ID);
                   if (stopped == 1) {
-                    jdbc.update(
-                        "update purchase_requests set request_status = 'CANCELLED', transaction_status = 'CANCELLED' where id = ? and transaction_status = 'RESERVED'",
-                        fixture.requestId());
-                    jdbc.update(
-                        "update ownership_transfers set status = 'CANCELLED' where purchase_request_id = ? and status = 'PENDING'",
-                        fixture.requestId());
+                    listingCanceller.cancel(
+                        new ListingTradeCanceller.Command(
+                            PRODUCT_ID,
+                            LISTING_ID,
+                            SELLER_ID,
+                            ListingStatus.RESERVED,
+                            TradeCancellationReason.MUTUAL_AGREEMENT.name()));
                   }
                 }));
 
@@ -330,11 +417,34 @@ class TradeP4PostgresIntegrationTest {
         value("select transaction_status from purchase_requests where id = ?", fixture.requestId());
     assertThat(List.of("SOLD:COMPLETED", "CANCELLED:CANCELLED"))
         .contains(listingStatus + ":" + targetStatus);
-    assertThat(
-            value(
-                "select request_status from purchase_requests where id = ?",
-                fixture.otherRequestId()))
-        .isIn("REJECTED", "PENDING");
+    String otherStatus =
+        value(
+            "select request_status from purchase_requests where id = ?", fixture.otherRequestId());
+    if (targetStatus.equals("COMPLETED")) {
+      assertThat(otherStatus).isEqualTo("REJECTED");
+      assertThat(
+              count(
+                  "select count(*) from product_events where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isEqualTo(1L);
+    } else {
+      assertThat(otherStatus).isEqualTo("CANCELLED");
+      assertThat(
+              jdbc.queryForObject(
+                  "select cancelled_by_id from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isEqualTo(SELLER_ID);
+      assertThat(
+              value(
+                  "select cancel_reason from purchase_requests where id = ?", fixture.requestId()))
+          .isEqualTo(TradeCancellationReason.MUTUAL_AGREEMENT.name());
+      assertThat(
+              count(
+                  "select count(*) from product_events where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isZero();
+    }
   }
 
   @Test
@@ -361,11 +471,14 @@ class TradeP4PostgresIntegrationTest {
         .isInstanceOf(RuntimeException.class);
   }
 
-  private static void createExternalFixtureTables() {
+  private static void createProductEventFixtureTable() {
+    jdbc.execute(
+        "create table product_events (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint unique references purchase_requests(id), event_type varchar(20) not null)");
+  }
+
+  private static void createCompletionFixtureTables() {
     jdbc.execute(
         "create table ownership_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
-    jdbc.execute(
-        "create table product_events (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), event_type varchar(20) not null)");
     jdbc.execute(
         "create table product_history_state (product_id bigint primary key references products(id), visibility varchar(20) not null)");
     jdbc.execute(
@@ -471,6 +584,36 @@ class TradeP4PostgresIntegrationTest {
             jdbc.queryForObject(
                 "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
         .isEqualTo(SELLER_ID);
+    assertThat(
+            value(
+                "select request_status from purchase_requests where id = ?",
+                fixture.otherRequestId()))
+        .isEqualTo("PENDING");
+    assertThat(
+            count(
+                "select count(*) from product_events where purchase_request_id = ?",
+                fixture.requestId()))
+        .isZero();
+    assertThat(
+            value("select visibility from product_history_state where product_id = ?", PRODUCT_ID))
+        .isEqualTo("PUBLIC");
+    assertThat(
+            jdbc.queryForObject(
+                "select protected from completion_documents where product_id = ?",
+                Boolean.class,
+                PRODUCT_ID))
+        .isFalse();
+    assertThat(
+            count(
+                "select count(*) from completion_drafts where product_id = ? and owner_id = ?",
+                PRODUCT_ID,
+                SELLER_ID))
+        .isEqualTo(1L);
+    assertThat(
+            count(
+                "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
+                fixture.requestId()))
+        .isZero();
   }
 
   private static ProductResponse currentProduct() {
@@ -543,11 +686,13 @@ class TradeP4PostgresIntegrationTest {
         () -> runIgnoringExpectedConflict(first), () -> runIgnoringExpectedConflict(second));
   }
 
-  private void runIgnoringExpectedConflict(Runnable operation) {
+  static void runIgnoringExpectedConflict(Runnable operation) {
     try {
       operation.run();
-    } catch (org.example.springtestci.common.error.CommonException ignored) {
-      // 경합에서 뒤늦게 잠금을 얻은 요청의 409는 예상 가능한 한쪽 결과다.
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT) {
+        throw exception;
+      }
     }
   }
 
@@ -574,8 +719,8 @@ class TradeP4PostgresIntegrationTest {
     return jdbc.queryForObject(sql, String.class, parameter);
   }
 
-  private long count(String sql, Object parameter) {
-    return jdbc.queryForObject(sql, Long.class, parameter);
+  private long count(String sql, Object... parameters) {
+    return jdbc.queryForObject(sql, Long.class, parameters);
   }
 
   private static String requiredEnvironment(String name) {

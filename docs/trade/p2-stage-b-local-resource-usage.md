@@ -129,10 +129,10 @@
 |---|---|
 | 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
 | 외부 자원 | PostgreSQL·Redis·Rancher·Docker·로컬 API·공유 서비스 미사용 |
-| 실행 범위 | `gradlew.bat spotlessApply spotlessCheck classes testClasses test`에 14개 관련 클래스 선택, 99건 성공 |
+| 실행 범위 | `gradlew.bat spotlessApply spotlessCheck classes testClasses test`에 15개 관련 클래스 선택, 100건 성공 |
 | 잔여 프로세스 | Gradle `--no-daemon` 단일 실행 종료, 신규 외부 프로세스 없음 |
 
-P4 전용 `TradeP4PostgresIntegrationTest`의 P4-DB01~07은 `P4_TRADE_TEST_ENABLED=true`일 때만 동작하도록 작성하고 `testClasses`로 컴파일했다. 환경변수를 설정하거나 PostgreSQL을 기동·접속하지 않았으므로 실제 결과는 `NOT_RUN`이다.
+P4 전용 `TradeP4PostgresIntegrationTest`는 `P4_TRADE_TEST_ENABLED=true`일 때만 동작하도록 작성하고 `testClasses`로 컴파일했다. P3 pending 제약, 실제 거래 측 change review·판매 중지 어댑터를 test fixture에 연결했지만 DB02의 거래/SOLD 저장 실패 주입은 `CODE_TODO`다. 환경변수를 설정하거나 PostgreSQL을 기동·접속하지 않았으므로 모든 P4 DB 시험의 실제 결과는 `NOT_RUN`이다.
 - 최종 확인에서 `pastport-p2-correction-*` 컨테이너와 `redis:8-alpine` 이미지가 각각 0건임을 확인했다.
 - 작업 전부터 있던 PostgreSQL 17 이미지는 유지하고 `rdctl shutdown`으로 작업 전 중지 상태를 복원했다.
 
