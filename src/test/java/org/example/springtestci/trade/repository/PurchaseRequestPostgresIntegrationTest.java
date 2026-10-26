@@ -707,6 +707,11 @@ class PurchaseRequestPostgresIntegrationTest {
         throw new IllegalStateException("Injected listing reservation failure");
       }
     }
+
+    @Override
+    public void releaseReservation(long listingId) {
+      delegate.releaseReservation(listingId);
+    }
   }
 
   private static class JdbcTransferWriter implements InternalTransferPendingWriter {

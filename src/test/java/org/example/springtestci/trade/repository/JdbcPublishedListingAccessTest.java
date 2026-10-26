@@ -84,4 +84,19 @@ class JdbcPublishedListingAccessTest {
         .extracting(exception -> ((CommonException) exception).errorCode())
         .isEqualTo(ErrorCode.TRADE_CONFLICT);
   }
+
+  @Test
+  void releasesOnlyAReservedListing() {
+    listingAccess.reserve(100);
+
+    listingAccess.releaseReservation(100);
+
+    assertThat(
+            jdbcTemplate.queryForObject("select status from listings where id = 100", String.class))
+        .isEqualTo("ACTIVE");
+    assertThatThrownBy(() -> listingAccess.releaseReservation(100))
+        .isInstanceOf(CommonException.class)
+        .extracting(exception -> ((CommonException) exception).errorCode())
+        .isEqualTo(ErrorCode.TRADE_CONFLICT);
+  }
 }

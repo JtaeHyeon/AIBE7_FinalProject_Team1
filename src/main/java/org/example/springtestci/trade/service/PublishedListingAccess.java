@@ -13,4 +13,6 @@ public interface PublishedListingAccess {
   Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds);
 
   void reserve(long listingId);
+
+  void releaseReservation(long listingId);
 }

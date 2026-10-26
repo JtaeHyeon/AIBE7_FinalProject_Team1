@@ -139,3 +139,17 @@
 
 셸의 기본 Java 8은 Gradle 요구 버전을 충족하지 않아 첫 검사가 실행 전에 실패했다. 시스템 전역 설정은 변경하지 않고
 각 검증 명령의 프로세스 환경에만 `JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot`을 지정했다.
+
+## 10. P3 예약 취소·변경 확인 구현
+
+| 항목 | 기록 |
+|---|---|
+| 작업 기준 | P2 `72e3d6d`에서 P3 브랜치 생성, 원본 main `7ae4ccd` R07 통합 |
+| 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
+| 외부 자원 | DB·Redis·Rancher·로컬 API·공유 서비스 미사용 |
+| DB 자료 | pending DDL과 opt-in PostgreSQL 시험 코드만 작성, 실제 실행 `NOT_RUN` |
+| 생성·변경 | 소스·시험·문서, `build` 결과와 일반 Gradle 캐시 |
+| 종료 상태 | 컨테이너·이미지·네트워크·외부 데이터 생성 없음. Gradle 데몬과 캐시는 기본 정책대로 유지 |
+
+기본 Java 8이나 시스템 전역 설정을 변경하지 않고 각 Gradle 프로세스에만 Java 17 `JAVA_HOME`을 지정했다. 최종 검사
+명령과 결과는 `p3-result.md`에 기록한다.

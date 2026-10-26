@@ -105,6 +105,17 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     }
   }
 
+  @Override
+  public void releaseReservation(long listingId) {
+    int updated =
+        jdbcTemplate.update(
+            "update listings set status = 'ACTIVE' where id = ? and status = 'RESERVED'",
+            listingId);
+    if (updated != 1) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+  }
+
   private Optional<PublishedListing> queryOne(String sql, Object... parameters) {
     return jdbcTemplate.query(sql, this::mapListing, parameters).stream().findFirst();
   }

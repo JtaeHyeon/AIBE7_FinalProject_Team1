@@ -209,7 +209,10 @@ public class PurchaseRequestService {
         request.listingId(),
         request.requestStatus(),
         request.transactionStatus(),
-        listingStatus);
+        listingStatus,
+        request.cancelledById(),
+        request.cancelReason(),
+        request.cancelledAt());
   }
 
   private PublishedListingStatus statusesForRoom(

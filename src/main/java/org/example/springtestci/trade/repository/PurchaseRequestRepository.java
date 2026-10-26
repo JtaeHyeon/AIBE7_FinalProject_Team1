@@ -16,9 +16,15 @@ public interface PurchaseRequestRepository {
 
   Optional<PurchaseRequest> findReservedByListingId(long listingId);
 
+  List<PurchaseRequest> findByListingIdForUpdate(long listingId);
+
   PurchaseRequest save(PurchaseRequest request);
 
   void update(PurchaseRequest request);
+
+  void cancelReserved(PurchaseRequest request);
+
+  void clearConfirmedVersions(long requestId);
 
   PageResult findAll(
       long actorId,
