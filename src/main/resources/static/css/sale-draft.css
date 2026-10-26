@@ -55,6 +55,10 @@
 :is(#sell,.listing-detail) .sl-publication-correction{padding:8px 10px;border-left:2px solid var(--blue);background:var(--soft)}
 #sell .sl-preview{width:min(1120px,calc(100% - 32px));max-height:90vh;box-sizing:border-box;overflow-y:auto;border:1px solid var(--line);border-radius:12px;padding:28px;color:var(--ink);background:#fff}
 #sell .sl-preview::backdrop{background:rgba(20,25,35,.5)}
+#sell .sl-ai-actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+#sell .sl-ai-result{margin-top:16px;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--soft);overflow-wrap:anywhere}
+#sell .sl-ai-result h3{font-size:17px;margin:0 0 12px}
+#sell [data-sale-ai-description]{white-space:pre-wrap;font-size:14px;line-height:1.8}
 #sell .sl-preview-head{display:flex;justify-content:space-between;align-items:center;gap:16px}
 #sell .sl-preview-head h2{font-size:22px;margin:0}
 #sell .sl-preview-notice{padding:12px 16px;border-radius:8px;background:var(--soft);font-size:13px;line-height:1.7}

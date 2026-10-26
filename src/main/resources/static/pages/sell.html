@@ -45,8 +45,16 @@
       <label class="sc-field"><span>상세 설명</span><textarea data-sale-description aria-label="상세 설명" maxlength="2000" placeholder="제품의 상태와 판매 내용을 적어 주세요." disabled></textarea><small data-sale-description-count>0 / 2,000자</small></label>
     </section>
     <section class="sc-card sl-ai">
-      <div class="sl-section-head"><div><h2>AI 제목·본문 제안</h2><p class="sub">등록된 제품 정보와 이력을 바탕으로 작성할 수 있어요.</p></div><span class="sc-badge">준비 중</span></div>
-      <p class="sl-ai-sug">지금은 제목과 설명을 직접 작성해 주세요. AI 제안 기능은 준비 중이에요.</p>
+      <div class="sl-section-head"><div><h2>AI 제목·본문 제안</h2><p class="sub">공개 예정 제품 정보와 이전 소유자를 포함한 누적 핵심 이력을 Gemini에 보내 제목·설명을 제안받아요. 사진·증빙·채팅은 보내지 않아요.</p></div><span class="sc-badge">선택 기능</span></div>
+      <p class="sub">생성 결과를 확인한 뒤 적용해 주세요. 제안 생성·적용으로 임시저장되거나 게시되지는 않아요. 직접 작성도 계속할 수 있어요.</p>
+      <div class="sl-ai-actions"><button type="button" class="sc-btn primary" data-sale-ai-generate disabled>AI 제안 생성</button><button type="button" class="sc-btn" data-sale-ai-manual>직접 작성하기</button></div>
+      <p class="sub" data-sale-ai-status role="status" aria-live="polite">제품을 선택하면 AI 제안을 요청할 수 있어요.</p>
+      <div class="sl-ai-result" data-sale-ai-result hidden>
+        <p class="sl-publication-sample" data-sale-ai-sample hidden>화면 확인용 샘플 이력을 사용한 제안이에요.</p>
+        <h3 data-sale-ai-title></h3><p data-sale-ai-description></p>
+        <p class="sub">AI 제안의 사실 관계와 제품 상태를 확인하고 필요한 내용을 수정해 주세요. 가격·상태 등급·사진 선택은 바뀌지 않아요.</p>
+        <button type="button" class="sc-btn" data-sale-ai-apply disabled>제목·설명에 적용</button>
+      </div>
     </section>
     <section class="sc-card">
       <h2>공개할 사진</h2>
