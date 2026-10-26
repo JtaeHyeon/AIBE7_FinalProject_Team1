@@ -42,3 +42,13 @@ out/
 .env
 /storage/
 /CODERABBIT_REVIEW_FIXES.md
+
+# Local learning and presentation notes (keep official project docs tracked)
+/docs/ERD_LOCAL_IMPLEMENTATION.md
+/docs/MY_P1_PRODUCT_CODE_REVIEW_10MIN.md
+/docs/MY_P1_PRODUCT_PROGRESS_AND_CODE_REVIEW_GUIDE.md
+/docs/P1_PRODUCT_IMPLEMENTATION_GUIDE.md
+/docs/P2_PRODUCT_HISTORY_IMPLEMENTATION_GUIDE.md
+/docs/PRODUCT_REQUEST_FLOW_PRESENTATION_GUIDE.md
+/docs/product-query-update-learning-notes.md
+/docs/product-serial-registration-notes.md

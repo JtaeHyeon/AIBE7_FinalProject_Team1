@@ -1,0 +1,293 @@
+(() => {
+  const typeLabels = {
+    PURCHASE: '구매',
+    INSPECTION: '점검',
+    REPAIR: '수리',
+    PART_REPLACEMENT: '부품 교체',
+    SPEC_CHANGE: '사양 변경',
+    TRANSFER: '소유권 이전',
+  };
+  const typeIcons = {
+    PURCHASE: '●', INSPECTION: '✓', REPAIR: '＋', PART_REPLACEMENT: '↻', SPEC_CHANGE: '⌁', TRANSFER: '⇄',
+  };
+  const specLabels = {
+    cpu: 'CPU', gpu: 'GPU', ramGb: 'RAM', storageGb: '저장 용량', storageType: '저장 방식',
+    display: '디스플레이', batteryHealthPercent: '배터리 상태', os: '운영체제',
+  };
+  const editableTypes = ['PURCHASE', 'INSPECTION', 'REPAIR', 'PART_REPLACEMENT', 'SPEC_CHANGE'];
+  const state = { productId: null, events: [], filter: 'ALL', editingId: null, requestVersion: 0 };
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  const valueOrNull = (value) => value.trim() || null;
+  const numberOrNull = (value) => value === '' ? null : Number(value);
+  const today = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+  const formatDate = (value) => value
+    ? new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(`${value}T00:00:00`))
+    : '날짜 미상';
+  const formatCost = (value) => value == null ? null : `${new Intl.NumberFormat('ko-KR').format(value)}원`;
+
+  const api = async (path, options = {}) => {
+    const response = await window.PastportApi.fetch(path, options);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(payload?.message || '이력 요청을 처리하지 못했습니다.');
+      error.status = response.status;
+      error.fieldErrors = payload?.fieldErrors || [];
+      throw error;
+    }
+    return payload?.data;
+  };
+
+  const root = () => document.querySelector('#passport [data-history-root]');
+  const endpoint = (suffix = '') => `/api/v1/products/${state.productId}/events${suffix}`;
+
+  const shell = () => `
+    <div class="history-heading">
+      <div><span class="eyebrow">PRODUCT HISTORY</span><h2>제품 이력</h2><p>점검, 수리, 부품 교체 기록을 시간순으로 관리하세요.</p></div>
+      <button class="button primary" type="button" data-history-create>＋ 이력 등록</button>
+    </div>
+    <div class="history-summary" aria-label="이력 요약">
+      <div><span>전체 기록</span><strong data-history-count>0</strong><em>건</em></div>
+      <div><span>수리 · 교체</span><strong data-history-maintenance>0</strong><em>건</em></div>
+      <div><span>최근 기록</span><strong class="history-recent" data-history-recent>–</strong></div>
+    </div>
+    <div class="history-toolbar" aria-label="이력 필터">
+      <button type="button" class="active" data-history-filter="ALL">전체</button>
+      <button type="button" data-history-filter="MAINTENANCE">수리 · 교체</button>
+      <button type="button" data-history-filter="INSPECTION">점검</button>
+      <button type="button" data-history-filter="SPEC_CHANGE">사양 변경</button>
+      <button type="button" data-history-filter="TRANSFER">소유권 이전</button>
+    </div>
+    <div data-history-form-slot></div>
+    <div class="history-status" data-history-status role="status">이력을 불러오는 중입니다.</div>
+    <div class="history-timeline" data-history-list aria-live="polite"></div>`;
+
+  const specFields = (values = {}) => `
+    <div class="history-spec-fields" data-history-spec-fields>
+      <div class="history-field"><label>CPU</label><input name="cpu" maxlength="200" value="${escapeHtml(values.cpu || '')}" placeholder="예: Apple M3"></div>
+      <div class="history-field"><label>GPU</label><input name="gpu" maxlength="200" value="${escapeHtml(values.gpu || '')}" placeholder="예: RTX 4060"></div>
+      <div class="history-field"><label>RAM (GB)</label><input name="ramGb" type="number" min="1" value="${escapeHtml(values.ramGb ?? '')}"></div>
+      <div class="history-field"><label>저장 용량 (GB)</label><input name="storageGb" type="number" min="1" value="${escapeHtml(values.storageGb ?? '')}"></div>
+      <div class="history-field"><label>저장 방식</label><select name="storageType"><option value="">선택 안 함</option>${['SSD', 'HDD', 'MIXED'].map((item) => `<option value="${item}" ${values.storageType === item ? 'selected' : ''}>${item}</option>`).join('')}</select></div>
+      <div class="history-field"><label>배터리 상태 (%)</label><input name="batteryHealthPercent" type="number" min="0" max="100" value="${escapeHtml(values.batteryHealthPercent ?? '')}"></div>
+      <div class="history-field history-wide"><label>디스플레이</label><input name="display" maxlength="200" value="${escapeHtml(values.display || '')}" placeholder="예: 14인치 Liquid Retina"></div>
+      <div class="history-field"><label>운영체제</label><input name="os" maxlength="200" value="${escapeHtml(values.os || '')}" placeholder="예: macOS"></div>
+      <p class="history-spec-help">바뀐 사양만 입력해 주세요. 사양 변경 유형은 하나 이상 필수입니다.</p>
+    </div>`;
+
+  const formTemplate = (event = null) => {
+    const editing = !!event;
+    const selectedType = event?.eventType || 'INSPECTION';
+    const specs = event?.specsAfter || {};
+    return `<form class="history-form" data-history-form novalidate>
+      <div class="history-form-head"><div><h3>${editing ? '이력 정정' : '새 이력 등록'}</h3><p>${editing ? '수정 사유와 함께 변경 내용이 보존됩니다.' : '제품에 있었던 일을 정확하게 기록해 주세요.'}</p></div><button type="button" data-history-cancel aria-label="닫기">×</button></div>
+      <div class="history-form-grid">
+        <div class="history-field"><label>이력 유형 <b>*</b></label><select name="eventType" required ${editing ? 'disabled' : ''}>${editableTypes.map((type) => `<option value="${type}" ${selectedType === type ? 'selected' : ''}>${typeLabels[type]}</option>`).join('')}</select></div>
+        <div class="history-field"><label>발생일 <b>*</b></label><input name="occurredOn" type="date" required max="${today()}" value="${escapeHtml(event?.occurredOn || today())}"></div>
+        <div class="history-field history-wide"><label>제목 <b>*</b></label><input name="title" required maxlength="200" value="${escapeHtml(event?.title || '')}" placeholder="예: 공식 서비스센터 정기 점검"></div>
+        <div class="history-field history-wide"><label>상세 내용</label><textarea name="content" maxlength="2000" rows="4" placeholder="점검 결과와 작업 내용을 남겨 주세요.">${escapeHtml(event?.content || '')}</textarea></div>
+        <div class="history-field"><label>서비스 업체</label><input name="serviceProvider" maxlength="200" value="${escapeHtml(event?.serviceProvider || '')}" placeholder="예: 제조사 공식 센터"></div>
+        <div class="history-field"><label>비용 (원)</label><input name="cost" type="number" min="0" step="1" value="${escapeHtml(event?.cost ?? '')}" placeholder="0"></div>
+        <div class="history-field history-wide" data-history-part-field><label>교체 부품</label><input name="replacedPart" maxlength="200" value="${escapeHtml(event?.replacedPart || '')}" placeholder="예: 배터리, SSD"></div>
+      </div>
+      ${specFields(specs)}
+      ${editing ? '<div class="history-field history-reason"><label>정정 사유 <b>*</b></label><input name="reason" required maxlength="500" placeholder="예: 서비스 명세서 내용으로 바로잡음"></div>' : ''}
+      <div class="history-form-message" data-history-form-message role="alert" hidden></div>
+      <div class="history-form-actions"><button class="button" type="button" data-history-cancel>취소</button><button class="button primary" type="submit">${editing ? '정정 내용 저장' : '이력 등록'}</button></div>
+    </form>`;
+  };
+
+  const meaningfulSpecs = (before, after) => {
+    if (!after) return [];
+    return Object.keys(specLabels).filter((key) => before?.[key] !== after[key]);
+  };
+  const specValue = (key, value) => {
+    if (value == null || value === '') return '미입력';
+    if (key === 'ramGb' || key === 'storageGb') return `${value}GB`;
+    if (key === 'batteryHealthPercent') return `${value}%`;
+    return String(value);
+  };
+  const details = (event) => {
+    const facts = [];
+    if (event.serviceProvider) facts.push(`<span>업체 <b>${escapeHtml(event.serviceProvider)}</b></span>`);
+    if (event.cost != null) facts.push(`<span>비용 <b>${formatCost(event.cost)}</b></span>`);
+    if (event.replacedPart) facts.push(`<span>교체 부품 <b>${escapeHtml(event.replacedPart)}</b></span>`);
+    if (event.documentIds?.length) facts.push(`<span>연결 문서 <b>${event.documentIds.length}개</b></span>`);
+    const changedSpecs = meaningfulSpecs(event.specsBefore, event.specsAfter);
+    return `${facts.length ? `<div class="history-facts">${facts.join('')}</div>` : ''}${changedSpecs.length ? `<div class="history-spec-changes">${changedSpecs.map((key) => `<div><span>${specLabels[key]}</span><del>${escapeHtml(specValue(key, event.specsBefore?.[key]))}</del><i>→</i><b>${escapeHtml(specValue(key, event.specsAfter?.[key]))}</b></div>`).join('')}</div>` : ''}`;
+  };
+  const card = (event) => {
+    const voided = event.status === 'VOID';
+    const canChange = !voided && event.eventType !== 'TRANSFER' && event.authorId != null;
+    return `<article class="history-event ${voided ? 'is-void' : ''}" data-history-event-id="${event.eventId}">
+      <div class="history-marker" data-type="${event.eventType}" aria-hidden="true">${typeIcons[event.eventType] || '●'}</div>
+      <div class="history-event-body">
+        <div class="history-event-top"><div><time datetime="${escapeHtml(event.occurredOn)}">${formatDate(event.occurredOn)}</time><span class="history-type">${typeLabels[event.eventType] || event.eventType}</span>${voided ? '<span class="history-void-badge">무효</span>' : ''}</div>${canChange ? `<div class="history-actions"><button type="button" data-history-edit="${event.eventId}">정정</button><button type="button" data-history-void="${event.eventId}">무효화</button></div>` : ''}</div>
+        <h3>${escapeHtml(event.title)}</h3>
+        ${event.content ? `<p>${escapeHtml(event.content)}</p>` : ''}
+        ${details(event)}
+        ${event.changeAction ? `<div class="history-change-note">${event.changeAction === 'HISTORY_VOIDED' ? '무효화됨' : '정정됨'} · ${escapeHtml(event.changeReason || '')}</div>` : ''}
+      </div>
+    </article>`;
+  };
+
+  const filteredEvents = () => state.events.filter((event) => {
+    if (state.filter === 'ALL') return true;
+    if (state.filter === 'MAINTENANCE') return ['REPAIR', 'PART_REPLACEMENT'].includes(event.eventType);
+    return event.eventType === state.filter;
+  });
+  const renderList = () => {
+    const container = root();
+    if (!container) return;
+    const list = container.querySelector('[data-history-list]');
+    const status = container.querySelector('[data-history-status]');
+    const events = filteredEvents();
+    container.querySelector('[data-history-count]').textContent = state.events.length;
+    container.querySelector('[data-history-maintenance]').textContent = state.events.filter((item) => ['REPAIR', 'PART_REPLACEMENT'].includes(item.eventType) && item.status !== 'VOID').length;
+    container.querySelector('[data-history-recent]').textContent = state.events[0] ? formatDate(state.events[0].occurredOn) : '–';
+    if (!events.length) {
+      list.replaceChildren();
+      status.hidden = false;
+      status.innerHTML = state.events.length
+        ? '<strong>선택한 유형의 이력이 없습니다.</strong><span>다른 필터를 선택해 보세요.</span>'
+        : '<strong>아직 등록된 이력이 없습니다.</strong><span>첫 점검이나 수리 기록을 남겨 제품 여권을 완성해 보세요.</span>';
+      return;
+    }
+    status.hidden = true;
+    list.innerHTML = events.map(card).join('');
+  };
+
+  const showForm = (event = null) => {
+    const container = root();
+    if (!container) return;
+    state.editingId = event?.eventId || null;
+    container.querySelector('[data-history-form-slot]').innerHTML = formTemplate(event);
+    syncConditionalFields(container.querySelector('[data-history-form]'));
+    container.querySelector('[data-history-form]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    container.querySelector('[name="title"]')?.focus({ preventScroll: true });
+  };
+  const closeForm = () => {
+    state.editingId = null;
+    root()?.querySelector('[data-history-form-slot]')?.replaceChildren();
+  };
+  const syncConditionalFields = (form) => {
+    if (!form) return;
+    const type = form.elements.eventType.value;
+    form.querySelector('[data-history-part-field]').hidden = type !== 'PART_REPLACEMENT';
+    form.querySelector('[data-history-spec-fields]').hidden = !['PART_REPLACEMENT', 'SPEC_CHANGE'].includes(type);
+  };
+  const specsPayload = (form) => {
+    if (!['PART_REPLACEMENT', 'SPEC_CHANGE'].includes(form.elements.eventType.value)) return null;
+    const values = {
+      cpu: valueOrNull(form.elements.cpu.value), gpu: valueOrNull(form.elements.gpu.value),
+      ramGb: numberOrNull(form.elements.ramGb.value), storageGb: numberOrNull(form.elements.storageGb.value),
+      storageType: form.elements.storageType.value || null, display: valueOrNull(form.elements.display.value),
+      batteryHealthPercent: numberOrNull(form.elements.batteryHealthPercent.value), os: valueOrNull(form.elements.os.value),
+    };
+    return Object.fromEntries(Object.entries(values).filter(([, value]) => value != null));
+  };
+  const payload = (form) => ({
+    ...(state.editingId ? {} : { eventType: form.elements.eventType.value }),
+    occurredOn: form.elements.occurredOn.value,
+    title: form.elements.title.value.trim(),
+    content: valueOrNull(form.elements.content.value),
+    serviceProvider: valueOrNull(form.elements.serviceProvider.value),
+    cost: numberOrNull(form.elements.cost.value),
+    replacedPart: form.elements.eventType.value === 'PART_REPLACEMENT' ? valueOrNull(form.elements.replacedPart.value) : null,
+    specsAfter: specsPayload(form),
+    ...(state.editingId ? { reason: form.elements.reason.value.trim() } : { documentIds: [] }),
+  });
+  const formMessage = (form, message) => {
+    const box = form.querySelector('[data-history-form-message]');
+    box.hidden = !message;
+    box.textContent = message || '';
+  };
+
+  const load = async (productId) => {
+    const container = root();
+    if (!container) return;
+    const version = ++state.requestVersion;
+    state.productId = Number(productId);
+    state.events = [];
+    state.filter = 'ALL';
+    state.editingId = null;
+    container.innerHTML = shell();
+    try {
+      const events = await api(endpoint());
+      if (version !== state.requestVersion || state.productId !== Number(productId)) return;
+      state.events = events || [];
+      renderList();
+    } catch (error) {
+      if (version !== state.requestVersion) return;
+      const status = root()?.querySelector('[data-history-status]');
+      if (status) status.innerHTML = `<strong>이력을 불러오지 못했습니다.</strong><span>${escapeHtml(error.message)}</span><button class="button" type="button" data-history-retry>다시 시도</button>`;
+    }
+  };
+
+  const submit = async (form) => {
+    formMessage(form, '');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    const body = payload(form);
+    if (body.eventType === 'SPEC_CHANGE' && !Object.keys(body.specsAfter || {}).length) {
+      formMessage(form, '사양 변경 내용을 하나 이상 입력해 주세요.'); return;
+    }
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = '저장 중…';
+    try {
+      const suffix = state.editingId ? `/${state.editingId}` : '';
+      await api(endpoint(suffix), { method: state.editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      closeForm();
+      state.events = await api(endpoint());
+      renderList();
+    } catch (error) {
+      formMessage(form, error.fieldErrors?.[0]?.message || error.message);
+      button.disabled = false;
+      button.textContent = original;
+    }
+  };
+
+  const voidEvent = async (eventId) => {
+    const reason = window.prompt('이 기록을 무효화하는 사유를 입력해 주세요.\n무효화된 기록도 감사 이력으로 보존됩니다.');
+    if (reason == null) return;
+    if (!reason.trim()) { window.alert('무효화 사유를 입력해 주세요.'); return; }
+    try {
+      await api(endpoint(`/${eventId}/void`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason.trim() }) });
+      state.events = await api(endpoint());
+      renderList();
+    } catch (error) { window.alert(error.message); }
+  };
+
+  document.addEventListener('pastport:product-detail-rendered', (event) => load(event.detail.product.productId));
+  document.addEventListener('change', (event) => {
+    const form = event.target.closest?.('[data-history-form]');
+    if (form && event.target.name === 'eventType') syncConditionalFields(form);
+  });
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest?.('[data-history-form]');
+    if (!form) return;
+    event.preventDefault();
+    submit(form);
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.closest?.('[data-history-create]')) { showForm(); return; }
+    if (event.target.closest?.('[data-history-cancel]')) { closeForm(); return; }
+    if (event.target.closest?.('[data-history-retry]')) { load(state.productId); return; }
+    const filter = event.target.closest?.('[data-history-filter]');
+    if (filter) {
+      state.filter = filter.dataset.historyFilter;
+      root()?.querySelectorAll('[data-history-filter]').forEach((button) => button.classList.toggle('active', button === filter));
+      renderList(); return;
+    }
+    const edit = event.target.closest?.('[data-history-edit]');
+    if (edit) { showForm(state.events.find((item) => item.eventId === Number(edit.dataset.historyEdit))); return; }
+    const voidButton = event.target.closest?.('[data-history-void]');
+    if (voidButton) voidEvent(Number(voidButton.dataset.historyVoid));
+  });
+})();
