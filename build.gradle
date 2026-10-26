@@ -36,7 +36,8 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
 
     runtimeOnly 'org.postgresql:postgresql'
-    runtimeOnly 'com.h2database:h2'
+    // CHECK(IN ...) 제약의 커넥션 간 평가 오류 수정(h2database/h2database#4311).
+    runtimeOnly 'com.h2database:h2:2.5.250'
 
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
