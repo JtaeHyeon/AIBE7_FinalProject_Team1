@@ -39,12 +39,12 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-@EnabledIfEnvironmentVariable(named = "P3_TRADE_TEST_ENABLED", matches = "true")
 /**
  * 승인된 PostgreSQL에서만 실행하는 P3 취소·변경 확인 원자성 시험이다.
  *
  * <p>내부 이전 취소 구현과 product event 테이블은 시험 fixture이며 정식 ownership/history 연동 완료의 근거가 아니다.
  */
+@EnabledIfEnvironmentVariable(named = "P3_TRADE_TEST_ENABLED", matches = "true")
 class TradeP3PostgresIntegrationTest {
 
   private static final long SELLER_ID = 1L;

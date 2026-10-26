@@ -6,7 +6,11 @@ import org.example.springtestci.chat.dto.ChatRoomResponse;
 import org.example.springtestci.chat.dto.ChatRoomSummaryResponse;
 import org.example.springtestci.chat.dto.ReadPositionResponse;
 
-/** 인증 사용자의 채팅방·메시지·읽음 위치 유스케이스 계약이다. */
+/**
+ * 인증 사용자의 채팅방·메시지·읽음 위치 유스케이스 계약이다.
+ *
+ * @see DefaultChatService
+ */
 public interface ChatService {
 
   /** 판매글 구매 문의자용 방을 생성하거나 기존 방을 멱등하게 반환한다. */

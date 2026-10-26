@@ -10,13 +10,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-@Component
-@ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
 /**
  * 커밋된 채팅 메시지만 방별 STOMP 구독 경로로 발행하는 운영 어댑터다.
  *
  * <p>브로커 발행 실패는 이미 커밋된 DB 쓰기를 되돌릴 수 없으므로 식별자만 오류 로그에 남긴다.
  */
+@Component
+@ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
 public class ChatMessageRealtimePublisher implements ChatMessageDelivery {
 
   private static final Logger log = LoggerFactory.getLogger(ChatMessageRealtimePublisher.class);
@@ -28,6 +28,7 @@ public class ChatMessageRealtimePublisher implements ChatMessageDelivery {
     this.messagingTemplate = messagingTemplate;
   }
 
+  /** 활성 트랜잭션에 afterCommit 콜백을 등록하며 트랜잭션 밖 호출은 즉시 거부한다. */
   @Override
   public void publishAfterCommit(ChatMessageResponse message) {
     if (!TransactionSynchronizationManager.isSynchronizationActive()) {

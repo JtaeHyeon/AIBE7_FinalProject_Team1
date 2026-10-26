@@ -39,11 +39,13 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     this.jdbcTemplate = jdbcTemplate;
   }
 
+  /** 잠금 없이 현재 제품 소유자와 게시 판매글 상태를 조회한다. */
   @Override
   public Optional<PublishedListing> findById(long listingId) {
     return queryOne(SELECT_LISTING, listingId);
   }
 
+  /** 제품 행을 먼저 잠근 다음 같은 제품의 판매글을 잠가 거래 쓰기 간 잠금 순서를 통일한다. */
   @Override
   public Optional<PublishedListing> findByIdForUpdate(long listingId) {
     Optional<Long> productId =
@@ -66,6 +68,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
         SELECT_LISTING + " and listing.product_id = ? for update", listingId, productId.get());
   }
 
+  /** 목록 응답용 판매글 상태를 한 번에 조회하며 보관 제품은 CANCELLED로 투영한다. */
   @Override
   public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
     if (listingIds.isEmpty()) {
@@ -95,6 +98,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
         listingIds.toArray());
   }
 
+  /** ACTIVE 한 행만 RESERVED로 바꾸고 영향 행이 정확히 하나가 아니면 경합으로 처리한다. */
   @Override
   public void reserve(long listingId) {
     int updated =
@@ -106,6 +110,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     }
   }
 
+  /** RESERVED 한 행만 ACTIVE로 되돌리고 종료·재예약된 판매글은 변경하지 않는다. */
   @Override
   public void releaseReservation(long listingId) {
     int updated =
@@ -121,6 +126,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     return jdbcTemplate.query(sql, this::mapListing, parameters).stream().findFirst();
   }
 
+  /** 제품 보관 여부를 반영한 판매글 상태와 현재 소유자를 거래 전용 사본으로 매핑한다. */
   private PublishedListing mapListing(ResultSet resultSet, int rowNumber) throws SQLException {
     return new PublishedListing(
         resultSet.getLong("id"),

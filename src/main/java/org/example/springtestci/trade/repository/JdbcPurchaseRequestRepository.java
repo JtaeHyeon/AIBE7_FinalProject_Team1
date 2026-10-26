@@ -36,11 +36,13 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     this.jdbcTemplate = jdbcTemplate;
   }
 
+  /** 응답·권한 선검사용 일반 조회이며 행 잠금을 획득하지 않는다. */
   @Override
   public Optional<PurchaseRequest> findById(long requestId) {
     return queryOne(SELECT_REQUEST + " where id = ?", requestId);
   }
 
+  /** 상태 전이 직전에 요청 한 행을 `FOR UPDATE`로 재조회한다. */
   @Override
   public Optional<PurchaseRequest> findByIdForUpdate(long requestId) {
     return queryOne(SELECT_REQUEST + " where id = ? for update", requestId);
@@ -57,12 +59,14 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
         SELECT_REQUEST + " where listing_id = ? and transaction_status = 'RESERVED'", listingId);
   }
 
+  /** 판매 중지 시 교착 순서를 안정화하도록 판매글의 모든 요청을 ID 오름차순으로 잠근다. */
   @Override
   public List<PurchaseRequest> findByListingIdForUpdate(long listingId) {
     return jdbcTemplate.query(
         SELECT_REQUEST + " where listing_id = ? order by id for update", ROW_MAPPER, listingId);
   }
 
+  /** 신규 PENDING 요청을 저장하고 DB가 생성한 요청 ID를 포함한 모델을 반환한다. */
   @Override
   public PurchaseRequest save(PurchaseRequest request) {
     Long id =
@@ -86,6 +90,7 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
         request.cancelledAt());
   }
 
+  /** P2 PENDING 상태 전이에 필요한 상태·거래 상태만 저장하며 P3 메타데이터를 덮어쓰지 않는다. */
   @Override
   public void update(PurchaseRequest request) {
     int updated =
@@ -99,6 +104,7 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     }
   }
 
+  /** ACCEPTED/RESERVED 한 행에만 CANCELLED 상태와 최초 취소 메타데이터를 기록한다. */
   @Override
   public void cancelReserved(PurchaseRequest request) {
     int updated =
@@ -114,6 +120,7 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     }
   }
 
+  /** 새 변경 사건이 생기면 양측 완료 확인 버전만 NULL로 초기화한다. */
   @Override
   public void clearConfirmedVersions(long requestId) {
     int updated =
@@ -126,6 +133,7 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     }
   }
 
+  /** actor 방향·상태·선택 방 조건을 SQL에 적용하고 DTO 페이지 계산용 전체 건수를 함께 반환한다. */
   @Override
   public PageResult findAll(
       long actorId,
@@ -171,6 +179,7 @@ public class JdbcPurchaseRequestRepository implements PurchaseRequestRepository 
     return jdbcTemplate.query(sql, ROW_MAPPER, parameters).stream().findFirst();
   }
 
+  /** NULL 가능한 거래 상태·확인 버전·취소 메타데이터를 도메인 상태와 enum으로 복원한다. */
   private static PurchaseRequest mapRequest(ResultSet resultSet, int rowNumber)
       throws SQLException {
     String transactionStatus = resultSet.getString("transaction_status");

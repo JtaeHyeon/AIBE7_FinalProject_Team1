@@ -16,8 +16,10 @@ public class PurchaseRequest {
   private final long listingId;
   private PurchaseRequestStatus requestStatus;
   private TransactionStatus transactionStatus;
+  // 각 당사자가 거래 완료 전에 확인한 최신 제품 facts 버전이며 새 변경이 생기면 둘 다 NULL이 된다.
   private Long sellerConfirmedVersion;
   private Long buyerConfirmedVersion;
+  // RESERVED 거래 취소에만 세 값이 함께 존재하고 수락 전 PENDING 취소에는 모두 NULL이다.
   private Long cancelledById;
   private TradeCancellationReason cancelReason;
   private Instant cancelledAt;
@@ -45,6 +47,7 @@ public class PurchaseRequest {
     this.cancelledAt = cancelledAt;
   }
 
+  /** 새 요청은 거래가 아직 시작되지 않아 거래 상태·확인 버전·취소 메타데이터가 모두 없다. */
   public static PurchaseRequest pending(long roomId, long listingId) {
     return new PurchaseRequest(
         null, roomId, listingId, PurchaseRequestStatus.PENDING, null, null, null, null, null, null);
@@ -117,6 +120,7 @@ public class PurchaseRequest {
     cancelledAt = cancellationTime;
   }
 
+  /** 새 변경 사건 이후 완료 재확인을 요구하도록 판매자·구매자 확인 버전을 함께 제거한다. */
   public void clearConfirmedVersions() {
     sellerConfirmedVersion = null;
     buyerConfirmedVersion = null;

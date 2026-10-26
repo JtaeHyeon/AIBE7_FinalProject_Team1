@@ -19,15 +19,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
-@Service
-@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
-@Transactional(readOnly = true)
 /**
  * RESERVED 거래 중 제품 이력 변경 사본과 구매자의 KEEP/CANCEL 결정을 관리한다.
  *
  * <p>{@link #recordChange(long, long, long, long, JsonNode)}는 정식 history/product 연동 전용 내부 계약이며 공개
  * 생성 API가 아니다. 공급자는 개인정보를 제외한 공개 안전 사본만 전달해야 한다.
  */
+@Service
+@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
+@Transactional(readOnly = true)
 public class ReservationChangeService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -52,12 +52,12 @@ public class ReservationChangeService {
     this.clock = clock;
   }
 
-  @Transactional
   /**
    * 같은 사건의 불변 JSON 사본을 한 번 저장하고 새 사건일 때만 양측 완료 확인 버전을 초기화한다.
    *
    * <p>호출자는 운영 product event가 커밋되는 동일 트랜잭션에서 이 메서드를 호출해야 한다.
    */
+  @Transactional
   public ChangeReviewResponse recordChange(
       long productId,
       long purchaseRequestId,
@@ -94,6 +94,7 @@ public class ReservationChangeService {
     return response(review);
   }
 
+  /** 거래 양측에게 변경 사본과 결정, 현재 거래 상태 및 전체 미확인 건수를 페이지로 반환한다. */
   public ChangeReviewPageResponse findAll(
       long purchaseRequestId, long actorId, int page, int size) {
     PurchaseRequest request = requireRequest(purchaseRequestId);
@@ -108,12 +109,12 @@ public class ReservationChangeService {
         request.transactionStatus());
   }
 
-  @Transactional
   /**
    * 선택 구매자의 KEEP/CANCEL 결정을 기록한다.
    *
    * <p>동일 결정 재전송은 저장 결과를 반환하고 다른 결정 덮어쓰기는 거부한다. CANCEL은 예약 취소와 결정 저장을 같은 트랜잭션에서 수행한다.
    */
+  @Transactional
   public ChangeReviewResponse review(
       long purchaseRequestId,
       long eventId,
@@ -146,16 +147,19 @@ public class ReservationChangeService {
     return response(locked);
   }
 
+  /** 완료 단계가 호출할 수 있도록 미확인 변경 존재 여부를 제공한다. */
   public boolean hasUnreviewedChanges(long purchaseRequestId) {
     return reviewRepository.countUnreviewed(purchaseRequestId) > 0;
   }
 
+  /** 미확인 변경이 하나라도 있으면 거래 완료 진행을 409로 차단하는 P4 연동 가드다. */
   public void requireNoUnreviewedChanges(long purchaseRequestId) {
     if (hasUnreviewedChanges(purchaseRequestId)) {
       throw new CommonException(ErrorCode.TRADE_CONFLICT);
     }
   }
 
+  /** KEEP에는 사유를 금지하고 CANCEL에는 허용 enum 사유를 필수로 한다. */
   private void validateDecision(ChangeReviewDecision decision, TradeCancellationReason reason) {
     if (decision == null
         || (decision == ChangeReviewDecision.CANCEL && reason == null)
@@ -164,6 +168,7 @@ public class ReservationChangeService {
     }
   }
 
+  /** 요청·판매글·제품·현재 소유자와 ACCEPTED/RESERVED 상태가 같은 예약을 가리키는지 검증한다. */
   private void requireReservedConnection(
       long productId, PurchaseRequest request, PublishedListing listing) {
     if (!request.isReserved()
@@ -199,6 +204,7 @@ public class ReservationChangeService {
         .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
   }
 
+  /** 판매자와 선택 구매자에게만 조회를 허용하고 비당사자에게는 404를 반환한다. */
   private ChatRoom requireParticipant(long roomId, long actorId) {
     ChatRoom room =
         roomRepository

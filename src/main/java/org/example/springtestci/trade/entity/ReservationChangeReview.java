@@ -14,6 +14,7 @@ public class ReservationChangeReview {
 
   private final long purchaseRequestId;
   private final long eventId;
+  // 사건 발생 시점의 제품 facts 버전과 공개 안전 JSON 사본은 최초 저장 후 변경하지 않는다.
   private final long factsVersion;
   private final JsonNode changeFacts;
   private ChangeReviewDecision decision;

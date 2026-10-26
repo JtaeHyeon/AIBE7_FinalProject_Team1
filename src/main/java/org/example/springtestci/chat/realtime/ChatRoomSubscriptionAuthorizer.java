@@ -4,8 +4,8 @@ import org.example.springtestci.chat.domain.ChatAccessPolicy;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.springframework.stereotype.Component;
 
-@Component
 /** STOMP 구독자가 영속화된 채팅방의 원래 참여자인지 확인한다. */
+@Component
 class ChatRoomSubscriptionAuthorizer {
 
   private final ChatRoomRepository roomRepository;

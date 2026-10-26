@@ -28,14 +28,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service
-@ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
-@Transactional(readOnly = true)
 /**
  * P1 채팅 유스케이스 구현이다.
  *
  * <p>모든 방 접근에서 판매자·문의자 참여 여부를 확인한다. 쓰기 메서드만 읽기 전용 트랜잭션을 해제하며, 메시지 브로커 전달은 DB 커밋 이후로 지연한다.
  */
+@Service
+@ConditionalOnProperty(prefix = "app.features.chat-api", name = "enabled", havingValue = "true")
+@Transactional(readOnly = true)
 public class DefaultChatService implements ChatService {
 
   private static final Sort MESSAGE_SORT =

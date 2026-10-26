@@ -14,15 +14,15 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service
-@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
-@Transactional(readOnly = true)
 /**
  * P3 RESERVED 거래 취소의 공통 원자 처리 서비스다.
  *
  * <p>원래 판매자 또는 선택 구매자만 취소할 수 있다. INTERNAL/PENDING 이전, 구매 요청, 판매글 예약과 감사 기록을 같은 트랜잭션에서 변경하며 어느 단계든
  * 실패하면 전체를 롤백한다.
  */
+@Service
+@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
+@Transactional(readOnly = true)
 public class TradeCancellationService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -47,8 +47,8 @@ public class TradeCancellationService {
     this.clock = clock;
   }
 
-  @Transactional
   /** 예약 취소 API용 진입점으로, 이미 끝난 동일 예약 취소는 최초 기록을 보존해 멱등 반환한다. */
+  @Transactional
   public TradeCancellationResponse cancel(
       long purchaseRequestId, long actorId, TradeCancellationReason reason) {
     return cancel(purchaseRequestId, actorId, reason, true);
@@ -107,6 +107,11 @@ public class TradeCancellationService {
     cancelLocked(request, room, cancelledListing, actorId, reason, false);
   }
 
+  /**
+   * 잠금과 상태 검증을 마친 예약에 이전 취소→요청 취소→선택적 판매글 해제→감사를 순서대로 적용한다.
+   *
+   * @param releaseListing 일반 예약 취소면 {@code true}, 이미 판매 중지된 R07 경로면 {@code false}
+   */
   private void cancelLocked(
       PurchaseRequest request,
       ChatRoom room,
@@ -172,6 +177,7 @@ public class TradeCancellationService {
     return room;
   }
 
+  /** 원래 방 판매자와 선택 문의자 이외에는 취소 대상 거래의 존재를 숨긴다. */
   private void requireOriginalParties(ChatRoom room, long actorId) {
     if (actorId != room.sellerId() && actorId != room.inquirerId()) {
       throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);

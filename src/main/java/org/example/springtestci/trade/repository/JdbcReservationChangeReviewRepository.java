@@ -13,9 +13,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
 
+/** JSONB 변경 사본을 불변 저장하고 결정 행 잠금을 제공하는 P3 JDBC 어댑터다. */
 @Repository
 @ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
-/** JSONB 변경 사본을 불변 저장하고 결정 행 잠금을 제공하는 P3 JDBC 어댑터다. */
 public class JdbcReservationChangeReviewRepository implements ReservationChangeReviewRepository {
 
   private static final String SELECT_REVIEW =
@@ -30,6 +30,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
     this.objectMapper = objectMapper;
   }
 
+  /** 변경 사본을 잠금 없이 조회해 중복 등록 여부를 확인한다. */
   @Override
   public Optional<ReservationChangeReview> find(long purchaseRequestId, long eventId) {
     return queryOne(
@@ -38,6 +39,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
         eventId);
   }
 
+  /** 결정 경합을 직렬화하기 위해 복합 키의 review 행을 `FOR UPDATE`로 조회한다. */
   @Override
   public Optional<ReservationChangeReview> findForUpdate(long purchaseRequestId, long eventId) {
     return queryOne(
@@ -46,6 +48,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
         eventId);
   }
 
+  /** 복합 키 충돌 시 기존 JSON 사본을 덮어쓰지 않고 {@code false}를 반환한다. */
   @Override
   public boolean saveIfAbsent(ReservationChangeReview review) {
     int inserted =
@@ -58,6 +61,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
     return inserted == 1;
   }
 
+  /** 아직 미응답인 행 하나만 결정·시각으로 갱신하고 영향 행이 다르면 경합으로 처리한다. */
   @Override
   public void updateDecision(ReservationChangeReview review) {
     int updated =
@@ -72,6 +76,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
     }
   }
 
+  /** 사건 ID 오름차순으로 변경 사본을 조회하고 전체 건수를 함께 반환한다. */
   @Override
   public PageResult findAll(long purchaseRequestId, int page, int size) {
     Long total =
@@ -89,6 +94,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
     return new PageResult(items, total == null ? 0 : total);
   }
 
+  /** 거래 완료 가드와 API 표시를 위한 미응답 행 수를 반환한다. */
   @Override
   public long countUnreviewed(long purchaseRequestId) {
     Long count =
@@ -103,6 +109,7 @@ public class JdbcReservationChangeReviewRepository implements ReservationChangeR
     return jdbcTemplate.query(sql, this::mapReview, parameters).stream().findFirst();
   }
 
+  /** JSONB 사본을 JsonNode로 복원하고 미응답 행의 결정·시각 NULL 쌍을 그대로 보존한다. */
   private ReservationChangeReview mapReview(ResultSet resultSet, int rowNumber)
       throws SQLException {
     String decision = resultSet.getString("decision");

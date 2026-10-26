@@ -17,14 +17,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-@Component
-@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
 /**
  * R07 판매 중지 흐름에 P2/P3 거래 정리를 연결하는 어댑터다.
  *
  * <p>호출자가 판매글을 CANCELLED로 변경한 기존 트랜잭션 안에서만 실행된다. ACTIVE 판매글은 PENDING 요청을 정리하고, RESERVED 판매글은 선택 거래와
  * 나머지 PENDING 요청을 함께 취소하며 판매글을 ACTIVE로 되돌리지 않는다.
  */
+@Component
+@ConditionalOnProperty(prefix = "app.features.trade-p3", name = "enabled", havingValue = "true")
 public class TradeListingCanceller implements ListingTradeCanceller {
 
   private final PurchaseRequestRepository requestRepository;
@@ -43,9 +43,9 @@ public class TradeListingCanceller implements ListingTradeCanceller {
     this.cancellationService = cancellationService;
   }
 
+  /** 독립 트랜잭션을 열지 않고 판매 중지 호출자의 원자 경계에 반드시 참여한다. */
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
-  /** 독립 트랜잭션을 열지 않고 판매 중지 호출자의 원자 경계에 반드시 참여한다. */
   public void cancel(Command command) {
     PublishedListing listing =
         listingAccess
@@ -89,6 +89,7 @@ public class TradeListingCanceller implements ListingTradeCanceller {
             });
   }
 
+  /** COMPLETED 거래가 하나라도 있으면 판매 중지의 거래 정리를 거부한다. */
   private void rejectCompleted(List<PurchaseRequest> requests) {
     if (requests.stream()
         .anyMatch(request -> request.transactionStatus() == TransactionStatus.COMPLETED)) {
@@ -96,6 +97,7 @@ public class TradeListingCanceller implements ListingTradeCanceller {
     }
   }
 
+  /** R07 자유문이 취소 enum 이름과 정확히 일치할 때만 RESERVED 거래 정리에 사용한다. */
   private TradeCancellationReason parseReservedReason(String reason) {
     try {
       return TradeCancellationReason.valueOf(reason);

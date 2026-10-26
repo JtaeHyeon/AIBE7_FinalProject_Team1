@@ -19,18 +19,18 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service
-@ConditionalOnProperty(
-    prefix = "app.features.trade-purchase-requests",
-    name = "enabled",
-    havingValue = "true")
-@Transactional(readOnly = true)
 /**
  * P2 구매 요청 생성·조회와 PENDING 요청의 취소·거절·수락을 처리한다.
  *
  * <p>수락은 제품→판매글→구매 요청 순으로 잠그고, 요청 RESERVED 전이·판매글 예약·INTERNAL/PENDING 이전 생성을 같은 트랜잭션에서 처리한다.
  * 비당사자에게는 거래 존재를 숨기기 위해 404 계약을 사용한다.
  */
+@Service
+@ConditionalOnProperty(
+    prefix = "app.features.trade-purchase-requests",
+    name = "enabled",
+    havingValue = "true")
+@Transactional(readOnly = true)
 public class PurchaseRequestService {
 
   private final PurchaseRequestRepository requestRepository;
@@ -49,8 +49,8 @@ public class PurchaseRequestService {
     this.transferWriter = transferWriter;
   }
 
-  @Transactional
   /** 구매 문의자만 요청할 수 있으며 같은 방의 기존 PENDING 요청은 멱등하게 반환한다. */
+  @Transactional
   public CreateResult create(long listingId, long roomId, long actorId) {
     ChatRoom room = requireRoomParticipant(roomId, actorId);
     if (actorId != room.inquirerId()) {
@@ -74,6 +74,7 @@ public class PurchaseRequestService {
     return new CreateResult(toResponse(saved, listing.status()), true);
   }
 
+  /** 인증 사용자의 송수신 방향과 선택 필터에 맞는 요청·판매글 상태를 페이지 응답으로 조합한다. */
   public PurchaseRequestPageResponse findAll(
       long actorId,
       PurchaseRequestDirection direction,
@@ -101,14 +102,15 @@ public class PurchaseRequestService {
         roomContext);
   }
 
+  /** 요청이 연결된 채팅방의 판매자 또는 문의자에게만 단건 상태를 반환한다. */
   public PurchaseRequestResponse findById(long requestId, long actorId) {
     PurchaseRequest request = requireRequest(requestId);
     requireRoomParticipant(request.roomId(), actorId);
     return toResponse(request);
   }
 
-  @Transactional
   /** 구매자가 아직 수락되지 않은 자신의 PENDING 요청만 취소한다. */
+  @Transactional
   public PurchaseRequestResponse cancel(long requestId, long actorId) {
     PurchaseRequest request = requireLockedRequest(requestId);
     ChatRoom room = requireRoomParticipant(request.roomId(), actorId);
@@ -120,8 +122,8 @@ public class PurchaseRequestService {
     return toResponse(request);
   }
 
-  @Transactional
   /** 판매자가 자신의 판매글에 연결된 PENDING 요청을 거절한다. */
+  @Transactional
   public PurchaseRequestResponse reject(long requestId, long actorId) {
     PurchaseRequest request = requireLockedRequest(requestId);
     ChatRoom room = requireRoomParticipant(request.roomId(), actorId);
@@ -133,12 +135,12 @@ public class PurchaseRequestService {
     return toResponse(request);
   }
 
-  @Transactional
   /**
    * 판매자가 요청을 수락해 예약을 확정한다.
    *
    * <p>{@link InternalTransferPendingWriter} 실패를 삼키지 않아 요청·판매글 변경도 함께 롤백한다.
    */
+  @Transactional
   public PurchaseRequestResponse accept(long requestId, long actorId) {
     PurchaseRequest initial = requireRequest(requestId);
     ChatRoom room = requireRoomParticipant(initial.roomId(), actorId);
@@ -164,6 +166,7 @@ public class PurchaseRequestService {
     return toResponse(request, PublishedListingStatus.RESERVED);
   }
 
+  /** 방이 없거나 당사자가 아니면 동일하게 404를 사용해 거래 존재를 노출하지 않는다. */
   private ChatRoom requireRoomParticipant(long roomId, long actorId) {
     ChatRoom room =
         roomRepository
@@ -199,6 +202,7 @@ public class PurchaseRequestService {
     }
   }
 
+  /** 채팅방·판매글·현재 소유자·ACTIVE 상태와 선택 구매자 관계가 모두 일치하는지 검증한다. */
   private void requirePurchasable(PublishedListing listing, ChatRoom room, long buyerId) {
     if (listing.listingId() != room.listingId()
         || listing.sellerId() != room.sellerId()
