@@ -16,12 +16,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/** 제품을 먼저 잠근 뒤 게시 판매글을 읽고 ACTIVE/RESERVED 상태를 조건부 갱신하는 JDBC 어댑터다. */
 @Repository
 @ConditionalOnProperty(
     prefix = "app.features.trade-purchase-requests",
     name = "enabled",
     havingValue = "true")
-/** 제품을 먼저 잠근 뒤 게시 판매글을 읽고 ACTIVE/RESERVED 상태를 조건부 갱신하는 JDBC 어댑터다. */
 public class JdbcPublishedListingAccess implements PublishedListingAccess {
 
   private static final String SELECT_LISTING =
@@ -110,7 +110,11 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     }
   }
 
-  /** RESERVED 한 행만 ACTIVE로 되돌리고 종료·재예약된 판매글은 변경하지 않는다. */
+  /**
+   * 현재 RESERVED인 판매글 한 건을 ACTIVE로 변경하고 영향 행 수를 검사한다.
+   *
+   * <p>동일 예약의 유효한 취소인지 확인하고 재시도가 새 예약을 해제하지 않도록 하는 책임은 호출 서비스에 있다.
+   */
   @Override
   public void releaseReservation(long listingId) {
     int updated =
