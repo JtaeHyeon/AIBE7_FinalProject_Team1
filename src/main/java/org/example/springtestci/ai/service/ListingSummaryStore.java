@@ -28,6 +28,7 @@ public class ListingSummaryStore {
   private final ProductService products;
   private final ListingSuggestionSource sources;
   private final AiListingTextPolicy policy;
+  private final ListingSummaryTextPolicy summaryPolicy;
   private final Clock clock;
   private final AiListingProperties properties;
   private final boolean enabled;
@@ -38,6 +39,7 @@ public class ListingSummaryStore {
       ProductService products,
       ListingSuggestionSource sources,
       AiListingTextPolicy policy,
+      ListingSummaryTextPolicy summaryPolicy,
       Clock clock,
       AiListingProperties properties,
       @Value("${app.ai.summary.enabled:true}") boolean enabled) {
@@ -46,6 +48,7 @@ public class ListingSummaryStore {
     this.products = products;
     this.sources = sources;
     this.policy = policy;
+    this.summaryPolicy = summaryPolicy;
     this.clock = clock;
     this.properties = properties;
     this.enabled = enabled;
@@ -68,12 +71,14 @@ public class ListingSummaryStore {
       if (actorId != null) throw new CommonException(ErrorCode.SUMMARY_UNAVAILABLE);
       return response(current, state, null);
     }
-    // 같은 자료로 생성 중이거나 이미 완료된 결과가 있으면 중복 생성하지 않는다.
+    // 같은 자료로 생성 중이거나 정상 완료된 요약은 재사용해 중복 호출을 막는다.
+    // 이전 검증을 통과해 저장된 규칙 안내 문장은 새로 생성할 수 있게 한다.
     boolean same = matches(current, state);
     if (same
         && (state.status() == Status.QUEUED
             || state.status() == Status.PROCESSING
-            || state.status() == Status.READY)) return response(current, state, actorId);
+            || (state.status() == Status.READY && !unusableText(state))))
+      return response(current, state, actorId);
     long wait = same ? retryWait(state) : 0;
     if (wait > 0)
       throw new RateLimitedException(ErrorCode.SUMMARY_RETRY_LIMITED, Duration.ofSeconds(wait));
@@ -182,21 +187,28 @@ public class ListingSummaryStore {
 
   private ListingSummaryResponse response(
       Current current, ListingSummaryState state, Long actorId) {
-    // 요약의 기준 버전이 현재 자료와 다르면 옛 문장은 숨기고 판매자에게 다시 생성할 기회를 준다.
+    // 기준 자료가 바뀌었거나 요약이 작성 규칙을 반복하면 응답에서 숨기고 판매자가 재생성할 수 있게 한다.
+    // DB의 저장 상태는 바꾸지 않으며, 조회 중에 AI를 다시 호출하지 않는다.
     boolean stale = state.status() != Status.NOT_REQUESTED && !matches(current, state);
-    Status status = stale ? Status.FAILED : state.status();
-    long wait = stale ? 0 : retryWait(state);
+    boolean unusable = unusableText(state);
+    Status status = stale || unusable ? Status.FAILED : state.status();
+    long wait = stale || unusable ? 0 : retryWait(state);
     boolean owner = actorId != null && current.listing().getSellerId() == actorId;
     return new ListingSummaryResponse(
         status,
         status == Status.READY ? state.text() : null,
-        stale ? "AI_005" : state.errorCode(),
+        stale ? "AI_005" : unusable ? "AI_003" : state.errorCode(),
         state.updatedAt(),
         enabled
             && owner
             && (status == Status.NOT_REQUESTED || status == Status.FAILED)
             && wait == 0,
         wait);
+  }
+
+  private boolean unusableText(ListingSummaryState state) {
+    return state.status() == Status.READY
+        && summaryPolicy.containsProcessInstructions(state.text());
   }
 
   private record Current(Listing listing, long productVersion) {}
