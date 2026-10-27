@@ -17,7 +17,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
@@ -61,7 +60,7 @@ class PurchaseRequestPostgresIntegrationTest {
   private static JdbcTemplate jdbcTemplate;
   private static TransactionTemplate transactionTemplate;
   private static JdbcPurchaseRequestRepository requestRepository;
-  private static JdbcListingAccess listingAccess;
+  private static FaultInjectingListingAccess listingAccess;
   private static JdbcTransferWriter transferWriter;
   private static PurchaseRequestService service;
 
@@ -80,7 +79,6 @@ class PurchaseRequestPostgresIntegrationTest {
         .load()
         .migrate();
     jdbcTemplate = new JdbcTemplate(schemaDataSource);
-    createExternalFixtureTables();
     Flyway.configure()
         .dataSource(schemaDataSource)
         .locations("classpath:db/migration", "classpath:db/pending/trade-p2")
@@ -92,7 +90,7 @@ class PurchaseRequestPostgresIntegrationTest {
     transactionTemplate =
         new TransactionTemplate(new DataSourceTransactionManager(schemaDataSource));
     requestRepository = new JdbcPurchaseRequestRepository(jdbcTemplate);
-    listingAccess = new JdbcListingAccess(jdbcTemplate);
+    listingAccess = new FaultInjectingListingAccess(new JdbcPublishedListingAccess(jdbcTemplate));
     transferWriter = new JdbcTransferWriter(jdbcTemplate);
     service =
         new PurchaseRequestService(
@@ -500,6 +498,31 @@ class PurchaseRequestPostgresIntegrationTest {
   }
 
   @Test
+  void readsProductionListingStateFromProductsAndListings() {
+    Fixture fixture = insertFixture(BUYER_ONE_ID);
+
+    PublishedListing listing = listingAccess.findById(fixture.listingId()).orElseThrow();
+
+    assertThat(listing.productId()).isEqualTo(1L);
+    assertThat(listing.sellerId()).isEqualTo(SELLER_ID);
+    assertThat(listing.currentOwnerId()).isEqualTo(SELLER_ID);
+    assertThat(listing.status()).isEqualTo(PublishedListingStatus.ACTIVE);
+    assertThat(listingAccess.findStatuses(List.of())).isEmpty();
+    assertThat(listingAccess.findStatuses(List.of(fixture.listingId(), 999L)))
+        .containsExactly(Map.entry(fixture.listingId(), PublishedListingStatus.ACTIVE));
+
+    jdbcTemplate.update("update products set owner_id = ? where id = 1", BUYER_TWO_ID);
+    assertThat(listingAccess.findById(fixture.listingId()).orElseThrow().currentOwnerId())
+        .isEqualTo(BUYER_TWO_ID);
+
+    jdbcTemplate.update("update products set archived_at = current_timestamp where id = 1");
+    assertThat(listingAccess.findById(fixture.listingId()).orElseThrow().status())
+        .isEqualTo(PublishedListingStatus.CANCELLED);
+    assertThat(listingAccess.findStatuses(List.of(fixture.listingId())))
+        .containsExactly(Map.entry(fixture.listingId(), PublishedListingStatus.CANCELLED));
+  }
+
+  @Test
   void rollsBackAcceptanceWhenProductAlreadyHasPendingTransfer() {
     Fixture fixture = insertFixture(BUYER_ONE_ID);
     long targetRequestId = createRequest(fixture);
@@ -594,8 +617,7 @@ class PurchaseRequestPostgresIntegrationTest {
         "insert into products (id, category, manufacturer, manufacturer_normalized, model_name, serial_number_fingerprint, title, owner_id, serial_number_ciphertext) values (1, 'LAPTOP', 'maker', 'MAKER', 'model', 'fingerprint', 'title', ?, 'ciphertext')",
         SELLER_ID);
     jdbcTemplate.update(
-        "insert into listings (id, product_id, seller_id, current_owner_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, ?, ?, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)",
-        SELLER_ID,
+        "insert into listings (id, product_id, seller_id, title, price, condition_grade, description, status, published_at, source_draft_id, source_draft_version, active_slot) values (1, 1, ?, 'title', 1, 1, 'description', 'ACTIVE', current_timestamp, 1, 0, 1)",
         SELLER_ID);
     return new Fixture(1L, insertRoom(1L, buyerId));
   }
@@ -617,12 +639,6 @@ class PurchaseRequestPostgresIntegrationTest {
         nickname,
         Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
-  }
-
-  private static void createExternalFixtureTables() {
-    jdbcTemplate = new JdbcTemplate(schemaDataSource);
-    jdbcTemplate.execute(
-        "alter table listings add column current_owner_id bigint references users(id)");
   }
 
   private static void createOwnershipTransferFixtureTable() {
@@ -660,84 +676,36 @@ class PurchaseRequestPostgresIntegrationTest {
 
   private record Fixture(long listingId, long roomId) {}
 
-  private static class JdbcListingAccess implements PublishedListingAccess {
+  private static class FaultInjectingListingAccess implements PublishedListingAccess {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final PublishedListingAccess delegate;
     private final AtomicBoolean failAfterReserve = new AtomicBoolean();
 
-    private JdbcListingAccess(JdbcTemplate jdbcTemplate) {
-      this.jdbcTemplate = jdbcTemplate;
+    private FaultInjectingListingAccess(PublishedListingAccess delegate) {
+      this.delegate = delegate;
     }
 
     @Override
     public Optional<PublishedListing> findById(long listingId) {
-      return find(listingId, false);
+      return delegate.findById(listingId);
     }
 
     @Override
     public Optional<PublishedListing> findByIdForUpdate(long listingId) {
-      Long productId =
-          jdbcTemplate.queryForObject(
-              "select product_id from listings where id = ?", Long.class, listingId);
-      if (productId == null) {
-        return Optional.empty();
-      }
-      jdbcTemplate.queryForObject(
-          "select owner_id from products where id = ? for update", Long.class, productId);
-      return find(listingId, true);
+      return delegate.findByIdForUpdate(listingId);
     }
 
     @Override
     public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
-      if (listingIds.isEmpty()) {
-        return Map.of();
-      }
-      String placeholders =
-          listingIds.stream().map(ignored -> "?").collect(Collectors.joining(","));
-      return jdbcTemplate.query(
-          "select id, status from listings where id in (" + placeholders + ")",
-          resultSet -> {
-            java.util.HashMap<Long, PublishedListingStatus> result = new java.util.HashMap<>();
-            while (resultSet.next()) {
-              result.put(
-                  resultSet.getLong("id"),
-                  PublishedListingStatus.valueOf(resultSet.getString("status")));
-            }
-            return result;
-          },
-          listingIds.toArray());
+      return delegate.findStatuses(listingIds);
     }
 
     @Override
     public void reserve(long listingId) {
-      int updated =
-          jdbcTemplate.update(
-              "update listings set status = 'RESERVED' where id = ? and status = 'ACTIVE'",
-              listingId);
-      if (updated != 1) {
-        throw new CommonException(org.example.springtestci.common.error.ErrorCode.TRADE_CONFLICT);
-      }
+      delegate.reserve(listingId);
       if (failAfterReserve.get()) {
         throw new IllegalStateException("Injected listing reservation failure");
       }
-    }
-
-    private Optional<PublishedListing> find(long listingId, boolean forUpdate) {
-      String suffix = forUpdate ? " for update of listing" : "";
-      return jdbcTemplate
-          .query(
-              "select listing.id, listing.product_id, listing.seller_id, product.owner_id, listing.status from listings listing join products product on product.id = listing.product_id where listing.id = ?"
-                  + suffix,
-              (resultSet, rowNumber) ->
-                  new PublishedListing(
-                      resultSet.getLong("id"),
-                      resultSet.getLong("product_id"),
-                      resultSet.getLong("seller_id"),
-                      resultSet.getLong("owner_id"),
-                      PublishedListingStatus.valueOf(resultSet.getString("status"))),
-              listingId)
-          .stream()
-          .findFirst();
     }
   }
 
