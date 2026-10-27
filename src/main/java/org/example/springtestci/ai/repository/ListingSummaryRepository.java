@@ -9,6 +9,7 @@ import org.example.springtestci.ai.entity.ListingSummaryState.Status;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/** listings의 요약 컬럼만 JDBC로 변경한다. JPA의 판매 조건 저장이 요약 상태를 덮어쓰지 않게 분리한다. */
 @Repository
 public class ListingSummaryRepository {
   private final JdbcTemplate jdbc;
@@ -43,6 +44,7 @@ public class ListingSummaryRepository {
         id);
   }
 
+  /** 같은 시도 ID의 대기 작업을 처리 중으로 바꾼 한 작업자만 true를 받는다. */
   public boolean claim(Pending pending, Instant now) {
     return jdbc.update(
             "UPDATE listings SET summary_status='PROCESSING',summary_updated_at=? WHERE id=? AND summary_attempt_id=? AND summary_status='QUEUED' AND status IN ('ACTIVE','RESERVED')",

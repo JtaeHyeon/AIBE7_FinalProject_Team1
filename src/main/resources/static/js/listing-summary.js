@@ -1,3 +1,4 @@
+// 게시 상세의 AI 상태를 주기적으로 조회한다. 생성 요청과 완료 결과의 표시는 분리해서 처리한다.
 (() => {
   'use strict';
   let root=null, listingId=null, sequence=0, request=null, timer=null, state=null, issuing=false, owner=false, sample=false, polls=0, notice='';
@@ -7,6 +8,7 @@
   const messages={NOT_REQUESTED:'아직 AI 요약이 생성되지 않았어요.',QUEUED:'요약 생성 순서를 기다리고 있어요.',PROCESSING:'등록된 제품 정보와 전체 핵심 이력으로 요약을 만들고 있어요.',READY:'등록된 기록에 근거한 AI 요약이에요. 전체 이력도 함께 확인해 주세요.',FAILED:'AI 요약을 만들지 못했어요. 기본 제품 정보와 이력은 계속 확인할 수 있어요.'};
   const reasons={AI_002:'응답 시간이 초과됐어요.',AI_003:'결과가 검증을 통과하지 못했어요.',AI_004:'전체 핵심 이력 연결을 확인하지 못했어요.',AI_005:'제품 정보나 판매 조건이 변경되어 이전 요약을 표시하지 않아요.',AI_006:'전체 이력이 AI 입력 한도를 초과했어요.',AI_007:'AI 요청이 많아 잠시 기다려야 해요.'};
 
+  // 다른 페이지로 이동하면 조회·타이머를 끊고 이전 판매글의 늦은 응답을 무시한다.
   function reset() {
     sequence++;request?.abort();request=null;clearTimeout(timer);timer=null;
     root=null;listingId=null;state=null;issuing=false;polls=0;notice='';
@@ -31,6 +33,7 @@
     }
     root.append(actions);
   }
+  // 생성 중에는 자주 조회하되 횟수를 제한한다. 완료 후에는 종료 여부를 확인하기 위해 간격을 늘린다.
   function schedule() {
     clearTimeout(timer);timer=null;
     if(!current()||document.hidden||!state)return;
@@ -49,6 +52,7 @@
     const login=document.querySelector('#detail [data-listing-login]');if(login)login.hidden=status!==401;
     reset();
   }
+  // 기본 GET은 저장된 상태만 조회한다. 판매자가 생성·재시도 버튼을 누른 경우에만 POST로 접수한다.
   async function fetchState(post=false) {
     if(!current()||document.hidden||(issuing&&!post))return;
     clearTimeout(timer);request?.abort();

@@ -12,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+/** 게시된 글의 AI 상태 요약을 조회하거나 생성 대기열에 접수한다. 작성용 제목·본문 제안과 구분한다. */
 @Validated
 @RestController
 @RequestMapping("/api/v1/listings/{listingId}/summary")

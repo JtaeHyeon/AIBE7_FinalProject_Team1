@@ -69,6 +69,7 @@ public class GeminiJsonClient {
         && !key.contains("\n");
   }
 
+  /** 작성 지침·출력 JSON 형식·제품 자료를 Gemini에 전송한다. 제한 시간과 응답 크기도 이곳에서 관리한다. */
   public JsonNode generate(String instructions, Map<String, Object> schema, String sourceJson) {
     if (!configured()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
     var body =

@@ -1,3 +1,4 @@
+// 미리보기와 게시 상세가 함께 쓰는 화면 구성 함수다. 데이터를 표시하며 저장·게시 요청은 보내지 않는다.
 (() => {
   const element = (tag, className = '', text = null) => {
     const node = document.createElement(tag); node.className = className;

@@ -39,6 +39,7 @@ public class ListingSuggestionService {
     var lease = limits.acquire(userId);
     try {
       var result = policy.validate(gateway.generate(before.json()), before.json());
+      // 생성 중 소유권·자료가 바뀌었는지 다시 확인해 예전 정보로 만든 제안을 반환하지 않는다.
       var after = sources.capture(productId, userId);
       if (!before.sourceVersion().equals(after.sourceVersion()))
         throw new CommonException(ErrorCode.AI_SOURCE_CHANGED);

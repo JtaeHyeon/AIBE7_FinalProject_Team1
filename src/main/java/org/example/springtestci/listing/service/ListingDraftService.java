@@ -18,6 +18,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 제품 소유권·초안 작성자·버전·사진 소속을 확인한 뒤 비공개 초안을 저장하거나 불러온다. */
 @Service
 @Transactional(readOnly = true)
 public class ListingDraftService {
@@ -55,6 +56,7 @@ public class ListingDraftService {
     return ListingDraftResponse.from(ownedDraft(productId, userId));
   }
 
+  /** 제품당 초안 한 개만 생성한다. 기존 초안이 있으면 수정 API를 사용해야 한다. */
   @Transactional
   public ListingDraftResponse save(long productId, long userId, SaveListingDraftRequest request) {
     products.lockOwnedForListing(userId, productId);
@@ -68,6 +70,7 @@ public class ListingDraftService {
     return ListingDraftResponse.from(draft);
   }
 
+  /** 화면에서 읽었던 버전이 DB의 현재 버전과 같을 때만 내용을 교체한다. */
   @Transactional
   public ListingDraftResponse update(
       long productId, long draftId, long userId, SaveListingDraftRequest request) {
@@ -96,12 +99,14 @@ public class ListingDraftService {
         .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
   }
 
+  // 삭제 후 새로 생성된 초안이나 다른 탭에서 수정한 초안을 예전 화면으로 덮어쓰지 못하게 한다.
   private void requireCurrentVersion(ListingDraft draft, long draftId, Long version) {
     if (draft.getId() != draftId || version == null || !version.equals(draft.getVersion())) {
       throw new CommonException(ErrorCode.DRAFT_CONFLICT);
     }
   }
 
+  // 클라이언트가 보낸 사진 ID도 신뢰하지 않고 해당 제품의 사용 가능한 사진인지 다시 확인한다.
   private void validateImages(long productId, long userId, SaveListingDraftRequest request) {
     List<Long> imageIds = request.imageIds();
     if (new HashSet<>(imageIds).size() != imageIds.size())

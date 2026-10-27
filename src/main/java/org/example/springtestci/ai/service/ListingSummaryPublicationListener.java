@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+/** 게시 트랜잭션이 성공한 뒤에만 요약을 접수한다. 게시가 롤백되면 AI 작업도 시작하지 않는다. */
 @Component
 public class ListingSummaryPublicationListener {
   private static final Logger LOG =

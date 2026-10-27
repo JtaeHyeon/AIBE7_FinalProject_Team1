@@ -51,6 +51,7 @@ public class ListingSummaryStore {
     this.enabled = enabled;
   }
 
+  /** 공개 조건을 확인한 뒤 DB에 저장된 상태만 읽는다. 이 조회가 요약 생성을 시작하지는 않는다. */
   @Transactional
   public ListingSummaryResponse get(long listingId, long actorId) {
     var current = lock(listingId, null);
@@ -83,6 +84,7 @@ public class ListingSummaryStore {
     return response(current, summaries.read(listingId), actorId);
   }
 
+  /** 대기 작업을 처리 중으로 바꾸고 AI 입력을 준비한다. 여러 작업자 중 한 명만 확보할 수 있다. */
   @Transactional
   public Job claim(Pending pending) {
     var current = lock(pending.listingId(), null);
@@ -113,6 +115,7 @@ public class ListingSummaryStore {
         input);
   }
 
+  /** 생성 후에도 판매 상태·소유권·버전·이력이 그대로인 경우에만 이번 시도의 결과를 저장한다. */
   @Transactional
   public void complete(Job job, String text) {
     var current = lock(job.pending().listingId(), null);
@@ -138,6 +141,7 @@ public class ListingSummaryStore {
         pending, code != null && code.matches("AI_\\d{3}") ? code : "AI_001", clock.instant());
   }
 
+  /** 서버 종료 등으로 멈춘 작업을 실패 처리해 화면에 계속 생성 중으로 남지 않게 한다. */
   @Transactional
   public void recoverExpired() {
     Instant now = clock.instant();
@@ -175,6 +179,7 @@ public class ListingSummaryStore {
 
   private ListingSummaryResponse response(
       Current current, ListingSummaryState state, Long actorId) {
+    // 요약의 기준 버전이 현재 자료와 다르면 옛 문장은 숨기고 판매자에게 다시 생성할 기회를 준다.
     boolean stale = state.status() != Status.NOT_REQUESTED && !matches(current, state);
     Status status = stale ? Status.FAILED : state.status();
     long wait = stale ? 0 : retryWait(state);

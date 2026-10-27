@@ -44,6 +44,7 @@ public class ListingSuggestionSource {
     String source = json.writeValueAsString(data);
     if (source.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES)
       throw new CommonException(ErrorCode.AI_INPUT_TOO_LARGE);
+    // 제품 버전과 공개 자료를 하나의 지문으로 만들어 AI 생성 전후 이력 변경까지 비교한다.
     String fingerprint = digest(owned.factsVersion() + ":" + source);
     return new Snapshot(owned.factsVersion(), fingerprint, source, publication.history().sample());
   }

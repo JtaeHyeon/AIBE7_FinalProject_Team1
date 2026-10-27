@@ -3,6 +3,7 @@ package org.example.springtestci.listing.repository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/** 게시·수정·중지의 처리 이력을 audit_logs에 남긴다. 호출 서비스의 트랜잭션에 함께 반영된다. */
 @Repository
 public class ListingAuditRepository {
   private final JdbcTemplate jdbc;

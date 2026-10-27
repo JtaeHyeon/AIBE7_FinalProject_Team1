@@ -1,4 +1,4 @@
-// Explicit private server saves and authenticated draft resumption. Draft content stays out of browser storage.
+// 판매글 작성 화면: 제품 선택 → 임시저장 → 미리보기 → 게시 API를 연결한다. 작성 내용은 서버에 비공개로 저장한다.
 (() => {
   'use strict';
   let root;
@@ -125,6 +125,7 @@
     find('[data-sale-ai-status]').textContent = message;
   }
 
+  // AI 제안을 별도로 받아 보여준다. 사용자가 적용하기 전에는 작성 폼과 저장본을 바꾸지 않는다.
   async function generateAi() {
     if (!product || busy() || pendingPublish || aiLoading || Date.now() < aiRetryAt) return;
     clearAi('등록된 제품 정보와 전체 핵심 이력으로 AI 제안을 만들고 있어요. 직접 작성은 계속할 수 있어요.');
@@ -404,6 +405,7 @@
     }
   }
 
+  // 선택한 제품의 원본 사양·사진과 기존 초안을 함께 불러와 이어서 작성할 수 있게 한다.
   async function chooseProduct(next, discard = false) {
     if (busy() || pendingPublish !== null) return;
     if (!discard && dirty() && !await confirmAction('임시저장하지 않은 내용이 있어요. 저장본을 불러오면 작성 중인 내용이 바뀌어요. 계속할까요?', '불러오기')) {
@@ -443,6 +445,7 @@
     finally { if (!controller.signal.aborted) { loading = false; status(); } }
   }
 
+  // 첫 저장은 POST, 기존 초안 수정은 ID·버전을 포함한 PUT으로 보내고 서버의 새 버전을 보관한다.
   async function persistDraft() {
     const rawPrice = find('[data-sale-price]').value.trim();
     const validPrice = /^(?:[1-9]\d{0,11}|[1-9]\d{0,2}(?:,\d{3}){1,3})$/;
@@ -536,6 +539,7 @@
     if (removed && current) await chooseProduct(String(productId), true);
   }
 
+  // 입력을 먼저 임시저장한 뒤 그 초안의 ID·버전으로 게시한다. 성공하면 반환된 listingId의 상세로 이동한다.
   async function publishListing() {
     if (!product || busy()) return;
     error();

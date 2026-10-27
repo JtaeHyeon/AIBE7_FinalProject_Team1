@@ -7,6 +7,7 @@ import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.springframework.stereotype.Component;
 
+/** 공개 제품 자료를 Gemini에 보내 상태 요약 문장 배열을 받는다. 내용 검증·DB 저장은 다른 계층이 맡는다. */
 @Component
 public class GeminiListingSummaryGateway implements ListingSummaryGateway {
   private static final String PROMPT =

@@ -39,6 +39,7 @@ public class ListingSummaryDispatcher {
     this.executor = executor;
   }
 
+  /** 대기열을 주기적으로 읽어 별도 작업 스레드에 넘긴다. 게시 API가 AI 응답을 기다리지 않게 한다. */
   @Scheduled(
       fixedDelayString = "${app.ai.summary.dispatch-delay-ms:1000}",
       initialDelayString = "${app.ai.summary.initial-delay-ms:1000}")

@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 게시 조건 검사부터 판매글 생성·이력 공개·초안 정리까지 하나의 작업으로 처리한다. */
 @Service
 public class ListingPublishService {
   private final ProductService products;
@@ -51,6 +52,7 @@ public class ListingPublishService {
   @Transactional
   public Result publish(long productId, long userId, PublishListingRequest request) {
     products.lockOwnedForListing(userId, productId);
+    // 게시 응답이 유실되어 같은 요청을 다시 보내도 새 글을 만들지 않고 기존 결과를 돌려준다.
     var previous = listings.findBySourceDraftId(request.draftId());
     if (previous.isPresent()) {
       var listing = previous.get();
@@ -69,6 +71,7 @@ public class ListingPublishService {
         productId, List.of(ListingStatus.ACTIVE, ListingStatus.RESERVED)))
       throw new CommonException(ErrorCode.LISTING_ALREADY_OPEN);
 
+    // 거래·이전과 이력 공개 연동이 준비되지 않았다면 안전하게 게시를 막는다.
     var checker = constraints.getIfAvailable();
     var publisher = historyPublishers.getIfAvailable();
     if (checker == null || publisher == null)
@@ -86,10 +89,12 @@ public class ListingPublishService {
     publisher.publish(productId, listing.getId(), userId);
     drafts.delete(productId, draft.draftId(), userId, draft.version());
     audit.published(productId, userId, listing.getId());
+    // 요약 처리는 이 이벤트를 받은 별도 수신자가 게시 커밋 이후 접수한다.
     events.publishEvent(new ListingPublished(listing.getId()));
     return new Result(PublishedListingResponse.from(listing), true);
   }
 
+  // 빈 항목을 허용하는 임시저장과 달리, 게시할 때는 판매 조건과 사진이 모두 필요하다.
   private void validateRequired(ListingDraftResponse draft) {
     if (draft.title() == null
         || draft.title().isBlank()
