@@ -41,6 +41,7 @@ class ListingSummaryHttpTest {
   private static final AtomicReference<String> INPUT = new AtomicReference<>();
   private static final AtomicReference<Runnable> DURING = new AtomicReference<>();
   private static final AtomicReference<ErrorCode> ERROR = new AtomicReference<>();
+  private static final AtomicReference<List<String>> OUTPUT = new AtomicReference<>();
   private static final AtomicBoolean CONFIGURED = new AtomicBoolean(true),
       IN_TRANSACTION = new AtomicBoolean(),
       PUBLISH_FAIL = new AtomicBoolean();
@@ -103,6 +104,7 @@ class ListingSummaryHttpTest {
           IN_TRANSACTION.set(TransactionSynchronizationManager.isActualTransactionActive());
           if (DURING.get() != null) DURING.get().run();
           if (ERROR.get() != null) throw new CommonException(ERROR.get());
+          if (OUTPUT.get() != null) return OUTPUT.get();
           return List.of(
               "등록된 사양은 Apple M3 Pro입니다.",
               "등록된 메모리는 18GB입니다.",
@@ -194,6 +196,7 @@ class ListingSummaryHttpTest {
     DURING.set(null);
     ERROR.set(null);
     INPUT.set(null);
+    OUTPUT.set(null);
     CALLS.set(0);
     CONFIGURED.set(true);
     IN_TRANSACTION.set(false);
@@ -245,6 +248,71 @@ class ListingSummaryHttpTest {
     assertEquals(1, CALLS.get());
     verify(LIMITS).release(any());
     assertEquals("READY", data(get("/api/v1/listings/1", "2")).at("/summary/status").asString());
+  }
+
+  @Test
+  void instructionEchoFailsWithoutPublishingItsTextAndKeepsBasicDetail() throws Exception {
+    OUTPUT.set(
+        List.of(
+            "등록된 사양은 Apple M3 Pro입니다.",
+            "등록된 메모리는 18GB입니다.",
+            "정정된 유효 사실을 기준으로 설명하고 VOID는 수리 사실로 단정하지 않는다."));
+    assertEquals(202, post(PATH, "1", "").statusCode());
+    processor.process(repository.pending().get(0));
+    var result = data(get(PATH, "1"));
+    assertEquals("FAILED", result.get("status").asString());
+    assertEquals("AI_003", result.get("errorCode").asString());
+    assertTrue(result.get("text").isNull());
+    assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    assertEquals(200, get("/api/v1/listings/1", "2").statusCode());
+    assertEquals(1, CALLS.get());
+  }
+
+  @Test
+  void storesAndReturnsRegisteredDatesInIsoFormatAfterKoreanDateOutput() throws Exception {
+    OUTPUT.set(
+        List.of(
+            "MacBook Pro 14의 등록된 메모리는 18GB입니다.",
+            "제품 구매일은 2024년 2월 12일이며 보증 만료일은 2027년 2월 12일입니다.",
+            "전체 핵심 이력을 확인해 주세요."));
+    assertEquals(202, post(PATH, "1", "").statusCode());
+    processor.process(repository.pending().get(0));
+    var result = data(get(PATH, "2"));
+    assertEquals("READY", result.get("status").asString());
+    String expected =
+        "MacBook Pro 14의 등록된 메모리는 18GB입니다. 제품 구매일은 2024-02-12이며 보증 만료일은 2027-02-12입니다. 전체 핵심 이력을 확인해 주세요.";
+    assertEquals(expected, result.get("text").asString());
+    assertEquals(
+        expected,
+        jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    assertEquals(1, CALLS.get());
+  }
+
+  @Test
+  void oldStoredInstructionEchoIsHiddenWithoutCallingAiAndCanBeRequestedAgain() throws Exception {
+    assertEquals(202, post(PATH, "1", "").statusCode());
+    processor.process(repository.pending().get(0));
+    var oldAttempt =
+        jdbc.queryForObject("SELECT summary_attempt_id FROM listings WHERE id=1", UUID.class);
+    jdbc.update(
+        "UPDATE listings SET summary_text=? WHERE id=1",
+        "MacBook Pro 14로 등록된 제품입니다. 작성 지침을 설명합니다. 전체 이력을 확인해 주세요.");
+    var hidden = data(get(PATH, "1"));
+    assertEquals("FAILED", hidden.get("status").asString());
+    assertEquals("AI_003", hidden.get("errorCode").asString());
+    assertTrue(hidden.get("text").isNull());
+    assertTrue(hidden.get("canRequest").asBoolean());
+    assertFalse(data(get(PATH, "2")).get("canRequest").asBoolean());
+    assertTrue(data(get("/api/v1/listings/1", "2")).at("/summary/text").isNull());
+    assertEquals(1, CALLS.get());
+    assertEquals(202, post(PATH, "1", "").statusCode());
+    assertNotEquals(
+        oldAttempt,
+        jdbc.queryForObject("SELECT summary_attempt_id FROM listings WHERE id=1", UUID.class));
+    assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    processor.process(repository.pending().get(0));
+    assertEquals("READY", data(get(PATH, "2")).get("status").asString());
+    assertEquals(2, CALLS.get());
   }
 
   @Test
