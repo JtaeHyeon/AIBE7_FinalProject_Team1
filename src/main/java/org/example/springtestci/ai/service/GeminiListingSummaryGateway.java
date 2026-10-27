@@ -37,6 +37,7 @@ public class GeminiListingSummaryGateway implements ListingSummaryGateway {
 
   @Override
   public List<String> summarize(String sourceJson) {
+    // sentences 항목에 3~5개 문장을 담도록 요청한다. 문장 내용 검사는 ListingSummaryTextPolicy가 맡는다.
     var schema =
         Map.<String, Object>of(
             "type",

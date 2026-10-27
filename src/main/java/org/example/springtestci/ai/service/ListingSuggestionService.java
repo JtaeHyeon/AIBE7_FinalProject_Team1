@@ -31,6 +31,7 @@ public class ListingSuggestionService {
     this.clock = clock;
   }
 
+  /** 자료 수집 → 요청 제한 → AI 생성·검증 순서로 제안을 반환한다. 외부 응답 대기 중에는 DB 트랜잭션을 유지하지 않는다. */
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   public ListingSuggestionResponse generate(long productId, long userId) {
     var before = sources.capture(productId, userId);

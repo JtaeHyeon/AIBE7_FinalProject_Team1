@@ -9,7 +9,7 @@ import org.example.springtestci.common.error.ErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-/** R08 제목·본문 계약. 전송·기한·본문 한도는 R09와 같은 Gemini 클라이언트를 사용한다. */
+/** 제목·본문 생성 규칙과 응답 형식을 정의한다. 실제 Gemini 통신은 공통 클라이언트에 맡긴다. */
 @Component
 public class GeminiListingSuggestionGateway implements ListingSuggestionGateway {
   private static final String INSTRUCTIONS =
@@ -49,6 +49,7 @@ public class GeminiListingSuggestionGateway implements ListingSuggestionGateway 
 
   @Override
   public Suggestion generate(String sourceJson) {
+    // title·description만 받도록 출력 형식을 지정하고, 실제 응답도 같은 형식인지 다시 검사한다.
     var schema =
         Map.<String, Object>of(
             "type",

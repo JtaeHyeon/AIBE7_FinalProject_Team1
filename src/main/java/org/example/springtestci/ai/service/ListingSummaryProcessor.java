@@ -51,6 +51,7 @@ public class ListingSummaryProcessor {
     }
   }
 
+  // 실패는 안전한 코드로 기록하고, 실패 기록 자체의 오류가 다른 작업으로 번지지 않게 한다.
   private void failed(Pending pending, String code) {
     try {
       store.fail(pending, code);

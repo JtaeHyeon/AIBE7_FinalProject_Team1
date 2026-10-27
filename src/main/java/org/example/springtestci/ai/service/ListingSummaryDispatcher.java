@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
     matchIfMissing = true)
 public class ListingSummaryDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(ListingSummaryDispatcher.class);
+  // 이 서버의 작업 풀에 이미 제출한 시도 번호를 기억해 다음 조회에서 중복 제출하지 않는다.
   private final Set<UUID> submitted = ConcurrentHashMap.newKeySet();
   private final ListingSummaryStore store;
   private final ListingSummaryRepository repository;
@@ -58,6 +59,7 @@ public class ListingSummaryDispatcher {
                 }
               });
         } catch (RejectedExecutionException busy) {
+          // 실행 공간이 없으면 DB의 대기 상태를 유지해 다음 주기에 다시 가져온다.
           submitted.remove(pending.attemptId());
         }
       }

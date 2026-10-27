@@ -61,12 +61,14 @@ public class ListingSummaryStore {
   /** 게시 완료 뒤 별도 트랜잭션으로 접수한다. 접수 실패가 이미 성공한 게시를 되돌리지 않는다. */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public ListingSummaryResponse enqueue(long listingId, Long actorId) {
+    // actorId가 없으면 게시 이벤트의 자동 접수다. 수동 요청이면 해당 판매자인지도 검사한다.
     var current = lock(listingId, actorId);
     var state = summaries.read(listingId);
     if (!enabled) {
       if (actorId != null) throw new CommonException(ErrorCode.SUMMARY_UNAVAILABLE);
       return response(current, state, null);
     }
+    // 같은 자료로 생성 중이거나 이미 완료된 결과가 있으면 중복 생성하지 않는다.
     boolean same = matches(current, state);
     if (same
         && (state.status() == Status.QUEUED
@@ -171,6 +173,7 @@ public class ListingSummaryStore {
         && Objects.equals(state.listingVersion(), current.listing().getContentVersion());
   }
 
+  // 동일 자료의 실패 재시도는 60초 간격으로 제한해 짧은 시간의 반복 AI 호출을 막는다.
   private long retryWait(ListingSummaryState state) {
     return state.status() == Status.FAILED && state.updatedAt() != null
         ? Math.max(0, 60 - Duration.between(state.updatedAt(), clock.instant()).toSeconds())
@@ -198,6 +201,7 @@ public class ListingSummaryStore {
 
   private record Current(Listing listing, long productVersion) {}
 
+  /** DB 잠금을 해제한 뒤 작업자에게 넘길 입력과 기준 버전이다. 완료 시점에 다시 비교한다. */
   public record Job(
       Pending pending,
       long sellerId,

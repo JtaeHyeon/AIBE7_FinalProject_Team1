@@ -18,6 +18,7 @@ public class ListingSummaryRepository {
     this.jdbc = jdbc;
   }
 
+  /** 기존 판매글처럼 요약 컬럼이 비어 있으면 미요청 상태로 읽는다. */
   public ListingSummaryState read(long id) {
     return jdbc.queryForObject(
         "SELECT summary_status,summary_text,summary_source_product_version,summary_source_listing_version,summary_attempt_id,summary_error_code,summary_updated_at FROM listings WHERE id=?",
@@ -54,6 +55,7 @@ public class ListingSummaryRepository {
         == 1;
   }
 
+  /** 현재 처리 중인 시도만 완료로 저장한다. 이미 종료되었거나 시도가 바뀐 글은 갱신하지 않는다. */
   public void ready(Pending pending, String text, Instant now) {
     jdbc.update(
         "UPDATE listings SET summary_status='READY',summary_text=?,summary_error_code=NULL,summary_updated_at=? WHERE id=? AND summary_attempt_id=? AND summary_status='PROCESSING' AND status IN ('ACTIVE','RESERVED')",
@@ -73,6 +75,7 @@ public class ListingSummaryRepository {
         pending.attemptId());
   }
 
+  /** 오래 대기한 작업부터 최대 10건을 읽어 한 번에 가져오는 작업량을 제한한다. */
   public List<Pending> pending() {
     return jdbc.query(
         "SELECT id,summary_attempt_id FROM listings WHERE summary_status='QUEUED' ORDER BY summary_updated_at,id LIMIT 10",

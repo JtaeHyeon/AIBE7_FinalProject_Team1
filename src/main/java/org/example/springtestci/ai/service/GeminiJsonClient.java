@@ -59,6 +59,7 @@ public class GeminiJsonClient {
     this.api = api;
   }
 
+  /** 기능 활성화와 키의 기본 형식만 검사한다. 실제 키 사용 가능 여부는 외부 API 응답으로 확인된다. */
   public boolean configured() {
     String key = properties.apiKey();
     return properties.enabled()
@@ -72,6 +73,7 @@ public class GeminiJsonClient {
   /** 작성 지침·출력 JSON 형식·제품 자료를 Gemini에 전송한다. 제한 시간과 응답 크기도 이곳에서 관리한다. */
   public JsonNode generate(String instructions, Map<String, Object> schema, String sourceJson) {
     if (!configured()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
+    // 서버 작성 지침과 공개 제품 자료를 서로 다른 메시지로 구분해 전달한다.
     var body =
         Map.of(
             "systemInstruction",
@@ -118,6 +120,7 @@ public class GeminiJsonClient {
     }
   }
 
+  /** 정상 종료된 텍스트 응답에서 결과 JSON을 꺼낸다. 차단·미완료·도구 호출 응답은 사용하지 않는다. */
   private JsonNode parse(byte[] body) {
     try {
       JsonNode envelope = JSON.readTree(body);

@@ -9,9 +9,11 @@ public record ListingSummaryState(
     String text,
     Long productVersion,
     Long listingVersion,
+    // 생성 시도마다 바뀌는 번호다. 이전 시도의 늦은 응답이 새 결과를 덮어쓰지 못하게 한다.
     UUID attemptId,
     String errorCode,
     Instant updatedAt) {
+  /** 미요청 → 대기 → 처리 중 → 완료/실패를 구분해 화면 안내와 재시도 가능 여부를 판단한다. */
   public enum Status {
     NOT_REQUESTED,
     QUEUED,

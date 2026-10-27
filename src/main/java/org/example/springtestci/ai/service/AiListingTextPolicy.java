@@ -24,10 +24,12 @@ public class AiListingTextPolicy {
               + "never\\s*(repaired|broken)|guaranteed|fault[- ]free)");
   private static final Pattern NUMBER = Pattern.compile("\\d+(?:[.,]\\d+)*");
 
+  /** AI에 보내기 전 공개 자료에 연락처·시리얼 등 금지 정보가 섞여 있는지 보조 검사한다. */
   public void validateInput(String json) {
     if (UNSAFE.matcher(json).find()) throw new CommonException(ErrorCode.AI_SOURCE_UNAVAILABLE);
   }
 
+  /** 생성된 제목·본문의 길이·형식과 금지 표현을 확인한 뒤 화면에서 사용할 텍스트를 반환한다. */
   public ListingSuggestionGateway.Suggestion validate(
       ListingSuggestionGateway.Suggestion suggestion, String source) {
     if (suggestion == null) invalid();
@@ -41,6 +43,7 @@ public class AiListingTextPolicy {
         || description.length() > 2000) invalid();
     String text = title + "\n" + description;
     if (UNSAFE.matcher(text).find() || CLAIM.matcher(text).find()) invalid();
+    // 입력에 없던 숫자가 추가된 결과를 거부한다. 숫자가 같아도 문장의 의미가 맞는지는 별도 확인이 필요하다.
     Set<String> allowed = numbers(source);
     if (!allowed.containsAll(numbers(text))) invalid();
     return new ListingSuggestionGateway.Suggestion(title, description);

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 /** 같은 Redis를 쓰는 서버 전체에서 회원별 동시 1개·분당 횟수와 전체 분당 횟수를 원자적으로 제한한다. */
 @Component
 public class AiSuggestionRateLimiter {
+  // 횟수 검사·증가·동시 실행 잠금을 Redis에서 한 번에 처리해 여러 서버의 동시 요청도 제한한다.
   private static final DefaultRedisScript<List> ACQUIRE =
       new DefaultRedisScript<>(
           """
@@ -29,6 +30,7 @@ public class AiSuggestionRateLimiter {
       return {1, 0}
       """,
           List.class);
+  // 이번 호출의 토큰이 맞을 때만 잠금을 지운다. 늦게 끝난 이전 호출이 새 잠금을 지우지 못하게 한다.
   private static final DefaultRedisScript<Long> RELEASE =
       new DefaultRedisScript<>(
           """
@@ -52,6 +54,7 @@ public class AiSuggestionRateLimiter {
     this.prefix = prefix;
   }
 
+  /** 사용자·전체 분당 한도를 검사하고, 같은 사용자의 AI 호출이 동시에 실행되지 않도록 실행권을 받는다. */
   public Lease acquire(long userId) {
     String lock = prefix + "inflight:" + userId;
     String token = UUID.randomUUID().toString();
@@ -78,6 +81,7 @@ public class AiSuggestionRateLimiter {
     }
   }
 
+  /** 사용이 끝난 동시 실행 잠금만 반납한다. 이미 사용한 분당 요청 횟수는 되돌리지 않는다. */
   public void release(Lease lease) {
     try {
       redis.execute(RELEASE, List.of(lease.key()), lease.token());
