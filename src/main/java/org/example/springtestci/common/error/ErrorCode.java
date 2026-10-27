@@ -39,6 +39,20 @@ public enum ErrorCode {
       "거래·이전 취소와 이력 비공개 연동이 준비되지 않았습니다. 판매글은 변경되지 않습니다."),
   PRODUCT_IMAGE_IN_USE(
       HttpStatus.CONFLICT, "PRODUCT_005", "판매 중이거나 예약 중인 판매글의 사진은 먼저 판매글에서 제외해 주세요."),
+  AI_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "AI 제안을 사용할 수 없습니다. 잠시 후 재시도하거나 직접 작성해 주세요."),
+  AI_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI_002", "AI 응답 시간이 초과되었습니다. 재시도하거나 직접 작성해 주세요."),
+  AI_INVALID_RESULT(HttpStatus.BAD_GATEWAY, "AI_003", "AI 제안이 검증을 통과하지 못했습니다. 재시도하거나 직접 작성해 주세요."),
+  AI_SOURCE_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      "AI_004",
+      "전체 핵심 이력을 확인하지 못해 AI 제안을 만들 수 없습니다. 직접 작성은 가능합니다."),
+  AI_SOURCE_CHANGED(HttpStatus.CONFLICT, "AI_005", "생성 중 제품 정보나 이력이 변경되었습니다. 최신 정보로 다시 생성해 주세요."),
+  AI_INPUT_TOO_LARGE(
+      HttpStatus.UNPROCESSABLE_ENTITY,
+      "AI_006",
+      "전체 제품·이력이 AI 입력 한도를 초과했습니다. 이력을 생략하지 않으므로 직접 작성해 주세요."),
+  AI_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AI_007", "AI 요청이 많습니다. 잠시 후 재시도하거나 직접 작성해 주세요."),
   INVALID_EXTRACTION_STATE(HttpStatus.CONFLICT, "DOC_001", "현재 상태에서는 처리할 수 없는 추출 요청입니다."),
   INVALID_DOCUMENT_FILE(
       HttpStatus.BAD_REQUEST, "DOC_002", "JPG, PNG, PDF 형식의 올바른 파일만 업로드할 수 있습니다."),
