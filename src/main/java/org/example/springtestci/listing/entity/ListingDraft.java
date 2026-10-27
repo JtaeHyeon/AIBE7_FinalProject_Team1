@@ -8,7 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OrderColumn;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
@@ -50,10 +50,9 @@ public class ListingDraft extends BaseTimeEntity {
   @Version private Long version;
 
   @ElementCollection
-  @CollectionTable(name = "listing_draft_images", joinColumns = @JoinColumn(name = "draft_id"))
-  @OrderColumn(name = "sort_order")
-  @Column(name = "image_id", nullable = false)
-  private List<Long> selectedImageIds = new ArrayList<>();
+  @CollectionTable(name = "draft_images", joinColumns = @JoinColumn(name = "draft_id"))
+  @OrderBy("sortOrder ASC")
+  private List<DraftImage> selectedImages = new ArrayList<>();
 
   protected ListingDraft() {}
 
@@ -67,8 +66,11 @@ public class ListingDraft extends BaseTimeEntity {
     description = nullableText(request.description());
     price = request.price();
     conditionGrade = request.conditionGrade();
-    selectedImageIds.clear();
-    selectedImageIds.addAll(request.imageIds());
+    selectedImages.clear();
+    List<Long> imageIds = request.imageIds();
+    for (int index = 0; index < imageIds.size(); index++) {
+      selectedImages.add(new DraftImage(imageIds.get(index), index));
+    }
   }
 
   private static String nullableText(String text) {
@@ -108,6 +110,6 @@ public class ListingDraft extends BaseTimeEntity {
   }
 
   public List<Long> getSelectedImageIds() {
-    return List.copyOf(selectedImageIds);
+    return selectedImages.stream().map(DraftImage::getProductImageId).toList();
   }
 }

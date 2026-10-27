@@ -10,12 +10,35 @@ public enum ErrorCode {
   DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "AUTH_004", "이미 사용 중인 닉네임입니다."),
   INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_005", "이메일 또는 비밀번호가 올바르지 않습니다."),
   INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_006", "다시 로그인해 주세요."),
-  INVALID_PASSWORD(HttpStatus.BAD_REQUEST, "AUTH_007", "비밀번호가 올바르지 않습니다."),
+  EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "AUTH_008", "이메일 인증을 완료해 주세요."),
+  TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH_010", "잠시 후 다시 시도해 주세요."),
+  LOGIN_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AUTH_012", "로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요."),
+  EMAIL_SEND_FAILED(
+      HttpStatus.SERVICE_UNAVAILABLE, "AUTH_011", "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요."),
   RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_002", "요청한 리소스를 찾을 수 없습니다."),
   DRAFT_CONFLICT(
       HttpStatus.CONFLICT, "SALE_DRAFT_001", "다른 저장본이 있거나 저장 후 내용이 변경되었습니다. 최신 저장본을 확인해 주세요."),
   DRAFT_PRODUCT_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "SALE_DRAFT_002", "제품 정보를 아직 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."),
+  LISTING_HISTORY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "SALE_HISTORY_001", "공개 예정 이력을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+  LISTING_REQUIRED_FIELDS(
+      HttpStatus.BAD_REQUEST, "SALE_001", "게시하려면 제목·가격·상태 등급·설명과 대표 사진을 입력해 주세요."),
+  LISTING_ALREADY_OPEN(HttpStatus.CONFLICT, "SALE_002", "이미 판매 중이거나 예약 중인 판매글이 있습니다."),
+  LISTING_PUBLISH_BLOCKED(HttpStatus.CONFLICT, "SALE_003", "진행 중인 거래나 소유권 이전 요청이 있어 게시할 수 없습니다."),
+  LISTING_PUBLISH_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "SALE_004", "게시 조건·이력 공개 기능의 연동이 준비되지 않았습니다. 임시저장본은 유지됩니다."),
+  LISTING_EDIT_CONFLICT(HttpStatus.CONFLICT, "SALE_005", "판매글이 변경되었습니다. 최신 내용을 불러온 뒤 다시 시도해 주세요."),
+  LISTING_STATE_CONFLICT(
+      HttpStatus.CONFLICT,
+      "SALE_006",
+      "현재 판매 상태에서는 처리할 수 없습니다. 판매 중인 글만 수정할 수 있고 종료된 글은 다시 공개할 수 없습니다."),
+  LISTING_CANCEL_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      "SALE_007",
+      "거래·이전 취소와 이력 비공개 연동이 준비되지 않았습니다. 판매글은 변경되지 않습니다."),
+  PRODUCT_IMAGE_IN_USE(
+      HttpStatus.CONFLICT, "PRODUCT_005", "판매 중이거나 예약 중인 판매글의 사진은 먼저 판매글에서 제외해 주세요."),
   INVALID_EXTRACTION_STATE(HttpStatus.CONFLICT, "DOC_001", "현재 상태에서는 처리할 수 없는 추출 요청입니다."),
   INVALID_DOCUMENT_FILE(
       HttpStatus.BAD_REQUEST, "DOC_002", "JPG, PNG, PDF 형식의 올바른 파일만 업로드할 수 있습니다."),
@@ -39,26 +62,33 @@ public enum ErrorCode {
       HttpStatus.FORBIDDEN, "HISTORY_002", "본인이 작성한 일반 이력만 정정하거나 무효 처리할 수 있습니다."),
   INVALID_HISTORY_DOCUMENT(
       HttpStatus.BAD_REQUEST, "HISTORY_003", "같은 제품의 마스킹 확인된 증빙만 이력에 연결할 수 있습니다."),
+  TRADE_CONFLICT(HttpStatus.CONFLICT, "TRADE_001", "구매 요청을 현재 상태에서 처리할 수 없습니다."),
+  TRADE_DEPENDENCY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "TRADE_002", "거래 연동 기능을 일시적으로 사용할 수 없습니다."),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON_999", "서버 오류가 발생했습니다.");
 
   private final HttpStatus status;
   private final String code;
   private final String message;
 
+  /** HTTP 상태, 오류 코드, 사용자에게 보여줄 메시지로 오류를 정의한다. */
   ErrorCode(HttpStatus status, String code, String message) {
     this.status = status;
     this.code = code;
     this.message = message;
   }
 
+  /** 응답에 쓸 HTTP 상태를 돌려준다. */
   public HttpStatus status() {
     return status;
   }
 
+  /** 클라이언트가 구분하는 오류 코드를 돌려준다. */
   public String code() {
     return code;
   }
 
+  /** 사용자에게 보여줄 메시지를 돌려준다. */
   public String message() {
     return message;
   }

@@ -10,8 +10,11 @@ import org.example.springtestci.auth.entity.UserRole;
 import org.example.springtestci.auth.repository.UserRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.common.security.AccessTokenBlocklist;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,20 +28,34 @@ public class AuthService {
   private final PasswordEncoder passwordEncoder;
   private final JwtTokenProvider jwtTokenProvider;
   private final RefreshTokenStore refreshTokenStore;
+  private final EmailVerificationService emailVerificationService;
+  private final LoginRateLimiter loginRateLimiter;
+  private final JwtDecoder jwtDecoder;
+  private final AccessTokenBlocklist accessTokenBlocklist;
   private final String dummyHash;
 
+  /** 회원, 토큰, 이메일 인증, 로그인 제한에 필요한 구성 요소를 주입받는다. */
   public AuthService(
       UserRepository userRepository,
       PasswordEncoder passwordEncoder,
       JwtTokenProvider jwtTokenProvider,
-      RefreshTokenStore refreshTokenStore) {
+      RefreshTokenStore refreshTokenStore,
+      EmailVerificationService emailVerificationService,
+      LoginRateLimiter loginRateLimiter,
+      JwtDecoder jwtDecoder,
+      AccessTokenBlocklist accessTokenBlocklist) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtTokenProvider = jwtTokenProvider;
     this.refreshTokenStore = refreshTokenStore;
+    this.emailVerificationService = emailVerificationService;
+    this.loginRateLimiter = loginRateLimiter;
+    this.jwtDecoder = jwtDecoder;
+    this.accessTokenBlocklist = accessTokenBlocklist;
     this.dummyHash = passwordEncoder.encode(DUMMY_PASSWORD);
   }
 
+  /** 회원가입한다. 이메일과 닉네임 중복을 거부하고 인증 메일을 보낸다. */
   @Transactional
   public UserResponse signup(SignupRequest request) {
     String email = normalizeEmail(request.email());
@@ -52,8 +69,9 @@ public class AuthService {
 
     User user =
         new User(email, passwordEncoder.encode(request.password()), nickname, UserRole.USER);
+    User saved;
     try {
-      return UserResponse.from(userRepository.saveAndFlush(user));
+      saved = userRepository.saveAndFlush(user);
     } catch (DataIntegrityViolationException exception) {
       // 동시 가입으로 사전 검사를 통과한 경우 DB 유니크 제약에서 걸러진다.
       String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
@@ -62,15 +80,31 @@ public class AuthService {
               ? ErrorCode.DUPLICATE_NICKNAME
               : ErrorCode.DUPLICATE_EMAIL);
     }
+    // 메일을 보내지 못하면 예외로 가입 전체를 되돌려, 인증할 수 없는 계정이 남지 않게 한다.
+    emailVerificationService.sendLink(email);
+    return UserResponse.from(saved);
   }
 
-  @Transactional(readOnly = true)
-  public AuthTokens login(LoginRequest request) {
-    User user = userRepository.findByEmail(normalizeEmail(request.email())).orElse(null);
+  /** 로그인한다. 제한 중이면 거부하고, 실패는 기록하며, 미인증 계정은 인증 여부를 확인한 뒤에만 허용한다. */
+  @Transactional
+  public AuthTokens login(LoginRequest request, String clientIp) {
+    String email = normalizeEmail(request.email());
+    // 제한 중에는 비밀번호를 비교하지 않고 바로 거부한다.
+    loginRateLimiter.checkAllowed(email, clientIp);
+    User user = userRepository.findByEmail(email).orElse(null);
     String hash = user == null ? dummyHash : user.getPasswordHash();
     boolean matches = passwordEncoder.matches(request.password(), hash);
     if (user == null || !matches) {
+      loginRateLimiter.recordFailure(email, clientIp);
       throw new CommonException(ErrorCode.INVALID_CREDENTIALS);
+    }
+    loginRateLimiter.reset(email);
+    // 비밀번호가 맞은 뒤에만 인증 여부를 알려, 미인증 계정의 존재를 함부로 드러내지 않는다.
+    if (!user.isEmailVerified()) {
+      if (!emailVerificationService.confirmIfVerified(user.getEmail())) {
+        throw new CommonException(ErrorCode.EMAIL_NOT_VERIFIED);
+      }
+      user.markEmailVerified();
     }
     return issueTokens(user);
   }
@@ -92,12 +126,21 @@ public class AuthService {
     return issueTokens(user);
   }
 
-  public void logout(String refreshToken) {
+  /** Refresh Token을 폐기하고, Access Token은 남은 유효 기간 동안 사용하지 못하게 차단한다. */
+  public void logout(String refreshToken, String accessToken) {
     if (refreshToken != null && !refreshToken.isBlank()) {
       refreshTokenStore.revoke(refreshToken);
     }
+    if (accessToken != null && !accessToken.isBlank()) {
+      try {
+        accessTokenBlocklist.block(jwtDecoder.decode(accessToken));
+      } catch (JwtException exception) {
+        // 이미 만료됐거나 유효하지 않은 토큰은 차단할 필요가 없다.
+      }
+    }
   }
 
+  /** 회원 id로 내 정보를 조회한다. */
   @Transactional(readOnly = true)
   public UserResponse getMe(long userId) {
     return userRepository
@@ -106,21 +149,7 @@ public class AuthService {
         .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
   }
 
-  /** 비밀번호로 본인을 확인한 뒤 계정을 삭제하고, 이 기기의 Refresh Token을 폐기한다. */
-  @Transactional
-  public void withdraw(long userId, String password, String refreshToken) {
-    User user =
-        userRepository
-            .findById(userId)
-            .orElseThrow(() -> new CommonException(ErrorCode.UNAUTHORIZED));
-    if (!passwordEncoder.matches(password, user.getPasswordHash())) {
-      throw new CommonException(ErrorCode.INVALID_PASSWORD);
-    }
-    userRepository.delete(user);
-    userRepository.flush();
-    logout(refreshToken);
-  }
-
+  /** Access Token과 Refresh Token을 새로 발급한다. */
   private AuthTokens issueTokens(User user) {
     return new AuthTokens(
         jwtTokenProvider.createAccessToken(user),
@@ -129,7 +158,8 @@ public class AuthService {
         UserResponse.from(user));
   }
 
-  private static String normalizeEmail(String email) {
+  /** 공백과 대소문자 차이로 같은 이메일이 다르게 취급되지 않게 정규화한다. */
+  static String normalizeEmail(String email) {
     return email.trim().toLowerCase(Locale.ROOT);
   }
 }

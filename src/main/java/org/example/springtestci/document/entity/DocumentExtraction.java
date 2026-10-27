@@ -10,6 +10,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.example.springtestci.common.audit.BaseTimeEntity;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
@@ -23,6 +26,8 @@ import org.hibernate.type.SqlTypes;
  */
 @Entity
 @Table(name = "document_extractions")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DocumentExtraction extends BaseTimeEntity {
 
   @Id
@@ -65,8 +70,6 @@ public class DocumentExtraction extends BaseTimeEntity {
 
   /** 확정으로 새 이력을 만들었을 때만 채운다. */
   private Long resultEventId;
-
-  protected DocumentExtraction() {}
 
   private DocumentExtraction(
       Long documentId,
@@ -136,57 +139,5 @@ public class DocumentExtraction extends BaseTimeEntity {
       throw new CommonException(ErrorCode.INVALID_EXTRACTION_STATE);
     }
     this.status = next;
-  }
-
-  public Long getId() {
-    return id;
-  }
-
-  public Long getDocumentId() {
-    return documentId;
-  }
-
-  public int getDocumentVersion() {
-    return documentVersion;
-  }
-
-  public Long getRequestedById() {
-    return requestedById;
-  }
-
-  public Instant getConsentedAt() {
-    return consentedAt;
-  }
-
-  public String getConsentNoticeVersion() {
-    return consentNoticeVersion;
-  }
-
-  public ExtractionStatus getStatus() {
-    return status;
-  }
-
-  public String getModelName() {
-    return modelName;
-  }
-
-  public String getSchemaVersion() {
-    return schemaVersion;
-  }
-
-  public Map<String, Object> getExtractedFacts() {
-    return extractedFacts;
-  }
-
-  public String getErrorCode() {
-    return errorCode;
-  }
-
-  public Instant getFactsConfirmedAt() {
-    return factsConfirmedAt;
-  }
-
-  public Long getResultEventId() {
-    return resultEventId;
   }
 }

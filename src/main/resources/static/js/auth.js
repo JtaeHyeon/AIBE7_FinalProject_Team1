@@ -1,22 +1,31 @@
 // 로그인·회원가입 화면 연동. 화면 HTML은 pages.js가 나중에 채워 넣으므로 document에 이벤트를 위임한다.
-// Access Token은 메모리에만 둔다(새로고침 시 HttpOnly refresh 쿠키로 복구). Refresh Token은 JS에서 접근할 수 없다.
+// Access/Refresh Token은 모두 HttpOnly 쿠키라 JS에서 접근할 수 없다. 쓰기 요청은 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내 CSRF를 검사받는다.
 const auth = (() => {
   const EMAIL_KEY = 'savedEmail';
-  let accessToken = null;
   let user = null;
 
+  /** 저장소를 쓸 수 없는 환경에서도 예외 없이 동작하는 localStorage 래퍼. */
   const safeStorage = {
     get: (key) => { try { return localStorage.getItem(key); } catch { return null; } },
     set: (key, value) => { try { localStorage.setItem(key, value); } catch { /* 저장소를 못 쓰는 환경 */ } },
     remove: (key) => { try { localStorage.removeItem(key); } catch { /* 저장소를 못 쓰는 환경 */ } },
   };
 
+  /** 쓰기 요청이면 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 만들어 돌려준다. */
+  const csrfHeaders = (method) => {
+    if (!method || ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return {};
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+    return match ? { 'X-XSRF-TOKEN': decodeURIComponent(match[1]) } : {};
+  };
+
+  /** 화면 이동 버튼(data-page)을 눌러 해당 화면으로 이동한다. */
   const goto = (page) => document.querySelector(`[data-page="${page}"]`)?.click();
 
+  /** 인증 API를 JSON으로 호출한다. 실패하면 상태·코드·항목별 오류를 담은 Error를 던진다. */
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
       method: options.method || 'POST',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders(options.method || 'POST'), ...(options.headers || {}) },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
     if (response.status === 204) return null;
@@ -24,12 +33,14 @@ const auth = (() => {
     if (!response.ok) {
       const error = new Error(payload?.message || '요청을 처리하지 못했어요.');
       error.status = response.status;
+      error.code = payload?.code;
       error.fieldErrors = payload?.fieldErrors || [];
       throw error;
     }
     return payload?.data ?? null;
   };
 
+  /** 로그인 여부에 따라 헤더의 계정 영역을 다시 그린다. */
   const renderHeader = () => {
     const box = document.querySelector('.landing-account');
     if (!box) return;
@@ -58,6 +69,7 @@ const auth = (() => {
   };
 
   // 마이페이지: 로그인 여부에 따라 안내/계정 정보를 보여준다. 화면 HTML이 늦게 로드될 수 있어 둘 다에서 호출한다.
+  /** 마이페이지에 로그인 여부별 안내 또는 계정 정보를 보여준다. */
   const renderMyPage = () => {
     const root = document.querySelector('#mypage');
     if (!root) return;
@@ -78,20 +90,17 @@ const auth = (() => {
     });
   };
 
+  /** 로그인 응답으로 세션 상태를 갱신하고 화면에 반영한다. */
   const setSession = (data) => {
-    accessToken = data.accessToken;
-    user = data.user;
+    user = data?.user ?? null;
     renderHeader();
     renderMyPage();
   };
 
-  const clearSession = () => {
-    accessToken = null;
-    user = null;
-    renderHeader();
-    renderMyPage();
-  };
+  /** 세션 상태를 지우고 로그아웃된 모습으로 화면에 반영한다. */
+  const clearSession = () => setSession(null);
 
+  /** 폼 아래 메시지 영역에 안내 문구를 보이거나 숨긴다. */
   const message = (form, text, kind = 'error') => {
     const box = form.querySelector('.au-msg');
     if (!box) return;
@@ -100,11 +109,13 @@ const auth = (() => {
     box.dataset.kind = kind;
   };
 
+  /** 요청 중에는 제출 버튼을 잠가 중복 제출을 막는다. */
   const setBusy = (form, busy) => {
     const button = form.querySelector('button[type="submit"]');
     if (button) button.disabled = busy;
   };
 
+  /** 비밀번호가 길이·영문·숫자·특수문자 규칙을 각각 지키는지 계산한다. */
   const passwordRules = (value) => ({
     length: value.length >= 8 && value.length <= 64,
     letter: /[A-Za-z]/.test(value),
@@ -112,10 +123,13 @@ const auth = (() => {
     special: /[^A-Za-z\d]/.test(value) && /^[\x21-\x7E]+$/.test(value),
   });
 
+  /** 로그인 폼을 검증하고 로그인한 뒤 홈으로 이동한다. 미인증이면 메일 재발송을 안내한다. */
   const handleLogin = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
     if (!email || !password) return message(form, '이메일과 비밀번호를 입력해 주세요.');
+    const resend = form.querySelector('[data-email-resend]');
+    resend.hidden = true;
     setBusy(form, true);
     try {
       const data = await request('/api/auth/login', { body: { email, password } });
@@ -124,10 +138,14 @@ const auth = (() => {
       form.elements.password.value = '';
       message(form, '');
       setSession(data);
-      goto('home');
+      const listingId = new URL(window.location.href).searchParams.get('listingId');
+      if (/^[1-9]\d*$/.test(listingId || '') && window.PastportPublishedListing) window.PastportPublishedListing.open(listingId);
+      else goto('landing');
     } catch (error) {
       form.elements.password.value = '';
       message(form, error.message);
+      // 이메일 인증 전이면 인증 메일을 다시 받을 수 있게 한다.
+      resend.hidden = error.code !== 'AUTH_008';
     } finally {
       setBusy(form, false);
     }
@@ -135,6 +153,7 @@ const auth = (() => {
 
   // Refresh Token은 1회용이라 동시에 두 번 갱신하면 한쪽이 실패한다. 진행 중인 갱신이 있으면 그 결과를 같이 기다린다.
   let refreshing = null;
+  /** Refresh Token 쿠키로 세션을 갱신한다. 동시에 여러 번 불려도 한 번만 요청한다. */
   const refresh = () => {
     refreshing ??= request('/api/auth/refresh')
       .then((data) => { setSession(data); return data; })
@@ -142,27 +161,16 @@ const auth = (() => {
     return refreshing;
   };
 
-  // 탈퇴는 로그인 상태에서만 가능하다. Access Token이 만료됐으면(401) 한 번 갱신한 뒤 다시 시도한다.
-  const requestWithToken = async (path, options) => {
-    const send = () => request(path, { ...options, headers: { Authorization: `Bearer ${accessToken}` } });
-    try {
-      return await send();
-    } catch (error) {
-      if (error.status !== 401) throw error;
-      await refresh();
-      return send();
-    }
-  };
-
-  // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. Authorization 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
+  // 다른 화면(판매글 작성 등)이 fetch 대신 쓰는 공통 요청 함수. 쿠키와 CSRF 헤더를 붙이고, 401이면 한 번 갱신해 다시 보낸다.
+  /** 쿠키와 CSRF 헤더를 붙여 요청하고, 401이면 세션을 한 번 갱신해 다시 보낸다. */
   const authFetch = async (url, options = {}) => {
     const send = () => {
       const headers = new Headers(options.headers || {});
-      if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-      return fetch(url, { ...options, headers });
+      Object.entries(csrfHeaders(options.method)).forEach(([name, value]) => headers.set(name, value));
+      return fetch(url, { ...options, headers, credentials: 'same-origin' });
     };
     // 새로고침 직후 세션 복구가 진행 중이면 먼저 끝나기를 기다린다.
-    if (!accessToken && refreshing) await refreshing.catch(() => {});
+    if (!user && refreshing) await refreshing.catch(() => {});
     const response = await send();
     if (response.status !== 401) return response;
     try {
@@ -174,28 +182,7 @@ const auth = (() => {
   };
   window.PastportApi = { fetch: authFetch };
 
-  const handleWithdraw = async (form) => {
-    const password = form.elements.password.value;
-    if (!password) return message(form, '비밀번호를 입력해 주세요.');
-    if (!form.elements.confirm.checked) return message(form, '안내 내용을 확인해 주세요.');
-    setBusy(form, true);
-    try {
-      await requestWithToken('/api/auth/me', { method: 'DELETE', body: { password } });
-      form.reset();
-      form.hidden = true;
-      message(form, '');
-      clearSession();
-      const loginForm = document.querySelector('[data-auth-form="login"]');
-      if (loginForm) message(loginForm, '탈퇴가 완료됐어요. 그동안 이용해 주셔서 감사합니다.', 'info');
-      goto('auth');
-    } catch (error) {
-      form.elements.password.value = '';
-      message(form, error.message);
-    } finally {
-      setBusy(form, false);
-    }
-  };
-
+  /** 회원가입 폼을 검증하고 가입한 뒤 로그인 화면으로 안내한다. */
   const handleSignup = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
@@ -212,11 +199,12 @@ const auth = (() => {
     try {
       await request('/api/auth/signup', { body: { email, password, nickname } });
       form.reset();
+      showPasswordMatch(form);
       message(form, '');
       const loginForm = document.querySelector('[data-auth-form="login"]');
       if (loginForm) {
         loginForm.elements.email.value = email;
-        message(loginForm, '가입이 완료됐어요. 로그인해 주세요.', 'info');
+        message(loginForm, '가입이 완료됐어요. 메일로 보낸 인증 링크를 누른 뒤 로그인해 주세요. 30분 안에 인증하지 않으면 가입이 취소돼요.', 'info');
       }
       goto('auth');
     } catch (error) {
@@ -228,12 +216,6 @@ const auth = (() => {
   };
 
   document.addEventListener('submit', (event) => {
-    const withdrawForm = event.target.closest?.('[data-mp-withdraw-form]');
-    if (withdrawForm) {
-      event.preventDefault();
-      handleWithdraw(withdrawForm);
-      return;
-    }
     const form = event.target.closest?.('[data-auth-form]');
     if (!form) return;
     event.preventDefault();
@@ -241,10 +223,23 @@ const auth = (() => {
     else if (form.dataset.authForm === 'signup') handleSignup(form);
   });
 
+  // 비밀번호 확인 칸 아래에 일치 여부를 바로 보여준다. 확인 칸이 비어 있으면 아무것도 보여주지 않는다.
+  /** 비밀번호 확인 칸 아래에 일치 여부를 보여준다. */
+  const showPasswordMatch = (form) => {
+    const { password, passwordConfirm } = form.elements;
+    const box = form.querySelector('[data-match]');
+    const match = password.value === passwordConfirm.value;
+    box.textContent = !passwordConfirm.value ? '' : match ? '비밀번호가 일치해요.' : '비밀번호가 일치하지 않아요.';
+    box.classList.toggle('ok', !!passwordConfirm.value && match);
+    box.classList.toggle('bad', !!passwordConfirm.value && !match);
+  };
+
   document.addEventListener('input', (event) => {
     const input = event.target;
     const form = input.closest?.('[data-auth-form="signup"]');
-    if (!form || input.name !== 'password') return;
+    if (!form) return;
+    if (input.name === 'password' || input.name === 'passwordConfirm') showPasswordMatch(form);
+    if (input.name !== 'password') return;
     const rules = passwordRules(input.value);
     form.querySelectorAll('[data-rule]').forEach((item) => item.classList.toggle('ok', rules[item.dataset.rule]));
   });
@@ -255,21 +250,20 @@ const auth = (() => {
     input.closest('form').querySelectorAll('[data-agree-required]').forEach((box) => { box.checked = input.checked; });
   });
 
-  document.addEventListener('click', (event) => {
-    const open = event.target.closest?.('[data-mp-withdraw-open]');
-    const cancel = event.target.closest?.('[data-mp-withdraw-cancel]');
-    if (!open && !cancel) return;
-    const form = document.querySelector('[data-mp-withdraw-form]');
-    if (!form) return;
-    form.hidden = !!cancel;
-    if (cancel) {
-      form.reset();
-      message(form, '');
-    } else {
-      form.elements.password.focus();
+
+
+  document.addEventListener('click', async (event) => {
+    if (!event.target.closest?.('[data-email-resend]')) return;
+    const form = event.target.closest('form');
+    const email = form.elements.email.value.trim();
+    if (!email) return message(form, '이메일을 입력해 주세요.');
+    try {
+      await request('/api/auth/email/resend', { body: { email } });
+      message(form, '인증 메일을 보냈어요. 메일의 링크를 누른 뒤 다시 로그인해 주세요.', 'info');
+    } catch (error) {
+      message(form, error.fieldErrors?.[0]?.message || error.message);
     }
   });
-
   document.addEventListener('click', async (event) => {
     if (!event.target.closest?.('[data-auth-logout]')) return;
     try {
@@ -279,8 +273,13 @@ const auth = (() => {
     goto('landing');
   });
 
-  document.addEventListener('pastport:page-loaded', (event) => {
-    if (event.detail?.id === 'mypage') renderMyPage();
+  // 로그인·회원가입 화면이 같이 쓰는 일러스트는 한 파일에서 가져와 자리표시자를 바꿔 넣는다.
+  const artHtml = fetch('/pages/auth-art.html').then((response) => response.text());
+  document.addEventListener('pastport:page-loaded', async (event) => {
+    const id = event.detail?.id;
+    if (id === 'mypage') renderMyPage();
+    const slot = ['auth', 'signup'].includes(id) && document.querySelector(`#${id} [data-auth-art]`);
+    if (slot) slot.outerHTML = await artHtml.catch(() => '');
   });
 
   // 로그인 화면이 로드되면 저장된 이메일을 채운다.
@@ -299,5 +298,5 @@ const auth = (() => {
   // 새로고침 후 HttpOnly refresh 쿠키가 남아 있으면 세션을 복구한다.
   refresh().catch(() => {});
 
-  return { get accessToken() { return accessToken; }, get user() { return user; } };
+  return { get user() { return user; } };
 })();

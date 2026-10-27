@@ -21,6 +21,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.Resource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -85,15 +86,27 @@ public class ProductService {
 
   @Transactional(readOnly = true)
   public ProductResponse get(long ownerId, long productId) {
-    ProductResponse product =
-        productRepository
-            .findOwned(productId, ownerId)
-            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    ProductResponse product = getForListing(ownerId, productId);
     String ciphertext =
         productRepository
             .findSerialCiphertextOwned(productId, ownerId)
             .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
-    return withImages(product).withSerialNumber(serialNumberProtector.decrypt(ciphertext));
+    return product.withSerialNumber(serialNumberProtector.decrypt(ciphertext));
+  }
+
+  /** 판매 기능은 시리얼 조회·복호화 없이 제품 정보·사양·사진을 받는다. */
+  @Transactional(readOnly = true)
+  public ProductResponse getForListing(long ownerId, long productId) {
+    return productRepository
+        .findOwned(productId, ownerId)
+        .map(this::withImages)
+        .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+  }
+
+  /** 판매 초안 저장도 제품 변경과 같은 행 잠금을 사용한다. 호출 측 트랜잭션에 참여한다. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void lockOwnedForListing(long ownerId, long productId) {
+    requireOwnedLock(ownerId, productId);
   }
 
   /** PROD-08에 정의된 기본 정보만 수정하고 변경 전후 값과 사유를 감사 로그에 남긴다. */
@@ -168,6 +181,8 @@ public class ProductService {
   @Transactional
   public ProductResponse deleteImage(long ownerId, long productId, long imageId) {
     requireOwnedLock(ownerId, productId);
+    if (productRepository.isPublishedImage(productId, imageId))
+      throw new CommonException(ErrorCode.PRODUCT_IMAGE_IN_USE);
     ProductImageRecord image =
         productRepository
             .findImage(productId, imageId)

@@ -216,6 +216,15 @@ public class ProductRepository {
     return count == null ? 0 : count;
   }
 
+  public boolean isPublishedImage(long productId, long imageId) {
+    return jdbc.queryForObject(
+            "SELECT COUNT(*) FROM listing_images i JOIN listings l ON l.id = i.listing_id WHERE l.product_id = ? AND i.product_image_id = ? AND l.status IN ('ACTIVE', 'RESERVED')",
+            Integer.class,
+            productId,
+            imageId)
+        > 0;
+  }
+
   public long insertImage(long productId, String storageKey, String contentType, long byteSize) {
     KeyHolder keys = new GeneratedKeyHolder();
     jdbc.update(
@@ -283,7 +292,7 @@ public class ProductRepository {
   }
 
   public void softDeleteImage(long productId, long imageId) {
-    jdbc.update("DELETE FROM listing_draft_images WHERE image_id = ?", imageId);
+    removeDraftImage(productId, imageId);
     jdbc.update(
         """
         UPDATE product_images
@@ -302,6 +311,39 @@ public class ProductRepository {
               .orElse(remaining.get(0).imageId());
       replaceImageOrder(
           productId, remaining.stream().map(ProductImageRecord::imageId).toList(), primary);
+    }
+  }
+
+  /** 제품 행 잠금 안에서 초안의 사진 순서·대표 선택과 저장 버전을 함께 갱신한다. */
+  private void removeDraftImage(long productId, long imageId) {
+    List<Long> draftIds =
+        jdbc.queryForList(
+            """
+        SELECT d.id FROM listing_drafts d JOIN draft_images i ON i.draft_id = d.id
+         WHERE d.product_id = ? AND i.product_image_id = ?
+        """,
+            Long.class,
+            productId,
+            imageId);
+    for (long draftId : draftIds) {
+      List<Long> remaining =
+          jdbc.queryForList(
+              "SELECT product_image_id FROM draft_images WHERE draft_id = ? AND product_image_id <> ? ORDER BY sort_order",
+              Long.class,
+              draftId,
+              imageId);
+      jdbc.update("DELETE FROM draft_images WHERE draft_id = ?", draftId);
+      for (int index = 0; index < remaining.size(); index++) {
+        jdbc.update(
+            "INSERT INTO draft_images (draft_id, product_image_id, sort_order, is_primary) VALUES (?, ?, ?, ?)",
+            draftId,
+            remaining.get(index),
+            index,
+            index == 0);
+      }
+      jdbc.update(
+          "UPDATE listing_drafts SET version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          draftId);
     }
   }
 

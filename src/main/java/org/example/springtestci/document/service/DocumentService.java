@@ -6,15 +6,17 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.common.storage.FileStorage;
 import org.example.springtestci.document.dto.FileUrlResponse;
 import org.example.springtestci.document.entity.Document;
+import org.example.springtestci.document.entity.DocumentExtraction;
+import org.example.springtestci.document.entity.ExtractionStatus;
 import org.example.springtestci.document.repository.DocumentExtractionRepository;
 import org.example.springtestci.document.repository.DocumentRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,13 +28,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <p>개인정보가 있는 원본은 브라우저에서만 처리하고, 서버는 마스킹 확인이 끝난 사본만 받는다. 열람과 삭제 권한은 업로더가 아니라 제품의 현재 소유자를 기준으로 한다.
  */
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class DocumentService {
 
   static final int MAX_DOCUMENTS_PER_PRODUCT = 20;
   static final Duration FILE_URL_TTL = Duration.ofMinutes(5);
-
-  private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
   private final DocumentRepository documentRepository;
   private final DocumentExtractionRepository extractionRepository;
@@ -40,21 +42,6 @@ public class DocumentService {
   private final DocumentFileValidator fileValidator;
   private final ProductOwnerReader productOwnerReader;
   private final Clock clock;
-
-  public DocumentService(
-      DocumentRepository documentRepository,
-      DocumentExtractionRepository extractionRepository,
-      ObjectProvider<FileStorage> fileStorage,
-      DocumentFileValidator fileValidator,
-      ProductOwnerReader productOwnerReader,
-      Clock clock) {
-    this.documentRepository = documentRepository;
-    this.extractionRepository = extractionRepository;
-    this.fileStorage = fileStorage;
-    this.fileValidator = fileValidator;
-    this.productOwnerReader = productOwnerReader;
-    this.clock = clock;
-  }
 
   /** 현재 소유자가 마스킹을 확인한 사본을 올린다. 업로드 파일명은 확장자 판별에만 쓰고 저장하지 않는다. */
   @Transactional
@@ -84,6 +71,57 @@ public class DocumentService {
     } catch (RuntimeException exception) {
       deleteStoredFile(objectKey);
       throw exception;
+    }
+  }
+
+  /**
+   * 재마스킹한 사본으로 파일을 교체한다. 문서 ID와 이력 연결은 유지하고, 이전 파일은 커밋 뒤에 지운다. 이전 사본을 분석한 AI 후보값은 더 이상 유효하지 않으므로 검토
+   * 대기 중인 추출은 반려 처리한다.
+   */
+  @Transactional
+  public Document replace(
+      Long documentId,
+      Long userId,
+      boolean maskingConfirmed,
+      String uploadedFilename,
+      String contentType,
+      byte[] content) {
+    if (!maskingConfirmed) {
+      throw new CommonException(ErrorCode.MASKING_NOT_CONFIRMED);
+    }
+    // 같은 문서를 동시에 교체하거나 추출하지 못하도록 행을 잠근다.
+    Document document =
+        documentRepository
+            .findByIdForUpdate(documentId)
+            .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
+    Long ownerId = productOwnerReader.findOwnerId(document.getProductId()).orElse(null);
+    if (!userId.equals(ownerId)) {
+      // 다른 사람의 문서가 존재하는지 알려 주지 않는다.
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+    DocumentFileValidator.FileKind kind =
+        fileValidator.validate(uploadedFilename, contentType, content);
+
+    String oldObjectKey = document.getObjectKey();
+    String newObjectKey = store(document.getProductId(), kind.extension(), content);
+    try {
+      document.replaceFile(newObjectKey, kind.contentType(), content.length, clock.instant());
+      documentRepository.save(document);
+      rejectPendingExtractions(documentId);
+    } catch (RuntimeException exception) {
+      deleteStoredFile(newObjectKey);
+      throw exception;
+    }
+    deleteStoredFileAfterCommit(oldObjectKey);
+    return document;
+  }
+
+  private void rejectPendingExtractions(Long documentId) {
+    for (DocumentExtraction extraction :
+        extractionRepository.findByDocumentIdOrderByIdDesc(documentId)) {
+      if (extraction.getStatus() == ExtractionStatus.EXTRACTED) {
+        extraction.reject();
+      }
     }
   }
 

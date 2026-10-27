@@ -28,6 +28,9 @@ public class ListingDraftDemoConfig {
   SecurityFilterChain listingDraftDemoChain(HttpSecurity http) throws Exception {
     http.securityMatcher(
             "/api/v1/listing-draft-products",
+            "/api/v1/listing-drafts",
+            "/api/v1/listings/**",
+            "/api/v1/products/*/listings",
             "/api/v1/products/*/listing-draft",
             "/api/v1/products/*/listing-draft/**")
         .csrf(csrf -> csrf.disable())
