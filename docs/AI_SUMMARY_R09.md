@@ -13,7 +13,7 @@ R08의 작성자용 제목·본문 제안과 달리, 게시된 ACTIVE/RESERVED �
 | GET | `/api/v1/listings/{listingId}` | 기존 상세 응답에 같은 `summary` DTO 포함 |
 
 응답은 `status`, `text`, 안전한 `errorCode`, `updatedAt`, `canRequest`, `retryAfterSeconds`다.
-상태는 NOT_REQUESTED·QUEUED·PROCESSING·READY·FAILED이며, text는 검증된 READY에서만 제공한다.
+상태는 NOT_REQUESTED·QUEUED·PROCESSING·READY·FAILED다. R09에서는 text를 검증된 READY에서만 제공했으며, [R10](AI_SUMMARY_REFRESH_R10.md)은 갱신 중 이전 문장을 `outdated=true`로 구분해 제공한다.
 생성 시도 UUID·입력 JSON·공급자 응답·키는 공개하지 않는다. JSON은 no-store이며 기존 쿠키 CSRF 검사를 유지한다.
 요약 생성 자체의 실패와 원천 이력 장애는 구분한다. 기존 상세의 소유권·공개 상태·이력 준비 검사에서 거부되는 경우에는 기존 404/503 계약을 완화하지 않는다.
 
@@ -79,10 +79,10 @@ R08의 Gemini 전송·구조화 출력·전체 응답 기한·수신 크기·키
 기준은 공식 [모델](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)과 [구조화 출력](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) 문서다.
 test 프로필에서는 자동 처리를 기본 비활성화해 개발자의 실제 API 키로 비용이 발생하지 않게 한다. R09 테스트만 명시적으로 활성화하고 AI 대역을 주입한다.
 
-## 후속 R10 범위
+## R10 연결
 
-새 이력·정정·무효·사양/판매 조건 변경 이벤트에 따른 자동 무효화·재생성과 기존 요약에 최신화 중 표시를 더하는 작업은 R10이다.
-R09에서는 오래된 요약을 숨기고 판매자가 최신 자료로 명시적으로 다시 요청할 수 있다. 변경 이벤트를 자동으로 연결했다고 간주하지 않는다.
+판매 조건·제품 정보 수정 후 자동 재생성과 최신화 중 표시는 [R10 구현 문서](AI_SUMMARY_REFRESH_R10.md)를 따른다.
+이력·사양 담당 모듈의 변경 이벤트를 받는 연결부는 제공하며, 운영 저장 지점의 이벤트 발행 연동은 추가로 필요하다.
 
 ## 2026-10-26 검증
 

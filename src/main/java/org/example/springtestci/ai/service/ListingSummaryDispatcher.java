@@ -47,6 +47,7 @@ public class ListingSummaryDispatcher {
   public void dispatch() {
     try {
       store.recoverExpired();
+      for (long listingId : repository.staleListings()) store.refresh(listingId);
       for (var pending : repository.pending()) {
         if (!submitted.add(pending.attemptId())) continue;
         try {

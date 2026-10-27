@@ -3,6 +3,7 @@ package org.example.springtestci.ai.service;
 import org.example.springtestci.ai.repository.ListingSummaryRepository.Pending;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.common.error.RateLimitedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,13 @@ public class ListingSummaryProcessor {
       var job = store.claim(pending);
       if (job == null) return;
       if (!gateway.configured()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
-      lease = limits.acquire(job.sellerId());
+      try {
+        lease = limits.acquire(job.sellerId());
+      } catch (RateLimitedException busy) {
+        // 다른 생성 작업이 실행 중이면 DB 대기열로 돌린다. 공급자 호출 후의 오류는 자동 재시도하지 않는다.
+        store.defer(pending, busy.retryAfter());
+        return;
+      }
       // claim의 DB 트랜잭션이 끝난 뒤 호출하므로 AI 응답 대기 중에도 판매 중지 등을 처리할 수 있다.
       String text = policy.validate(gateway.summarize(job.input()), job.input());
       store.complete(job, text);
