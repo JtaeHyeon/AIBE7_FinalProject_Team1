@@ -88,6 +88,7 @@ document.addEventListener('click', (event) => {
     if (Number.isFinite(date.getTime())) body.append(element('p', 'mk-date', new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(date) + ' 게시'));
     link.append(thumb, body); return link;
   }
+  // 필터·정렬·페이지 조건을 실제 목록 API에 보내고 응답 카드로 마켓 화면을 갱신한다.
   async function load() {
     if (!initialized || !active) return;
     request?.abort(); const controller = new AbortController(); request = controller;

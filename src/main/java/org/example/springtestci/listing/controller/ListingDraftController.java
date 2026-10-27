@@ -35,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 판매글 작성 화면의 요청을 받아 임시저장·공개 예정 정보·미리보기 서비스로 연결한다. */
 @RestController
 @Validated
 @RequestMapping("/api/v1")
@@ -53,6 +54,7 @@ public class ListingDraftController {
     this.previews = previews;
   }
 
+  /** 저장된 초안의 특정 버전으로 게시 전 모습을 확인한다. 실제 게시나 이력 공개는 하지 않는다. */
   @GetMapping("/products/{productId}/listing-draft/preview")
   public ResponseEntity<ApiResponse<ListingPreviewResponse>> preview(
       @PathVariable @Positive long productId,
@@ -68,6 +70,7 @@ public class ListingDraftController {
                 previews.get(productId, draftId, version, userId(authentication), page, size)));
   }
 
+  /** 미리보기 JSON의 사진 URL로 요청하면, 선택된 제품 사진의 실제 파일을 반환한다. */
   @GetMapping("/products/{productId}/listing-draft/preview/images/{imageId}")
   public ResponseEntity<Resource> previewImage(
       @PathVariable @Positive long productId,
@@ -96,6 +99,7 @@ public class ListingDraftController {
         .body(ApiResponse.success(publications.get(productId, userId(authentication), page, size)));
   }
 
+  /** 이어서 작성할 글을 고를 수 있도록 내 임시저장본 목록을 페이지 단위로 반환한다. */
   @GetMapping("/listing-drafts")
   public ResponseEntity<ApiResponse<ListingDraftPageResponse>> list(
       Authentication authentication,
@@ -106,6 +110,7 @@ public class ListingDraftController {
         .body(ApiResponse.success(service.list(userId(authentication), page, size)));
   }
 
+  /** 선택한 제품 한 개의 임시저장 내용과 사진 선택을 불러와 작성 폼을 복원한다. */
   @GetMapping("/products/{productId}/listing-draft")
   public ResponseEntity<ApiResponse<ListingDraftResponse>> get(
       @PathVariable @Positive long productId, Authentication authentication) {
@@ -114,6 +119,7 @@ public class ListingDraftController {
         .body(ApiResponse.success(service.get(productId, userId(authentication))));
   }
 
+  /** 기존 초안의 ID·버전을 함께 받아 다른 탭의 최신 저장본을 덮어쓰지 않도록 수정한다. */
   @PutMapping("/products/{productId}/listing-draft")
   public ResponseEntity<ApiResponse<ListingDraftResponse>> update(
       @PathVariable @Positive long productId,
@@ -127,6 +133,7 @@ public class ListingDraftController {
                 service.update(productId, draftId, userId(authentication), request)));
   }
 
+  /** 임시저장본만 삭제한다. 제품 자체와 제품에 등록된 사진은 유지된다. */
   @DeleteMapping("/products/{productId}/listing-draft")
   public ResponseEntity<Void> delete(
       @PathVariable @Positive long productId,
@@ -137,6 +144,7 @@ public class ListingDraftController {
     return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
   }
 
+  /** 판매글 작성 화면의 제품 선택 목록에 사용할 현재 보유 제품들을 반환한다. */
   @GetMapping("/listing-draft-products")
   public ResponseEntity<ApiResponse<List<DraftProductResponse>>> products(
       Authentication authentication) {
@@ -145,6 +153,7 @@ public class ListingDraftController {
         .body(ApiResponse.success(service.products(userId(authentication))));
   }
 
+  /** 제품을 선택했을 때 사양·사진 등 작성에 필요한 원본 제품 정보를 불러온다. */
   @GetMapping("/products/{productId}/listing-draft/composition")
   public ResponseEntity<ApiResponse<DraftProductResponse>> composition(
       @PathVariable @Positive long productId, Authentication authentication) {
@@ -153,6 +162,7 @@ public class ListingDraftController {
         .body(ApiResponse.success(service.composition(productId, userId(authentication))));
   }
 
+  /** 해당 제품의 첫 초안을 비공개로 저장한다. 필수 게시 항목은 아직 비어 있어도 된다. */
   @PostMapping("/products/{productId}/listing-draft")
   public ResponseEntity<ApiResponse<ListingDraftResponse>> save(
       @PathVariable @Positive long productId,
@@ -178,6 +188,7 @@ public class ListingDraftController {
         .body(image.resource());
   }
 
+  // 작성자 ID를 요청 본문에서 받지 않고 인증 정보에서 꺼내 다른 사람 이름으로 저장하지 못하게 한다.
   private long userId(Authentication authentication) {
     if (authentication == null || !authentication.isAuthenticated())
       throw new CommonException(ErrorCode.UNAUTHORIZED);

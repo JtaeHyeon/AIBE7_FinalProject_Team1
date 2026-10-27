@@ -25,6 +25,8 @@ springdoc:
 
 app:
   ai:
+    summary:
+      enabled: ${AI_SUMMARY_ENABLED:true}
     listing:
       enabled: ${AI_LISTING_ENABLED:true}
       api-key: ${GEMINI_API_KEY:${AI_API_KEY:}}

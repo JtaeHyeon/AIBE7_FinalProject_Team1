@@ -68,6 +68,9 @@
 .listing-detail-thumbs{display:flex;gap:8px;flex-wrap:wrap}
 .listing-detail-thumbs button[aria-pressed=true]{border-color:var(--blue);background:var(--soft);color:var(--blue)}
 .listing-detail-description{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.8}
+.listing-ai-summary{border:1px solid #c5e3db;border-radius:8px;padding:20px;background:#eef7f4}
+.listing-ai-summary-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;font-size:14px}
+.listing-ai-summary-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .listing-detail-summary{min-width:0}
 .listing-detail-summary h2{font-size:22px;line-height:1.5;margin:14px 0;overflow-wrap:anywhere}
 .listing-detail-price{display:block;font-size:28px;margin:16px 0;overflow-wrap:anywhere}

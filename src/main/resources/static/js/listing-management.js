@@ -85,6 +85,7 @@
     } catch (error) { if (token === generation && error.name !== 'AbortError') failure(error); }
     finally { if (token === generation) { busy = false; controls(); } }
   }
+  // 읽어 둔 내용 버전을 함께 보내 다른 탭의 수정 내용을 덮어쓰지 않고, 성공하면 상세를 다시 조회한다.
   async function save(event) {
     event.preventDefault(); if (!saved?.canEdit || busy || stale) return;
     const form = event.currentTarget; if (!form.reportValidity()) return;
@@ -100,6 +101,7 @@
     } catch (error) { if (token === generation) failure(error); }
     finally { if (token === generation) { busy = false; controls(); } }
   }
+  // 판매 중지 API 성공 후 공개 내용을 비우고 기록 보존 상태를 표시한다. 제품 자체를 삭제하지 않는다.
   async function cancel() {
     find('[data-listing-cancel-dialog]').close();
     if (!saved?.canCancel || busy || stale) return;

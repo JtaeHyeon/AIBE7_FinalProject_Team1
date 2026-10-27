@@ -1,3 +1,4 @@
+// 게시된 상세의 진입·조회 담당이다. 화면 구성과 판매자 편집·AI 상태 표시 모듈을 연결한다.
 (() => {
   let request = null;
   let data = null;
@@ -6,8 +7,10 @@
   const currentId = () => new URL(window.location.href).searchParams.get('listingId');
   const find = selector => document.querySelector('#detail ' + selector);
 
+  // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
+    window.PastportListingSummary?.reset();
     window.PastportListingManagement?.reset();
     find('[data-listing-login]').hidden = true;
     const id = currentId();
@@ -36,6 +39,7 @@
       if (append && data) next.history.items = [...new Map([...data.history.items, ...next.history.items].map(item => [item.eventId,item])).values()];
       data = next; window.PastportListingDetail.render(find('[data-listing-content]'), data);
       window.PastportListingManagement?.bind(data);
+      window.PastportListingSummary?.bind(data);
       find('[data-listing-status]').textContent = '게시된 판매글이에요. 판매 중·예약 중인 글은 로그인한 회원이 확인할 수 있어요.';
       find('[data-listing-more]').hidden = !data.history.page.hasNext;
     } catch (error) {
@@ -47,6 +51,7 @@
     } finally { if (!controller.signal.aborted) { loading = false; find('[data-listing-more]').disabled = false; } }
   }
 
+  // 작성용 제품 주소를 게시글 주소로 바꿔 새로고침해도 같은 상세를 다시 열 수 있게 한다.
   function open(id) {
     const url = new URL(window.location.href); url.searchParams.delete('draftProduct'); url.searchParams.delete('market'); url.searchParams.set('listingId', String(id));
     window.history.replaceState(window.history.state, '', url);
@@ -62,6 +67,7 @@
   }
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
   document.addEventListener('pastport:page-shown', event => { if (event.detail.id === 'detail') load(); });
+  window.addEventListener('pageshow', event => { if (event.persisted && document.querySelector('#detail.active') && currentId()) load(); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
   window.PastportPublishedListing = Object.freeze({ open });

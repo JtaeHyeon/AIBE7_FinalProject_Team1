@@ -17,9 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** 짧은 제품 잠금 안에서 입력을 완성한다. API 지연 동안 DB 연결이나 잠금을 유지하지 않는다. */
+/** 제목·본문 제안과 상태 요약에 공통으로 쓸 공개 제품·전체 이력 JSON을 만든다. 자료 구성 중에만 제품을 잠근다. */
 @Service
 public class ListingSuggestionSource {
+  // 한도를 넘으면 일부 이력을 임의로 빼지 않고 요청을 거부한다.
   static final int MAX_INPUT_BYTES = 48_000;
   private final ProductService products;
   private final ListingPublicationService publications;
@@ -44,6 +45,7 @@ public class ListingSuggestionSource {
     String source = json.writeValueAsString(data);
     if (source.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES)
       throw new CommonException(ErrorCode.AI_INPUT_TOO_LARGE);
+    // 제품 버전과 공개 자료를 하나의 지문으로 만들어 AI 생성 전후 이력 변경까지 비교한다.
     String fingerprint = digest(owned.factsVersion() + ":" + source);
     return new Snapshot(owned.factsVersion(), fingerprint, source, publication.history().sample());
   }

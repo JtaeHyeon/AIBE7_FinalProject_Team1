@@ -50,7 +50,14 @@ class ListingPublishServiceTest {
                 10, 101, "제목", "설명", BigDecimal.ONE, 4, List.of(301L), 0, Instant.now()));
     var service =
         new ListingPublishService(
-            products, drafts, previews, listings, audit, constraints, publishers);
+            products,
+            drafts,
+            previews,
+            listings,
+            audit,
+            constraints,
+            publishers,
+            mock(org.springframework.context.ApplicationEventPublisher.class));
     var error =
         assertThrows(
             CommonException.class,

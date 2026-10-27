@@ -1,3 +1,4 @@
+// 미리보기와 게시 상세가 함께 쓰는 화면 구성 함수다. 데이터를 표시하며 저장·게시 요청은 보내지 않는다.
 (() => {
   const element = (tag, className = '', text = null) => {
     const node = document.createElement(tag); node.className = className;
@@ -74,6 +75,13 @@
       renderTimeline(timeline, data.history.items); history.append(timeline);
     }
     main.append(history);
+
+    if (data.listingId) {
+      const summary = section('AI 제품 상태 요약');
+      summary.classList.add('listing-ai-summary'); summary.dataset.listingSummary = '';
+      summary.append(element('p', 'sub', 'AI 요약 상태를 확인하고 있어요.'));
+      main.append(summary);
+    }
 
     const aside = element('aside', 'listing-detail-summary sc-card');
     aside.append(element('span', 'sc-badge', data.listingId ? ({ ACTIVE: '판매 중', RESERVED: '예약 중' }[data.status] || '판매 종료') : '게시 전 미리보기'));

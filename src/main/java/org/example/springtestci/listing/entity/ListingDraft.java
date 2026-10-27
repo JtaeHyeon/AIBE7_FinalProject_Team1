@@ -18,6 +18,7 @@ import java.util.List;
 import org.example.springtestci.common.audit.BaseTimeEntity;
 import org.example.springtestci.listing.dto.SaveListingDraftRequest;
 
+/** 아직 게시하지 않은 판매 조건과 사진 선택을 저장한다. 제품 원본 정보와 분리된 비공개 초안이다. */
 @Entity
 @Table(name = "listing_drafts", uniqueConstraints = @UniqueConstraint(columnNames = "product_id"))
 public class ListingDraft extends BaseTimeEntity {
@@ -47,6 +48,7 @@ public class ListingDraft extends BaseTimeEntity {
   @Column(nullable = false, length = 20, updatable = false)
   private String visibility = "PRIVATE";
 
+  // JPA가 저장할 때 증가시킨다. 화면에서 보낸 버전과 비교해 오래된 내용의 덮어쓰기를 막는다.
   @Version private Long version;
 
   @ElementCollection
@@ -61,6 +63,7 @@ public class ListingDraft extends BaseTimeEntity {
     this.authorId = authorId;
   }
 
+  /** 폼 내용과 사진 순서를 통째로 교체한다. 첫 번째 사진이 대표 사진이 된다. */
   public void replaceContent(SaveListingDraftRequest request) {
     title = nullableText(request.title());
     description = nullableText(request.description());

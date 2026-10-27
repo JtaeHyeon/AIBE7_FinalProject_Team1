@@ -31,6 +31,7 @@ public class ListingSuggestionService {
     this.clock = clock;
   }
 
+  /** 자료 수집 → 요청 제한 → AI 생성·검증 순서로 제안을 반환한다. 외부 응답 대기 중에는 DB 트랜잭션을 유지하지 않는다. */
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   public ListingSuggestionResponse generate(long productId, long userId) {
     var before = sources.capture(productId, userId);
@@ -39,6 +40,7 @@ public class ListingSuggestionService {
     var lease = limits.acquire(userId);
     try {
       var result = policy.validate(gateway.generate(before.json()), before.json());
+      // 생성 중 소유권·자료가 바뀌었는지 다시 확인해 예전 정보로 만든 제안을 반환하지 않는다.
       var after = sources.capture(productId, userId);
       if (!before.sourceVersion().equals(after.sourceVersion()))
         throw new CommonException(ErrorCode.AI_SOURCE_CHANGED);

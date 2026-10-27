@@ -1,6 +1,7 @@
 package org.example.springtestci.listing.service;
 
 import java.io.IOException;
+import org.example.springtestci.ai.service.ListingSummaryStore;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
@@ -11,17 +12,23 @@ import org.example.springtestci.product.service.ProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 게시글·제품 사양·공개 이력·저장된 AI 요약 상태를 합쳐 상세 화면의 응답을 만든다. */
 @Service
 public class ListingDetailService {
   private final ListingRepository listings;
   private final ProductService products;
   private final ListingPublicationService publications;
+  private final ListingSummaryStore summaries;
 
   public ListingDetailService(
-      ListingRepository listings, ProductService products, ListingPublicationService publications) {
+      ListingRepository listings,
+      ProductService products,
+      ListingPublicationService publications,
+      ListingSummaryStore summaries) {
     this.listings = listings;
     this.products = products;
     this.publications = publications;
+    this.summaries = summaries;
   }
 
   @Transactional
@@ -48,7 +55,8 @@ public class ListingDetailService {
             .toList(),
         publication.product(),
         publication.history(),
-        listing.getSellerId() == userId);
+        listing.getSellerId() == userId,
+        summaries.get(listingId, userId));
   }
 
   @Transactional
@@ -60,6 +68,7 @@ public class ListingDetailService {
     return new ListingDraftService.DraftImage(image.resource(), image.contentType());
   }
 
+  // 게시자가 현재 소유자인지, 글이 판매 중·예약 중인지 확인해 종료된 글의 옛 URL도 차단한다.
   private Listing readable(long listingId) {
     var access =
         listings

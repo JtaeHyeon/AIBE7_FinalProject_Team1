@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 작성 중인 판매글의 제목·본문을 제안한다. 생성 결과의 적용과 임시저장은 별도 단계다. */
 @Validated
 @RestController
 @RequestMapping("/api/v1/products/{productId}/listing-draft")
