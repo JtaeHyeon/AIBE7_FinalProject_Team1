@@ -21,7 +21,7 @@ public class ListingSummaryRepository {
   /** 기존 판매글처럼 요약 컬럼이 비어 있으면 미요청 상태로 읽는다. */
   public ListingSummaryState read(long id) {
     return jdbc.queryForObject(
-        "SELECT summary_status,summary_text,summary_source_product_version,summary_source_listing_version,summary_attempt_id,summary_error_code,summary_updated_at FROM listings WHERE id=?",
+        "SELECT summary_status,summary_text,summary_source_product_version,summary_source_listing_version,summary_attempt_id,summary_error_code,summary_updated_at,summary_format_version FROM listings WHERE id=?",
         (row, n) ->
             new ListingSummaryState(
                 row.getString(1) == null ? Status.NOT_REQUESTED : Status.valueOf(row.getString(1)),
@@ -30,7 +30,8 @@ public class ListingSummaryRepository {
                 (Long) row.getObject(4),
                 row.getObject(5, UUID.class),
                 row.getString(6),
-                row.getTimestamp(7) == null ? null : row.getTimestamp(7).toInstant()),
+                row.getTimestamp(7) == null ? null : row.getTimestamp(7).toInstant(),
+                row.getInt(8)),
         id);
   }
 
@@ -68,8 +69,9 @@ public class ListingSummaryRepository {
   /** 현재 처리 중인 시도만 완료로 저장한다. 이미 종료되었거나 시도가 바뀐 글은 갱신하지 않는다. */
   public void ready(Pending pending, String text, Instant now) {
     jdbc.update(
-        "UPDATE listings SET summary_status='READY',summary_text=?,summary_error_code=NULL,summary_updated_at=? WHERE id=? AND summary_attempt_id=? AND summary_status='PROCESSING' AND status IN ('ACTIVE','RESERVED')",
+        "UPDATE listings SET summary_status='READY',summary_text=?,summary_format_version=?,summary_error_code=NULL,summary_updated_at=? WHERE id=? AND summary_attempt_id=? AND summary_status='PROCESSING' AND status IN ('ACTIVE','RESERVED')",
         text,
+        ListingSummaryState.CARD_FORMAT_VERSION,
         Timestamp.from(now),
         pending.listingId(),
         pending.attemptId());
@@ -120,7 +122,7 @@ public class ListingSummaryRepository {
   /** 커밋 직후 이벤트를 놓쳐도 버전 차이가 남은 기존 요약은 주기적으로 접수를 복구한다. */
   public List<Long> staleListings() {
     return jdbc.queryForList(
-        "SELECT l.id FROM listings l JOIN products p ON p.id=l.product_id WHERE l.status IN ('ACTIVE','RESERVED') AND p.owner_id=l.seller_id AND p.archived_at IS NULL AND l.summary_status IS NOT NULL AND (l.summary_source_product_version<>p.facts_version OR l.summary_source_listing_version<>l.content_version) ORDER BY l.id LIMIT 10",
+        "SELECT l.id FROM listings l JOIN products p ON p.id=l.product_id WHERE l.status IN ('ACTIVE','RESERVED') AND p.owner_id=l.seller_id AND p.archived_at IS NULL AND l.summary_status IS NOT NULL AND (l.summary_source_product_version<>p.facts_version OR l.summary_source_listing_version<>l.content_version OR (l.summary_status='READY' AND l.summary_format_version<>1)) ORDER BY l.id LIMIT 10",
         Long.class);
   }
 

@@ -3,7 +3,7 @@
   'use strict';
   let root=null, listingId=null, sequence=0, request=null, timer=null, state=null, issuing=false, owner=false, sample=false, polls=0, notice='';
   const make=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls;if(text!=null)node.textContent=text;return node;};
-  const current=()=>root?.isConnected && document.querySelector('#detail.active') && String(new URL(location.href).searchParams.get('listingId'))===listingId;
+  const current=()=>listingId && document.querySelector('#detail.active') && String(new URL(location.href).searchParams.get('listingId'))===listingId;
   const path=()=>'/api/v1/listings/'+listingId+'/summary';
   const messages={NOT_REQUESTED:'아직 AI 요약이 생성되지 않았어요.',QUEUED:'요약 생성 순서를 기다리고 있어요.',PROCESSING:'등록된 제품 정보와 전체 핵심 이력으로 요약을 만들고 있어요.',READY:'등록된 기록에 근거한 AI 요약이에요. 전체 이력도 함께 확인해 주세요.',FAILED:'AI 요약을 만들지 못했어요. 기본 제품 정보와 이력은 계속 확인할 수 있어요.'};
   const reasons={AI_002:'응답 시간이 초과됐어요.',AI_003:'결과가 검증을 통과하지 못했어요.',AI_004:'전체 핵심 이력 연결을 확인하지 못했어요.',AI_005:'제품 정보나 판매 조건이 변경되어 이전 요약을 표시하지 않아요.',AI_006:'전체 이력이 AI 입력 한도를 초과했어요.',AI_007:'AI 요청이 많아 잠시 기다려야 해요.'};
@@ -16,7 +16,7 @@
   function render(note=notice) {
     if(!root||!state)return;
     notice=note;
-    root.replaceChildren(make('h3','','AI 제품 상태 요약'));
+    root.replaceChildren(make('h3','','AI 카드 요약 관리'));
     const previous=Boolean(state.outdated && state.text);
     const updating=['QUEUED','PROCESSING'].includes(state.status);
     const explanation=previous?(updating?'등록 정보가 변경되어 요약을 최신화하고 있어요. 위 내용은 이전 판매 조건을 기준으로 한 요약이에요.':'새 요약을 만들지 못했어요. 위 내용은 이전 판매 조건을 기준으로 한 요약이며, 현재 정보와 다를 수 있어요.'):messages[state.status];
@@ -100,7 +100,7 @@
   }
   function bind(data) {
     reset();root=document.querySelector('#detail [data-listing-summary]');
-    if(!root||!data.listingId)return;
+    if(!data.listingId)return;
     listingId=String(data.listingId);owner=Boolean(data.canManage);sample=Boolean(data.history?.sample);
     state=data.summary||{status:'NOT_REQUESTED',canRequest:false,retryAfterSeconds:0};render();schedule();
   }
