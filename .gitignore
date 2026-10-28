@@ -43,3 +43,6 @@ out/
 /storage/
 /CODERABBIT_REVIEW_FIXES.md
 /TROUBLESHOOTING.md
+
+# 운영 로그
+logs/
