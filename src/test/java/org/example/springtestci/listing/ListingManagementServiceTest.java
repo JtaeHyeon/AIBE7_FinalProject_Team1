@@ -51,7 +51,13 @@ class ListingManagementServiceTest {
     if (hasHistory) when(histories.getIfAvailable()).thenReturn(history);
     var service =
         new ListingManagementService(
-            listings, products, audit, trades, histories, JsonMapper.builder().build());
+            listings,
+            products,
+            audit,
+            trades,
+            histories,
+            JsonMapper.builder().build(),
+            mock(org.springframework.context.ApplicationEventPublisher.class));
     var error =
         assertThrows(
             CommonException.class,

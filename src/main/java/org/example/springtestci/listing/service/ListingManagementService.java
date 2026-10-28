@@ -11,10 +11,12 @@ import org.example.springtestci.listing.dto.ListingStateResponse;
 import org.example.springtestci.listing.dto.UpdateListingRequest;
 import org.example.springtestci.listing.entity.Listing;
 import org.example.springtestci.listing.entity.ListingStatus;
+import org.example.springtestci.listing.event.ListingContentChanged;
 import org.example.springtestci.listing.repository.ListingAuditRepository;
 import org.example.springtestci.listing.repository.ListingRepository;
 import org.example.springtestci.product.service.ProductService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -28,6 +30,7 @@ public class ListingManagementService {
   private final ObjectProvider<ListingTradeCanceller> tradeCancellers;
   private final ObjectProvider<ListingHistoryPrivatizer> historyPrivatizers;
   private final ObjectMapper json;
+  private final ApplicationEventPublisher events;
 
   public ListingManagementService(
       ListingRepository listings,
@@ -35,13 +38,15 @@ public class ListingManagementService {
       ListingAuditRepository audit,
       ObjectProvider<ListingTradeCanceller> tradeCancellers,
       ObjectProvider<ListingHistoryPrivatizer> historyPrivatizers,
-      ObjectMapper json) {
+      ObjectMapper json,
+      ApplicationEventPublisher events) {
     this.listings = listings;
     this.products = products;
     this.audit = audit;
     this.tradeCancellers = tradeCancellers;
     this.historyPrivatizers = historyPrivatizers;
     this.json = json;
+    this.events = events;
   }
 
   @Transactional
@@ -71,6 +76,7 @@ public class ListingManagementService {
     listings.flush();
     audit.changed(
         listing.getProductId(), userId, listingId, "LISTING_UPDATED", before, facts(listing), null);
+    events.publishEvent(new ListingContentChanged(listingId));
     return response(listing);
   }
 

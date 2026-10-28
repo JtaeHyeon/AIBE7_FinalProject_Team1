@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.example.springtestci.ai.dto.ListingSummaryResponse;
@@ -32,6 +33,7 @@ public class ListingSummaryStore {
   private final Clock clock;
   private final AiListingProperties properties;
   private final boolean enabled;
+  private final long refreshDebounceMillis;
 
   public ListingSummaryStore(
       ListingSummaryRepository summaries,
@@ -42,7 +44,8 @@ public class ListingSummaryStore {
       ListingSummaryTextPolicy summaryPolicy,
       Clock clock,
       AiListingProperties properties,
-      @Value("${app.ai.summary.enabled:true}") boolean enabled) {
+      @Value("${app.ai.summary.enabled:true}") boolean enabled,
+      @Value("${app.ai.summary.refresh-debounce-ms:1500}") long refreshDebounceMillis) {
     this.summaries = summaries;
     this.listings = listings;
     this.products = products;
@@ -52,6 +55,7 @@ public class ListingSummaryStore {
     this.clock = clock;
     this.properties = properties;
     this.enabled = enabled;
+    this.refreshDebounceMillis = Math.max(0, Math.min(30_000, refreshDebounceMillis));
   }
 
   /** 공개 조건을 확인한 뒤 DB에 저장된 상태만 읽는다. 이 조회가 요약 생성을 시작하지는 않는다. */
@@ -67,6 +71,23 @@ public class ListingSummaryStore {
     // actorId가 없으면 게시 이벤트의 자동 접수다. 수동 요청이면 해당 판매자인지도 검사한다.
     var current = lock(listingId, actorId);
     var state = summaries.read(listingId);
+    return enqueue(current, state, actorId, 0);
+  }
+
+  /** 짧은 시간에 연속 수정되면 마지막 버전만 실행되도록 잠시 대기시킨다. 조회에서는 호출하지 않는다. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void refresh(long listingId) {
+    var current = lock(listingId, null);
+    enqueue(current, summaries.read(listingId), null, refreshDebounceMillis);
+  }
+
+  @Transactional(readOnly = true)
+  public List<Long> publicListingsForProduct(long productId) {
+    return summaries.publicListingsForProduct(productId);
+  }
+
+  private ListingSummaryResponse enqueue(
+      Current current, ListingSummaryState state, Long actorId, long delayMillis) {
     if (!enabled) {
       if (actorId != null) throw new CommonException(ErrorCode.SUMMARY_UNAVAILABLE);
       return response(current, state, null);
@@ -83,12 +104,17 @@ public class ListingSummaryStore {
     if (wait > 0)
       throw new RateLimitedException(ErrorCode.SUMMARY_RETRY_LIMITED, Duration.ofSeconds(wait));
     summaries.queue(
-        listingId,
+        current.listing().getId(),
         current.productVersion(),
         current.listing().getContentVersion(),
         UUID.randomUUID(),
-        clock.instant());
-    return response(current, summaries.read(listingId), actorId);
+        clock.instant(),
+        state.text() != null
+            && !unusableText(state)
+            && !"AI_005".equals(state.errorCode())
+            && Objects.equals(state.productVersion(), current.productVersion()),
+        clock.instant().plusMillis(delayMillis));
+    return response(current, summaries.read(current.listing().getId()), actorId);
   }
 
   /** 대기 작업을 처리 중으로 바꾸고 AI 입력을 준비한다. 여러 작업자 중 한 명만 확보할 수 있다. */
@@ -148,6 +174,13 @@ public class ListingSummaryStore {
         pending, code != null && code.matches("AI_\\d{3}") ? code : "AI_001", clock.instant());
   }
 
+  /** 내부 실행 제한 대기는 공급자 재호출과 구분한다. 최초 접수 시각을 유지해 최대 대기 시간도 제한한다. */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void defer(Pending pending, Duration retryAfter) {
+    summaries.defer(
+        pending, clock.instant().plusSeconds(Math.min(60, Math.max(1, retryAfter.toSeconds()))));
+  }
+
   /** 서버 종료 등으로 멈춘 작업을 실패 처리해 화면에 계속 생성 중으로 남지 않게 한다. */
   @Transactional
   public void recoverExpired() {
@@ -192,23 +225,24 @@ public class ListingSummaryStore {
     boolean stale = state.status() != Status.NOT_REQUESTED && !matches(current, state);
     boolean unusable = unusableText(state);
     Status status = stale || unusable ? Status.FAILED : state.status();
+    String text = !stale && !unusable && !"AI_005".equals(state.errorCode()) ? state.text() : null;
     long wait = stale || unusable ? 0 : retryWait(state);
     boolean owner = actorId != null && current.listing().getSellerId() == actorId;
     return new ListingSummaryResponse(
         status,
-        status == Status.READY ? state.text() : null,
+        text,
         stale ? "AI_005" : unusable ? "AI_003" : state.errorCode(),
         state.updatedAt(),
         enabled
             && owner
             && (status == Status.NOT_REQUESTED || status == Status.FAILED)
             && wait == 0,
-        wait);
+        wait,
+        text != null && status != Status.READY);
   }
 
   private boolean unusableText(ListingSummaryState state) {
-    return state.status() == Status.READY
-        && summaryPolicy.containsProcessInstructions(state.text());
+    return summaryPolicy.containsProcessInstructions(state.text());
   }
 
   private record Current(Listing listing, long productVersion) {}

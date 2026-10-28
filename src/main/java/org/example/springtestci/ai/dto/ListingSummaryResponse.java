@@ -10,4 +10,6 @@ public record ListingSummaryResponse(
     String errorCode,
     Instant updatedAt,
     boolean canRequest,
-    long retryAfterSeconds) {}
+    long retryAfterSeconds,
+    // true인 text는 이전 판매 조건을 기준으로 한 요약이며 최신 결과로 읽으면 안 된다.
+    boolean outdated) {}

@@ -158,6 +158,7 @@ class ListingSummaryHttpTest {
             "--app.storage.local-root=" + files,
             "--app.ai.listing.api-key=",
             "--app.ai.summary.enabled=true",
+            "--app.ai.summary.refresh-debounce-ms=0",
             "--app.ai.summary.initial-delay-ms=600000");
     jdbc = context.getBean(JdbcTemplate.class);
     store = context.getBean(ListingSummaryStore.class);
@@ -210,7 +211,8 @@ class ListingSummaryHttpTest {
     jdbc.update("DELETE FROM draft_images");
     jdbc.update("DELETE FROM listing_drafts");
     jdbc.update("DELETE FROM audit_logs");
-    jdbc.update("UPDATE products SET owner_id=1,facts_version=7,archived_at=NULL WHERE id=101");
+    jdbc.update(
+        "UPDATE products SET owner_id=1,facts_version=7,archived_at=NULL,purchase_date=DATE '2024-02-12',warranty_expires_at=DATE '2027-02-12' WHERE id=101");
     jdbc.update(
         "INSERT INTO listings(id,product_id,seller_id,title,price,condition_grade,description,status,content_version,published_at,source_draft_id,source_draft_version,active_slot) VALUES (1,101,1,'판매글 제목',1200000,4,'개인 메모 person@fixture.invalid 010-1234-5678','ACTIVE',2,CURRENT_TIMESTAMP,9001,0,1)");
     jdbc.update(
@@ -398,14 +400,22 @@ class ListingSummaryHttpTest {
   }
 
   @Test
-  void redisLimitFailsSummaryWhileBasicDetailRemains() throws Exception {
+  void redisLimitDefersSameAttemptWithoutCallingProviderWhileBasicDetailRemains() throws Exception {
     when(LIMITS.acquire(1))
         .thenThrow(new RateLimitedException(ErrorCode.AI_RATE_LIMITED, Duration.ofSeconds(30)));
     post(PATH, "1", "");
-    processor.process(repository.pending().get(0));
-    assertEquals("AI_007", data(get(PATH, "1")).get("errorCode").asString());
+    var pending = repository.pending().get(0);
+    processor.process(pending);
+    assertEquals("QUEUED", data(get(PATH, "1")).get("status").asString());
+    assertEquals(pending.attemptId(), repository.read(1).attemptId());
+    assertTrue(repository.pending().isEmpty());
+    assertNull(store.claim(pending));
     assertEquals(0, CALLS.get());
     assertEquals(200, get("/api/v1/listings/1", "2").statusCode());
+    org.mockito.Mockito.reset(LIMITS);
+    jdbc.update("UPDATE listings SET summary_available_at=CURRENT_TIMESTAMP WHERE id=1");
+    processor.process(repository.pending().get(0));
+    assertEquals("READY", repository.read(1).status().name());
   }
 
   @Test
@@ -569,7 +579,7 @@ class ListingSummaryHttpTest {
   }
 
   @Test
-  void staleReadySummaryIsNotReturnedAndJpaEditsDoNotEraseItsMetadata() throws Exception {
+  void committedListingEditAutomaticallyRefreshesAndLabelsPreviousSummary() throws Exception {
     post(PATH, "1", "");
     processor.process(repository.pending().get(0));
     var text = repository.read(1).text();
@@ -582,12 +592,232 @@ class ListingSummaryHttpTest {
     assertEquals(200, update.statusCode(), update.body());
     assertEquals(text, repository.read(1).text());
     var result = data(get(PATH, "2"));
-    assertEquals("FAILED", result.get("status").asString());
-    assertTrue(result.get("text").isNull());
-    assertEquals("AI_005", result.get("errorCode").asString());
+    assertEquals("QUEUED", result.get("status").asString());
+    assertEquals(text, result.get("text").asString());
+    assertTrue(result.get("outdated").asBoolean());
+    assertEquals(1, CALLS.get());
     post(PATH, "1", "");
     processor.process(repository.pending().get(0));
     assertEquals("READY", data(get(PATH, "2")).get("status").asString());
+    assertFalse(data(get(PATH, "2")).get("outdated").asBoolean());
+  }
+
+  @Test
+  void successiveEditsGenerateOnlyTheNewestVersionAndReplacePreviousText() throws Exception {
+    String previous = readySummary();
+    assertEquals(200, edit(2, 3).statusCode());
+    var first = repository.pending().get(0);
+    assertEquals(200, edit(3, 5).statusCode());
+    var newest = repository.pending().get(0);
+    assertNotEquals(first.attemptId(), newest.attemptId());
+    processor.process(first);
+    assertEquals(1, CALLS.get());
+    assertEquals(previous, data(get(PATH, "2")).get("text").asString());
+    OUTPUT.set(
+        List.of(
+            "MacBook Pro 14의 메모리는 18GB입니다.", "판매자가 선택한 상태는 5등급입니다.", "전체 이력은 타임라인에서 확인할 수 있습니다."));
+    processor.process(newest);
+    var value = data(get(PATH, "2"));
+    assertEquals("READY", value.get("status").asString());
+    assertFalse(value.get("outdated").asBoolean());
+    assertNotEquals(previous, value.get("text").asString());
+    assertEquals(5, JSON.readTree(INPUT.get()).get("sellerReportedGrade").asInt());
+    assertEquals(4L, repository.read(1).listingVersion());
+    assertEquals(2, CALLS.get());
+  }
+
+  @Test
+  void editDuringGenerationCannotLetTheOldResultReplaceTheNewAttempt() throws Exception {
+    String previous = readySummary();
+    edit(2, 3);
+    var old = repository.pending().get(0);
+    DURING.set(
+        () -> {
+          try {
+            assertEquals(200, edit(3, 5).statusCode());
+          } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+          }
+        });
+    processor.process(old);
+    assertEquals("QUEUED", repository.read(1).status().name());
+    assertEquals(previous, repository.read(1).text());
+    assertNotEquals(old.attemptId(), repository.read(1).attemptId());
+    DURING.set(null);
+    processor.process(repository.pending().get(0));
+    assertEquals("READY", repository.read(1).status().name());
+    assertEquals(5, JSON.readTree(INPUT.get()).get("sellerReportedGrade").asInt());
+  }
+
+  @Test
+  void refreshFailureKeepsLabelledPreviousTextAndRetryCanReplaceIt() throws Exception {
+    String previous = readySummary();
+    edit(2, 3);
+    ERROR.set(ErrorCode.AI_TIMEOUT);
+    processor.process(repository.pending().get(0));
+    var failed = data(get(PATH, "2"));
+    assertEquals("FAILED", failed.get("status").asString());
+    assertEquals(previous, failed.get("text").asString());
+    assertTrue(failed.get("outdated").asBoolean());
+    assertFalse(failed.get("canRequest").asBoolean());
+    assertEquals(200, get("/api/v1/listings/1", "2").statusCode());
+    age(61);
+    ERROR.set(null);
+    post(PATH, "1", "");
+    processor.process(repository.pending().get(0));
+    assertFalse(data(get(PATH, "2")).get("outdated").asBoolean());
+  }
+
+  @Test
+  void productUpdateQueuesRefreshAndHidesPreviousProductFacts() throws Exception {
+    readySummary();
+    jdbc.update(
+        "UPDATE products SET serial_number_ciphertext=? WHERE id=101",
+        context
+            .getBean(org.example.springtestci.product.service.SerialNumberProtector.class)
+            .encrypt("r10-fixture-serial"));
+    var updated =
+        send(
+            "PATCH",
+            "/api/v1/products/101",
+            "1",
+            "{\"title\":\"MacBook Pro 14 M3 Pro\",\"purchaseDate\":\"2024-02-13\",\"warrantyExpiresAt\":\"2027-02-12\",\"reason\":\"구매일 정정\"}");
+    assertEquals(200, updated.statusCode(), updated.body());
+    var waiting = data(get(PATH, "2"));
+    assertEquals("QUEUED", waiting.get("status").asString());
+    assertTrue(waiting.get("text").isNull());
+    assertFalse(waiting.get("outdated").asBoolean());
+    processor.process(repository.pending().get(0));
+    assertEquals(
+        "2024-02-13",
+        JSON.readTree(INPUT.get()).at("/productAndHistory/product/purchaseDate").asString());
+    assertEquals("READY", repository.read(1).status().name());
+    jdbc.update("UPDATE products SET purchase_date=DATE '2024-02-12' WHERE id=101");
+  }
+
+  @Test
+  void committedHistoryEventQueuesFreshInputButRollbackDoesNot() throws Exception {
+    readySummary();
+    var tx =
+        new org.springframework.transaction.support.TransactionTemplate(
+            context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+    var events = context;
+    var attempt = repository.read(1).attemptId();
+    tx.executeWithoutResult(
+        status -> {
+          jdbc.update("UPDATE products SET facts_version=facts_version+1 WHERE id=101");
+          events.publishEvent(new org.example.springtestci.product.event.ProductFactsChanged(101));
+          status.setRollbackOnly();
+        });
+    assertEquals(attempt, repository.read(1).attemptId());
+    jdbc.update("UPDATE listings SET status='RESERVED' WHERE id=1");
+    HISTORY.set(
+        new Snapshot(
+            State.READY, false, List.of(event(801, EventStatus.VALID, true, "새 공개 점검 기록"))));
+    tx.executeWithoutResult(
+        status -> {
+          jdbc.update("UPDATE products SET facts_version=facts_version+1 WHERE id=101");
+          events.publishEvent(new org.example.springtestci.product.event.ProductFactsChanged(101));
+        });
+    assertNull(repository.read(1).text());
+    processor.process(repository.pending().get(0));
+    assertTrue(INPUT.get().contains("새 공개 점검 기록"));
+    assertEquals("READY", repository.read(1).status().name());
+  }
+
+  @Test
+  void retainedSummaryIsNeverReturnedAfterOwnershipLossOrSaleEnd() throws Exception {
+    readySummary();
+    edit(2, 3);
+    var pending = repository.pending().get(0);
+    assertTrue(data(get(PATH, "2")).get("outdated").asBoolean());
+    jdbc.update("UPDATE products SET owner_id=2 WHERE id=101");
+    assertEquals(404, get(PATH, "2").statusCode());
+    jdbc.update("UPDATE products SET owner_id=1 WHERE id=101");
+    jdbc.update("UPDATE listings SET status='SOLD',active_slot=NULL WHERE id=1");
+    assertEquals(404, get(PATH, "1").statusCode());
+    processor.process(pending);
+    assertEquals(1, CALLS.get());
+  }
+
+  @Test
+  void rolledBackListingEditDoesNotEnqueueRefresh() throws Exception {
+    readySummary();
+    var attempt = repository.read(1).attemptId();
+    var tx =
+        new org.springframework.transaction.support.TransactionTemplate(
+            context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+    tx.executeWithoutResult(
+        status -> {
+          context
+              .getBean(ListingManagementService.class)
+              .update(
+                  1,
+                  1,
+                  new org.example.springtestci.listing.dto.UpdateListingRequest(
+                      2L, "롤백할 제목", "설명", new java.math.BigDecimal("1300000"), 3, List.of(301L)));
+          status.setRollbackOnly();
+        });
+    assertEquals(attempt, repository.read(1).attemptId());
+    assertEquals("READY", repository.read(1).status().name());
+    assertTrue(repository.pending().isEmpty());
+    assertEquals(1, CALLS.get());
+  }
+
+  @Test
+  void dispatcherRecoversACommittedVersionChangeWhoseEventWasMissed() throws Exception {
+    readySummary();
+    jdbc.update("UPDATE listings SET content_version=content_version+1 WHERE id=1");
+    assertEquals(List.of(1L), repository.staleListings());
+    context.getBean(ListingSummaryDispatcher.class).dispatch();
+    for (int i = 0; i < 100 && !repository.read(1).status().name().equals("READY"); i++)
+      Thread.sleep(20);
+    assertEquals("READY", repository.read(1).status().name());
+    assertEquals(3L, repository.read(1).listingVersion());
+    assertEquals(2, CALLS.get());
+  }
+
+  @Test
+  void locallyDeferredWorkExpiresFromOriginalRequestTimeAndProviderFailureIsNotRetried()
+      throws Exception {
+    post(PATH, "1", "");
+    when(LIMITS.acquire(1))
+        .thenThrow(new RateLimitedException(ErrorCode.AI_RATE_LIMITED, Duration.ofSeconds(30)));
+    processor.process(repository.pending().get(0));
+    jdbc.update(
+        "UPDATE listings SET summary_requested_at=? WHERE id=1",
+        java.sql.Timestamp.from(Instant.now().minusSeconds(301)));
+    store.recoverExpired();
+    assertEquals("FAILED", repository.read(1).status().name());
+    assertEquals(0, CALLS.get());
+    age(61);
+    org.mockito.Mockito.reset(LIMITS);
+    ERROR.set(ErrorCode.AI_RATE_LIMITED);
+    post(PATH, "1", "");
+    processor.process(repository.pending().get(0));
+    assertEquals("FAILED", repository.read(1).status().name());
+    assertEquals("AI_007", repository.read(1).errorCode());
+    assertTrue(repository.pending().isEmpty());
+    assertEquals(1, CALLS.get());
+  }
+
+  private String readySummary() throws Exception {
+    assertEquals(202, post(PATH, "1", "").statusCode());
+    processor.process(repository.pending().get(0));
+    assertEquals("READY", repository.read(1).status().name());
+    return repository.read(1).text();
+  }
+
+  private HttpResponse<String> edit(long version, int grade) throws Exception {
+    return send(
+        "PUT",
+        "/api/v1/listings/1",
+        "1",
+        "{\"version\":"
+            + version
+            + ",\"title\":\"수정한 판매글\",\"description\":\"공개 판매 설명\",\"price\":1300000,\"conditionGrade\":"
+            + grade
+            + ",\"selectedImageIds\":[301]}");
   }
 
   @Test
@@ -705,7 +935,8 @@ class ListingSummaryHttpTest {
 
   private static void age(long seconds) {
     jdbc.update(
-        "UPDATE listings SET summary_updated_at=? WHERE id=1",
+        "UPDATE listings SET summary_requested_at=?,summary_updated_at=? WHERE id=1",
+        java.sql.Timestamp.from(Instant.now().minusSeconds(seconds)),
         java.sql.Timestamp.from(Instant.now().minusSeconds(seconds)));
   }
 

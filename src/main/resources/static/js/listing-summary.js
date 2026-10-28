@@ -17,9 +17,20 @@
     if(!root||!state)return;
     notice=note;
     root.replaceChildren(make('h3','','AI 제품 상태 요약'));
-    const message=make('p','sub',note||messages[state.status]||messages.FAILED);
-    message.setAttribute('role','status');message.setAttribute('aria-live','polite');root.append(message);
-    if(state.status==='READY' && state.text)root.append(make('p','listing-ai-summary-text',state.text));
+    const previous=Boolean(state.outdated && state.text);
+    const updating=['QUEUED','PROCESSING'].includes(state.status);
+    const explanation=previous?(updating?'등록 정보가 변경되어 요약을 최신화하고 있어요. 위 내용은 이전 판매 조건을 기준으로 한 요약이에요.':'새 요약을 만들지 못했어요. 위 내용은 이전 판매 조건을 기준으로 한 요약이며, 현재 정보와 다를 수 있어요.'):messages[state.status];
+    const message=make('p','sub',note||explanation||messages.FAILED);
+    message.setAttribute('role','status');message.setAttribute('aria-live','polite');
+    // 이전 요약과 최신화 안내를 함께 표시해 오래된 문장을 최신 결과로 오해하지 않게 한다.
+    if(previous) {
+      root.append(make('p','sub','이전 판매 조건 기준 요약'));
+      root.append(make('p','listing-ai-summary-text',state.text));
+      root.append(message);
+    } else {
+      root.append(message);
+      if(state.status==='READY' && state.text)root.append(make('p','listing-ai-summary-text',state.text));
+    }
     if(state.status==='FAILED' && reasons[state.errorCode])root.append(make('p','sub',reasons[state.errorCode]));
     if(sample)root.append(make('p','sl-publication-sample','로컬 샘플 이력으로 검증하는 화면이에요.'));
     if(state.retryAfterSeconds>0)root.append(make('p','sub',state.retryAfterSeconds+'초 후 다시 요청할 수 있어요.'));
@@ -38,9 +49,9 @@
     clearTimeout(timer);timer=null;
     if(!current()||document.hidden||!state)return;
     let delay=0;
-    if(['QUEUED','PROCESSING'].includes(state.status)) {if(polls<30)delay=2000;else render('생성이 오래 걸리고 있어요. 상태 새로고침으로 다시 확인해 주세요.');}
-    else if(state.status==='READY')delay=15000;
-    else if(state.status==='FAILED' && state.retryAfterSeconds>0)delay=Math.min(60000,state.retryAfterSeconds*1000+100);
+    if(['QUEUED','PROCESSING'].includes(state.status)) {if(polls<60)delay=polls<30?2000:10000;else render('생성이 오래 걸리고 있어요. 상태 새로고침으로 다시 확인해 주세요.');}
+    else if(['READY','NOT_REQUESTED'].includes(state.status))delay=15000;
+    else if(state.status==='FAILED')delay=state.retryAfterSeconds>0?Math.min(60000,state.retryAfterSeconds*1000+100):15000;
     if(delay)timer=setTimeout(()=>fetchState(),delay);
   }
   function closeDetail(status) {
