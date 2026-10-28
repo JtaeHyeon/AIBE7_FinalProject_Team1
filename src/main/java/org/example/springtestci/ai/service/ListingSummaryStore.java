@@ -223,9 +223,14 @@ public class ListingSummaryStore {
     // 기준 자료가 바뀌었거나 요약이 작성 규칙을 반복하면 응답에서 숨기고 판매자가 재생성할 수 있게 한다.
     // DB의 저장 상태는 바꾸지 않으며, 조회 중에 AI를 다시 호출하지 않는다.
     boolean stale = state.status() != Status.NOT_REQUESTED && !matches(current, state);
-    boolean unusable = unusableText(state);
-    Status status = stale || unusable ? Status.FAILED : state.status();
-    String text = !stale && !unusable && !"AI_005".equals(state.errorCode()) ? state.text() : null;
+    boolean legacy =
+        state.status() == Status.READY
+            && state.formatVersion() != ListingSummaryState.CARD_FORMAT_VERSION;
+    boolean unusable = !legacy && unusableText(state);
+    Status status =
+        stale || unusable ? Status.FAILED : legacy ? Status.NOT_REQUESTED : state.status();
+    String text =
+        !stale && !unusable && !legacy && !"AI_005".equals(state.errorCode()) ? state.text() : null;
     long wait = stale || unusable ? 0 : retryWait(state);
     boolean owner = actorId != null && current.listing().getSellerId() == actorId;
     return new ListingSummaryResponse(
@@ -242,7 +247,9 @@ public class ListingSummaryStore {
   }
 
   private boolean unusableText(ListingSummaryState state) {
-    return summaryPolicy.containsProcessInstructions(state.text());
+    return state.text() != null
+        && (state.formatVersion() != ListingSummaryState.CARD_FORMAT_VERSION
+            || !summaryPolicy.reusableStored(state.text()));
   }
 
   private record Current(Listing listing, long productVersion) {}

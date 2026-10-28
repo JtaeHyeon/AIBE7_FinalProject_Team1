@@ -38,6 +38,8 @@ app:
     url: ${SUPABASE_URL:}
     secret: ${SUPABASE_SECRET:}
   features:
+    listing-history:
+      enabled: ${LISTING_HISTORY_ENABLED:false}
     trade-purchase-requests:
       enabled: false
     trade-p3:

@@ -1,10 +1,12 @@
 package org.example.springtestci.listing.service;
 
 import java.io.IOException;
+import org.example.springtestci.ai.service.ListingSummaryTextPolicy;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.ListingPageResponse;
 import org.example.springtestci.listing.dto.ListingSearchRequest;
+import org.example.springtestci.listing.dto.ListingSummaryResponse;
 import org.example.springtestci.listing.entity.ListingStatus;
 import org.example.springtestci.listing.repository.ListingQueryRepository;
 import org.example.springtestci.listing.repository.ListingRepository;
@@ -18,17 +20,34 @@ public class ListingBrowseService {
   private final ListingQueryRepository query;
   private final ListingRepository listings;
   private final ProductService products;
+  private final ListingSummaryTextPolicy summaryPolicy;
 
   public ListingBrowseService(
-      ListingQueryRepository query, ListingRepository listings, ProductService products) {
+      ListingQueryRepository query,
+      ListingRepository listings,
+      ProductService products,
+      ListingSummaryTextPolicy summaryPolicy) {
     this.query = query;
     this.listings = listings;
     this.products = products;
+    this.summaryPolicy = summaryPolicy;
   }
 
   @Transactional(readOnly = true)
   public ListingPageResponse list(ListingSearchRequest request) {
     return ListingPageResponse.from(query.findActive(request));
+  }
+
+  /** 회원 여부는 요청의 인증 정보에서만 결정한다. 비회원에게 이력 기반 요약을 확장 공개하지 않는다. */
+  @Transactional(readOnly = true)
+  public ListingPageResponse list(ListingSearchRequest request, boolean member) {
+    return ListingPageResponse.from(query.findActive(request, member).map(this::safeSummary));
+  }
+
+  private ListingSummaryResponse safeSummary(ListingSummaryResponse item) {
+    if (item.aiSummary().text() != null && !summaryPolicy.reusableStored(item.aiSummary().text()))
+      return item.withAiSummary(new ListingSummaryResponse.AiSummary("FAILED", null, false));
+    return item;
   }
 
   /** 목록의 대표 사진만 공개한다. 예약·종료·소유권 변경 후에는 기존 URL도 다시 차단한다. */

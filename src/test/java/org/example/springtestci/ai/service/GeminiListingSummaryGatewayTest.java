@@ -17,21 +17,22 @@ class GeminiListingSummaryGatewayTest {
   private final GeminiListingSummaryGateway gateway = new GeminiListingSummaryGateway(client);
 
   @Test
-  void usesSharedTransportWithThreeToFiveSentenceSchemaAndNoTools() {
+  void usesSharedTransportWithOneToTwoShortSentencesAndNoTools() {
     when(client.configured()).thenReturn(true);
     assertTrue(gateway.configured());
     when(client.generate(anyString(), anyMap(), eq("registered-source")))
         .thenReturn(
             JsonMapper.builder()
                 .build()
-                .readTree("{\"sentences\":[\"첫 문장입니다.\",\"다음 문장입니다.\",\"마지막 문장입니다.\"]}"));
-    assertEquals(3, gateway.summarize("registered-source").size());
+                .readTree("{\"sentences\":[\"제품 특징을 소개합니다.\",\"등록된 상태를 설명합니다.\"]}"));
+    assertEquals(2, gateway.summarize("registered-source").size());
     var schema = ArgumentCaptor.forClass(Map.class);
     verify(client).generate(anyString(), schema.capture(), eq("registered-source"));
     Map<?, ?> properties = (Map<?, ?>) schema.getValue().get("properties");
     Map<?, ?> sentences = (Map<?, ?>) properties.get("sentences");
-    assertEquals(3, sentences.get("minItems"));
-    assertEquals(5, sentences.get("maxItems"));
+    assertEquals(1, sentences.get("minItems"));
+    assertEquals(2, sentences.get("maxItems"));
+    assertEquals(90, ((Map<?, ?>) sentences.get("items")).get("maxLength"));
     assertEquals(false, schema.getValue().get("additionalProperties"));
   }
 
