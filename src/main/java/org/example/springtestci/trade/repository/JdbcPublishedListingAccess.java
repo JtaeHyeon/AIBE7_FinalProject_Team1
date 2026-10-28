@@ -16,6 +16,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/** 제품을 먼저 잠근 뒤 게시 판매글을 읽고 ACTIVE/RESERVED 상태를 조건부 갱신하는 JDBC 어댑터다. */
 @Repository
 @ConditionalOnProperty(
     prefix = "app.features.trade-purchase-requests",
@@ -38,11 +39,13 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     this.jdbcTemplate = jdbcTemplate;
   }
 
+  /** 잠금 없이 현재 제품 소유자와 게시 판매글 상태를 조회한다. */
   @Override
   public Optional<PublishedListing> findById(long listingId) {
     return queryOne(SELECT_LISTING, listingId);
   }
 
+  /** 제품 행을 먼저 잠근 다음 같은 제품의 판매글을 잠가 거래 쓰기 간 잠금 순서를 통일한다. */
   @Override
   public Optional<PublishedListing> findByIdForUpdate(long listingId) {
     Optional<Long> productId =
@@ -65,6 +68,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
         SELECT_LISTING + " and listing.product_id = ? for update", listingId, productId.get());
   }
 
+  /** 목록 응답용 판매글 상태를 한 번에 조회하며 보관 제품은 CANCELLED로 투영한다. */
   @Override
   public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
     if (listingIds.isEmpty()) {
@@ -94,6 +98,7 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
         listingIds.toArray());
   }
 
+  /** ACTIVE 한 행만 RESERVED로 바꾸고 영향 행이 정확히 하나가 아니면 경합으로 처리한다. */
   @Override
   public void reserve(long listingId) {
     int updated =
@@ -105,10 +110,39 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
     }
   }
 
+  /**
+   * 현재 RESERVED인 판매글 한 건을 ACTIVE로 변경하고 영향 행 수를 검사한다.
+   *
+   * <p>동일 예약의 유효한 취소인지 확인하고 재시도가 새 예약을 해제하지 않도록 하는 책임은 호출 서비스에 있다.
+   */
+  @Override
+  public void releaseReservation(long listingId) {
+    int updated =
+        jdbcTemplate.update(
+            "update listings set status = 'ACTIVE' where id = ? and status = 'RESERVED'",
+            listingId);
+    if (updated != 1) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+  }
+
+  /** 완료된 예약의 판매글만 SOLD로 전환하며 활성 판매글 유일 슬롯을 함께 비운다. */
+  @Override
+  public void sell(long listingId) {
+    int updated =
+        jdbcTemplate.update(
+            "update listings set status = 'SOLD', active_slot = null where id = ? and status = 'RESERVED'",
+            listingId);
+    if (updated != 1) {
+      throw new CommonException(ErrorCode.TRADE_CONFLICT);
+    }
+  }
+
   private Optional<PublishedListing> queryOne(String sql, Object... parameters) {
     return jdbcTemplate.query(sql, this::mapListing, parameters).stream().findFirst();
   }
 
+  /** 제품 보관 여부를 반영한 판매글 상태와 현재 소유자를 거래 전용 사본으로 매핑한다. */
   private PublishedListing mapListing(ResultSet resultSet, int rowNumber) throws SQLException {
     return new PublishedListing(
         resultSet.getLong("id"),

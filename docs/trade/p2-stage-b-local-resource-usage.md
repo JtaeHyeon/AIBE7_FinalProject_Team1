@@ -122,6 +122,17 @@
 
 - 외부 전용 시험은 pending 거래 DDL과 테스트 전용 ownership fixture를 사용했다. 정식 ownership E2E로 집계하지 않는다.
 - 첫 정리 시 Rancher Hyper-V 백엔드 응답이 끊겨 삭제가 실패했다. Rancher를 재기동하고 정확한 컨테이너 이름과 이미지를 재확인한 뒤 삭제했다.
+
+## P4 거래완료 작업 추가 기록
+
+| 항목 | 결과 |
+|---|---|
+| 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
+| 외부 자원 | PostgreSQL·Redis·Rancher·Docker·로컬 API·공유 서비스 미사용 |
+| 실행 범위 | `gradlew.bat spotlessApply spotlessCheck classes testClasses test`에 15개 관련 클래스 선택, 100건 성공 |
+| 잔여 프로세스 | Gradle `--no-daemon` 단일 실행 종료, 신규 외부 프로세스 없음 |
+
+P4 전용 `TradeP4PostgresIntegrationTest`는 `P4_TRADE_TEST_ENABLED=true`일 때만 동작하도록 작성하고 `testClasses`로 컴파일했다. P3 pending 제약, 실제 거래 측 change review·판매 중지 어댑터를 test fixture에 연결했지만 DB02의 거래/SOLD 저장 실패 주입은 `CODE_TODO`다. 환경변수를 설정하거나 PostgreSQL을 기동·접속하지 않았으므로 모든 P4 DB 시험의 실제 결과는 `NOT_RUN`이다.
 - 최종 확인에서 `pastport-p2-correction-*` 컨테이너와 `redis:8-alpine` 이미지가 각각 0건임을 확인했다.
 - 작업 전부터 있던 PostgreSQL 17 이미지는 유지하고 `rdctl shutdown`으로 작업 전 중지 상태를 복원했다.
 
@@ -139,3 +150,17 @@
 
 셸의 기본 Java 8은 Gradle 요구 버전을 충족하지 않아 첫 검사가 실행 전에 실패했다. 시스템 전역 설정은 변경하지 않고
 각 검증 명령의 프로세스 환경에만 `JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot`을 지정했다.
+
+## 10. P3 예약 취소·변경 확인 구현
+
+| 항목 | 기록 |
+|---|---|
+| 작업 기준 | P2 `72e3d6d`에서 P3 브랜치 생성, 원본 main `7ae4ccd` R07 통합 |
+| 사용 자원 | Git·파일 편집, Temurin Java 17.0.19, 프로젝트 Gradle Wrapper |
+| 외부 자원 | DB·Redis·Rancher·로컬 API·공유 서비스 미사용 |
+| DB 자료 | pending DDL과 opt-in PostgreSQL 시험 코드만 작성, 실제 실행 `NOT_RUN` |
+| 생성·변경 | 소스·시험·문서, `build` 결과와 일반 Gradle 캐시 |
+| 종료 상태 | 컨테이너·이미지·네트워크·외부 데이터 생성 없음. Gradle 데몬과 캐시는 기본 정책대로 유지 |
+
+기본 Java 8이나 시스템 전역 설정을 변경하지 않고 각 Gradle 프로세스에만 Java 17 `JAVA_HOME`을 지정했다. 최종 검사
+명령과 결과는 `p3-result.md`에 기록한다.

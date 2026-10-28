@@ -609,6 +609,7 @@ class PurchaseRequestHttpPostgresTest {
       return new SubscriptionProbe();
     }
 
+    /** HTTP 통합 경계 시험에서만 사용하는 ownership 준비 쓰기 대역이며 운영 Bean이 아니다. */
     @Bean
     @Primary
     InternalTransferPendingWriter internalTransferPendingWriter(JdbcTemplate jdbcTemplate) {

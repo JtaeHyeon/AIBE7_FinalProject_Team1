@@ -1,0 +1,92 @@
+# 채팅·거래 코드 흐름 안내
+
+이 문서는 P1 채팅, P2 구매 요청·예약, P3 예약 취소·변경 확인, P4 양측 거래완료 코드의 진입점과 책임 경계를 연결한다. 기능 계약은 각 단계의 별도 API·결과 문서를 우선하며, 여기서는 코드를 읽는 순서와 외부 연동 상태를 설명한다.
+
+## 공통 계층
+
+```text
+Controller
+→ Service 인터페이스 또는 유스케이스 구현
+→ Repository / 외부 포트
+→ JDBC·JPA·STOMP 어댑터
+```
+
+- Controller는 검증된 HTTP 입력과 인증 사용자 ID만 전달한다.
+- Service는 당사자 권한, 상태 전이, 잠금 순서와 트랜잭션 경계를 소유한다.
+- Repository는 도메인 모델을 반환하며 JPA Entity를 API나 Service에 노출하지 않는다.
+- 외부 포트의 시험 구현은 운영 ownership/history 연동 완료를 뜻하지 않는다.
+
+## P1 채팅
+
+### HTTP 흐름
+
+1. `chat/controller/ChatController.java`가 방 생성·목록·메시지·읽음 위치 요청을 받는다.
+2. `chat/service/ChatService.java`가 공개 유스케이스 계약을 정의한다.
+3. `chat/service/DefaultChatService.java`가 방 참여자 권한과 판매글 상태를 검증한다.
+4. `chat/repository/ChatRoomRepository.java`, `ChatMessageRepository.java`, `ChatReadPositionRepository.java`를 `chat/repository/jpa` 구현이 처리한다.
+5. 판매글과 사용자 표시는 `ChatListingReader`, `ChatUserReader` 포트를 통해 필요한 공개 사본만 조회한다.
+
+`openRoom()`은 판매글 ID와 인증 문의자 ID를 사용한다. `sendMessage()`는 메시지를 먼저 저장하고 `ChatMessageDelivery.publishAfterCommit()`으로 커밋 이후 발행을 예약한다. `updateMyReadPosition()`은 메시지가 요청한 방에 속하는지 확인한 뒤 읽음 위치를 갱신한다.
+
+### 실시간 흐름
+
+1. `chat/realtime/ChatRealtimeConfig.java`가 `/ws-stomp`와 `/sub` 브로커를 구성한다.
+2. `ChatStompAuthorizationInterceptor.preSend()`가 CONNECT JWT와 SUBSCRIBE 목적지를 검사하며 클라이언트 SEND를 거부한다.
+3. `ChatRoomSubscriptionAuthorizer.canSubscribe()`가 저장된 방의 판매자·문의자 여부를 확인한다.
+4. `ChatMessageRealtimePublisher.publishAfterCommit()`이 커밋된 메시지만 `/sub/chat/room/{roomId}`로 발행한다.
+
+## P2 구매 요청·예약
+
+1. `trade/controller/PurchaseRequestController.java`가 구매 요청 ID, 채팅방 ID와 게시 판매글 ID를 구분해 입력받는다.
+2. `trade/service/PurchaseRequestService.java`가 구매자·판매자 역할과 요청 상태를 검증한다.
+3. `trade/repository/PurchaseRequestRepository.java`와 `JdbcPurchaseRequestRepository.java`가 `purchase_requests`를 조회·잠금·조건부 갱신한다.
+4. `PublishedListingAccess`와 `JdbcPublishedListingAccess`가 제품을 먼저 잠근 뒤 판매글을 잠그고 ACTIVE/RESERVED 상태를 갱신한다.
+5. `accept()`는 요청 ACCEPTED/RESERVED, 판매글 RESERVED와 `InternalTransferPendingWriter.createPending()`을 같은 트랜잭션에서 처리한다.
+
+`InternalTransferPendingWriter`의 운영 구현은 이 저장소에 없다. PostgreSQL 시험의 내부 JDBC writer와 HTTP 시험 Bean은 원자성 검증용 대역이며 정식 ownership 연결이 아니다.
+
+## P3 예약 취소
+
+1. `trade/controller/TradeController.cancel()`이 API의 tradeId로 사용하는 구매 요청 ID와 취소 enum을 받는다.
+2. `TradeCancellationService.cancel()`이 원래 판매자 또는 선택 구매자인지 확인한다.
+3. 제품·판매글을 먼저 잠그고 구매 요청을 재조회한 뒤 `cancelLocked()`가 다음 순서로 처리한다.
+
+```text
+INTERNAL/PENDING 이전 취소
+→ 구매 요청·거래 CANCELLED 및 최초 취소 메타데이터 저장
+→ 일반 예약 취소인 경우 판매글 RESERVED → ACTIVE
+→ 감사 기록
+```
+
+모든 단계는 같은 Spring 트랜잭션에 참여한다. `InternalTransferCancellationPort`의 운영 구현은 아직 없으며 시험 대역은 연동 완료 근거가 아니다.
+
+`TradeListingCanceller.cancel()`은 R07 판매 중지 트랜잭션에 `MANDATORY`로 참여한다. RESERVED 판매글을 중지할 때 선택 거래와 나머지 PENDING 요청을 정리하지만 이미 CANCELLED인 판매글을 ACTIVE로 복구하지 않는다.
+
+## P3 변경 확인
+
+1. 정식 history/product 연동이 `ReservationChangeService.recordChange()`에 eventId, factsVersion과 공개 안전 JSON 사본을 같은 트랜잭션으로 공급한다. 공개 생성 API는 없다.
+2. `ReservationChangeReviewRepository`와 `JdbcReservationChangeReviewRepository`가 `(purchase_request_id, event_id)` 복합 키로 사본을 불변 저장한다.
+3. `TradeController.findChangeReviews()`는 양측 당사자에게 목록과 미확인 건수를 반환한다.
+4. `ReservationChangeService.review()`는 제품·판매글 → 구매 요청 → review 순서로 잠그고 최신 결정을 먼저 판정한다.
+5. KEEP은 해당 사건만 확정한다. CANCEL은 공통 예약 취소와 review 결정을 같은 트랜잭션에서 처리한다.
+6. `requireNoUnreviewedChanges()`는 향후 P4 완료 처리에서 미확인 변경이 있는 거래를 차단하는 가드다.
+
+## P4 양측 거래완료
+
+1. `TradeCompletionController#getContext()`와 `#complete()`가 P3 Controller와 분리된 기능 플래그 경계에서 요청을 받는다.
+2. `TradeCompletionService#getContext()`는 원래 당사자와 예약 상태를 확인하고 제품→판매글→판매글별 구매 요청 ID 순서로 잠근다.
+3. `ProductService#getForListing()`의 `factsVersion`과 `ListingDetailService#get()`의 공개 projection을 같은 잠금 범위에서 조합한다. READY가 아니거나 샘플인 이력은 완료 근거로 사용하지 않는다.
+4. `TradeCompletionService#complete()`는 종료 재요청을 먼저 반환하고, 진행 중 거래에는 최신 버전·정식 공개 이력·미확인 변경 0건을 다시 검사한 뒤 인증 사용자의 확인만 저장한다.
+5. 양측 확인이 같은 현재 버전이면 `PurchaseRequestRepository#complete()`, `PublishedListingAccess#sell()`, `#rejectPendingByListingId()` 순서로 거래 측 상태를 확정한다.
+6. `InternalTradeCompletionPort#complete()`와 `TradeAuditRecorder#tradeCompleted()`가 같은 트랜잭션에 참여한다. 운영 완료 포트는 아직 없으며 기능 활성화 시 필수 Bean이다.
+
+완료된 거래의 재요청은 원래 방 당사자에게 최소 상태만 반환한다. 이후 제품 소유자 변경이나 facts 버전 증가를 이유로 과거 완료를 다시 수행하지 않는다.
+
+## 주석 유지 기준
+
+- 클래스 주석은 계층 역할, 권한과 트랜잭션 책임을 설명한다.
+- 주요 API·업무·저장 메소드는 입력 식별자의 의미, 결과, 거부 조건과 위임 대상을 설명한다.
+- 잠금·조건부 갱신·커밋 후 발행처럼 순서가 정확성에 영향을 주는 곳은 이유와 순서를 남긴다.
+- Javadoc은 선언의 첫 어노테이션보다 앞에 둔다.
+- 단순 getter, 생성자 대입이나 코드 그대로인 설명은 반복하지 않는다.
+- 기능 변경과 주석 전용 변경은 논리적으로 분리한다.

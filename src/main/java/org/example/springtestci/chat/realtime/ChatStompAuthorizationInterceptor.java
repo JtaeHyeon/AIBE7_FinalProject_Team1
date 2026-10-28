@@ -18,6 +18,11 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
+/**
+ * STOMP CONNECT의 JWT를 검증하고 방별 SUBSCRIBE 권한을 강제한다.
+ *
+ * <p>클라이언트 SEND는 허용하지 않으며 메시지 쓰기는 인증·검증이 적용되는 HTTP API만 사용한다.
+ */
 @Component
 class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
 
@@ -35,6 +40,7 @@ class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
     this.subscriptionAuthorizer = subscriptionAuthorizer;
   }
 
+  /** CONNECT/STOMP 인증과 SUBSCRIBE 방 권한을 검사하고 클라이언트 SEND는 거부한다. */
   @Override
   public Message<?> preSend(Message<?> message, MessageChannel channel) {
     StompHeaderAccessor accessor =
@@ -60,6 +66,7 @@ class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
     return message;
   }
 
+  /** native Authorization 헤더의 Bearer JWT subject를 숫자 회원 ID Principal로 변환한다. */
   private Principal authenticate(StompHeaderAccessor accessor) {
     String authorization = accessor.getFirstNativeHeader(AUTHORIZATION_HEADER);
     if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
@@ -78,6 +85,7 @@ class ChatStompAuthorizationInterceptor implements ChannelInterceptor {
     }
   }
 
+  /** `/sub/chat/room/{roomId}` 형식과 해당 방 참여자 여부를 모두 확인한다. */
   private void authorizeSubscription(StompHeaderAccessor accessor) {
     Principal principal = accessor.getUser();
     if (principal == null) {
