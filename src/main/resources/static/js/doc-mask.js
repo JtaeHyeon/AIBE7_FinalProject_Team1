@@ -524,6 +524,8 @@
     if (root && event.detail.id !== 'docmask') reset();
     // 다른 화면에서 제품을 등록하거나 로그인했을 수 있으니 돌아올 때마다 목록을 새로 받는다.
     if (root && event.detail.id === 'docmask') {
+      // 제품 여권의 버튼으로 들어왔을 때만 저장 후 그 제품 여권으로 돌아가는 버튼을 보여 준다.
+      find('[data-dm-to-passport]').hidden = !pendingProductId;
       loadProducts(pendingProductId);
       pendingProductId = null;
     }
