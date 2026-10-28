@@ -12,6 +12,7 @@ import org.example.springtestci.product.service.ProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 비회원용 마켓 목록과 대표 사진을 조회한다. 회원 전용 상세 조회와 역할을 나눈다. */
 @Service
 public class ListingBrowseService {
   private final ListingQueryRepository query;

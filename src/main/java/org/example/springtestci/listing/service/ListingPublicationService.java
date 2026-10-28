@@ -52,6 +52,16 @@ public class ListingPublicationService {
   /** 조회 도중 소유권 변경이 끼어들지 않도록 기존 제품 잠금 안에서 DTO를 완성한다. */
   @Transactional
   public ListingPublicationResponse get(long productId, long userId, int page, int size) {
+    return compose(productId, userId, page, size);
+  }
+
+  /** AI에는 화면의 첫 페이지만이 아닌 전체 누적 핵심 이력을 제공한다. 외부 호출은 이 트랜잭션 밖에서 한다. */
+  @Transactional
+  public ListingPublicationResponse getForAi(long productId, long userId) {
+    return compose(productId, userId, 0, MAX_SOURCE_EVENTS);
+  }
+
+  private ListingPublicationResponse compose(long productId, long userId, int page, int size) {
     products.lockOwnedForListing(userId, productId);
     var source = products.getForListing(userId, productId);
     var safeProduct = DraftProductResponse.from(source);

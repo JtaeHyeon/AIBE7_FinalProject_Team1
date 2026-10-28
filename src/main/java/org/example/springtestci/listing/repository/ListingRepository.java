@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
+/** 게시글 저장과 중복 게시·열린 판매글·행 잠금 조회에 사용하는 JPA 저장소다. */
 public interface ListingRepository extends JpaRepository<Listing, Long> {
   Optional<Listing> findBySourceDraftId(long sourceDraftId);
 

@@ -38,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 게시된 판매글의 목록·상세·관리 요청을 받고, 실제 처리는 각 서비스에 맡긴다. */
 @RestController
 @Validated
 @RequestMapping("/api/v1")
@@ -58,6 +59,7 @@ public class ListingController {
     this.management = management;
   }
 
+  /** 비회원도 볼 수 있는 판매 중 목록이다. 검색·필터·정렬 조건은 서비스로 전달한다. */
   @GetMapping("/listings")
   public ResponseEntity<ApiResponse<ListingPageResponse>> list(
       @Valid @ModelAttribute ListingSearchRequest request) {
@@ -66,6 +68,7 @@ public class ListingController {
         .body(ApiResponse.success(browse.list(request)));
   }
 
+  /** 목록 카드에 필요한 대표 사진 한 장만 제공한다. 상세 사진 조회와는 공개 범위가 다르다. */
   @GetMapping("/listings/{listingId}/thumbnail")
   public ResponseEntity<Resource> thumbnail(@PathVariable @Positive long listingId)
       throws IOException {
@@ -77,6 +80,7 @@ public class ListingController {
         .body(image.resource());
   }
 
+  /** 저장된 초안을 게시한다. 첫 게시면 201, 같은 게시 요청의 재확인이면 200을 반환한다. */
   @PostMapping("/products/{productId}/listings")
   public ResponseEntity<ApiResponse<PublishedListingResponse>> publish(
       @PathVariable @Positive long productId,
@@ -89,6 +93,7 @@ public class ListingController {
         .body(ApiResponse.success(result.response()));
   }
 
+  /** 로그인 회원에게 판매 조건·선택 사진·공개 이력·AI 요약 상태를 묶어 반환한다. */
   @GetMapping("/listings/{listingId}")
   public ResponseEntity<ApiResponse<ListingDetailResponse>> detail(
       @PathVariable @Positive long listingId,
@@ -100,6 +105,7 @@ public class ListingController {
         .body(ApiResponse.success(details.get(listingId, userId(authentication), page, size)));
   }
 
+  /** 판매자 전용 수정 폼을 채우는 API다. 조회용 상세 응답과 구분한다. */
   @GetMapping("/listings/{listingId}/management")
   public ResponseEntity<ApiResponse<ListingManagementResponse>> management(
       @PathVariable @Positive long listingId, Authentication authentication) {
@@ -108,6 +114,7 @@ public class ListingController {
         .body(ApiResponse.success(management.get(listingId, userId(authentication))));
   }
 
+  /** 판매 중인 글의 제목·가격·설명·사진 선택을 수정한다. 제품 원본 사양과 이력은 수정하지 않는다. */
   @PutMapping("/listings/{listingId}")
   public ResponseEntity<ApiResponse<ListingManagementResponse>> update(
       @PathVariable @Positive long listingId,
@@ -118,6 +125,7 @@ public class ListingController {
         .body(ApiResponse.success(management.update(listingId, userId(authentication), request)));
   }
 
+  /** 게시글을 물리적으로 삭제하지 않고 판매 중지 상태로 바꾸고 관련 취소 처리를 요청한다. */
   @PostMapping("/listings/{listingId}/cancel")
   public ResponseEntity<ApiResponse<ListingStateResponse>> cancel(
       @PathVariable @Positive long listingId,

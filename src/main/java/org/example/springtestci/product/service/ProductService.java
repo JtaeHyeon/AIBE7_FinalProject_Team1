@@ -13,11 +13,13 @@ import org.example.springtestci.product.dto.CreateProductRequest;
 import org.example.springtestci.product.dto.ProductResponse;
 import org.example.springtestci.product.dto.UpdateProductImagesRequest;
 import org.example.springtestci.product.dto.UpdateProductRequest;
+import org.example.springtestci.product.event.ProductFactsChanged;
 import org.example.springtestci.product.repository.ProductRepository;
 import org.example.springtestci.product.repository.ProductRepository.ProductImageRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.Resource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -39,18 +41,21 @@ public class ProductService {
   private final ProductImageValidator imageValidator;
   private final ObjectProvider<FileStorage> fileStorage;
   private final ObjectMapper objectMapper;
+  private final ApplicationEventPublisher events;
 
   public ProductService(
       ProductRepository productRepository,
       SerialNumberProtector serialNumberProtector,
       ProductImageValidator imageValidator,
       ObjectProvider<FileStorage> fileStorage,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      ApplicationEventPublisher events) {
     this.productRepository = productRepository;
     this.serialNumberProtector = serialNumberProtector;
     this.imageValidator = imageValidator;
     this.fileStorage = fileStorage;
     this.objectMapper = objectMapper;
+    this.events = events;
   }
 
   @Transactional
@@ -137,6 +142,7 @@ public class ProductService {
             .orElseThrow(() -> new CommonException(ErrorCode.RESOURCE_NOT_FOUND));
     productRepository.insertProductAudit(
         productId, ownerId, auditJson(before), auditJson(after), request.reason());
+    events.publishEvent(new ProductFactsChanged(productId));
     return withImages(after)
         .withSerialNumber(
             serialNumberProtector.decrypt(

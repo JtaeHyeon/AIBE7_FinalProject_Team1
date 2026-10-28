@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,7 +60,8 @@ class ProductServiceTest {
             protector,
             new ProductImageValidator(),
             storageProvider,
-            JsonMapper.builder().build());
+            JsonMapper.builder().build(),
+            mock(org.springframework.context.ApplicationEventPublisher.class));
   }
 
   @Test

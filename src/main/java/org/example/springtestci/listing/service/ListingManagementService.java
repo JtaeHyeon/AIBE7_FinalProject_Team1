@@ -11,14 +11,17 @@ import org.example.springtestci.listing.dto.ListingStateResponse;
 import org.example.springtestci.listing.dto.UpdateListingRequest;
 import org.example.springtestci.listing.entity.Listing;
 import org.example.springtestci.listing.entity.ListingStatus;
+import org.example.springtestci.listing.event.ListingContentChanged;
 import org.example.springtestci.listing.repository.ListingAuditRepository;
 import org.example.springtestci.listing.repository.ListingRepository;
 import org.example.springtestci.product.service.ProductService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+/** 게시자이자 현재 제품 소유자인 판매자만 글을 수정하거나 판매 중지할 수 있게 한다. */
 @Service
 public class ListingManagementService {
   private final ListingRepository listings;
@@ -27,6 +30,7 @@ public class ListingManagementService {
   private final ObjectProvider<ListingTradeCanceller> tradeCancellers;
   private final ObjectProvider<ListingHistoryPrivatizer> historyPrivatizers;
   private final ObjectMapper json;
+  private final ApplicationEventPublisher events;
 
   public ListingManagementService(
       ListingRepository listings,
@@ -34,13 +38,15 @@ public class ListingManagementService {
       ListingAuditRepository audit,
       ObjectProvider<ListingTradeCanceller> tradeCancellers,
       ObjectProvider<ListingHistoryPrivatizer> historyPrivatizers,
-      ObjectMapper json) {
+      ObjectMapper json,
+      ApplicationEventPublisher events) {
     this.listings = listings;
     this.products = products;
     this.audit = audit;
     this.tradeCancellers = tradeCancellers;
     this.historyPrivatizers = historyPrivatizers;
     this.json = json;
+    this.events = events;
   }
 
   @Transactional
@@ -70,6 +76,7 @@ public class ListingManagementService {
     listings.flush();
     audit.changed(
         listing.getProductId(), userId, listingId, "LISTING_UPDATED", before, facts(listing), null);
+    events.publishEvent(new ListingContentChanged(listingId));
     return response(listing);
   }
 
@@ -107,6 +114,7 @@ public class ListingManagementService {
     return state(listing);
   }
 
+  // 제품 → 판매글 순으로 잠가 소유권 이전·예약 처리와 동시에 실행되어도 검사 결과를 유지한다.
   private Listing ownedLocked(long listingId, long userId) {
     var access =
         listings
@@ -158,6 +166,7 @@ public class ListingManagementService {
         listing.getId(), listing.getContentVersion(), listing.getStatus());
   }
 
+  // 수정·중지 전후의 판매 조건을 감사 기록으로 남겨 누가 무엇을 바꿨는지 추적한다.
   private String facts(Listing listing) {
     return json.writeValueAsString(
         new AuditFacts(

@@ -24,6 +24,16 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  ai:
+    summary:
+      enabled: ${AI_SUMMARY_ENABLED:true}
+    listing:
+      enabled: ${AI_LISTING_ENABLED:true}
+      api-key: ${GEMINI_API_KEY:${AI_API_KEY:}}
+      model: ${AI_MODEL:gemini-3.5-flash-lite}
+      timeout-seconds: ${AI_TIMEOUT_SECONDS:20}
+      user-requests-per-minute: ${AI_USER_REQUESTS_PER_MINUTE:3}
+      global-requests-per-minute: ${AI_GLOBAL_REQUESTS_PER_MINUTE:30}
   supabase:
     url: ${SUPABASE_URL:}
     secret: ${SUPABASE_SECRET:}

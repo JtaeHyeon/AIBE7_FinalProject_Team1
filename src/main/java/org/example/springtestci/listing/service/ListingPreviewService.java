@@ -10,6 +10,7 @@ import org.example.springtestci.product.service.ProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 저장한 초안과 공개 예정 제품·이력을 합쳐 읽기 전용 미리보기를 만든다. */
 @Service
 public class ListingPreviewService {
   private final ListingDraftService drafts;

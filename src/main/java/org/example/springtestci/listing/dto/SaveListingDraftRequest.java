@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
 
+/** 작성 폼에서 받은 임시저장 데이터다. 최초 저장은 version 없이, 수정은 조회한 version과 함께 보낸다. */
 public record SaveListingDraftRequest(
     @Size(max = 60) String title,
     @Size(max = 2000) String description,

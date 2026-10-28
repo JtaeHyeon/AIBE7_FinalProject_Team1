@@ -65,7 +65,9 @@ public class GlobalExceptionHandler {
         response(
             errorCode.status(),
             errorCode.code(),
-            "로그인 시도가 너무 많아요. %d분 뒤에 다시 시도해 주세요.".formatted(minutes),
+            errorCode == ErrorCode.LOGIN_RATE_LIMITED
+                ? "로그인 시도가 너무 많아요. %d분 뒤에 다시 시도해 주세요.".formatted(minutes)
+                : errorCode.message() + " (%d초 후 재시도)".formatted(seconds),
             request,
             List.of());
     return ResponseEntity.status(base.getStatusCode())

@@ -13,6 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/** 마켓 카드에 필요한 필드만 SQL로 조회한다. 판매글과 제품·사양 테이블을 한 번에 연결해 읽는다. */
 @Repository
 public class ListingQueryRepository {
   private static final String FROM =
