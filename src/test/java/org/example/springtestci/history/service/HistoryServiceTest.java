@@ -157,6 +157,72 @@ class HistoryServiceTest {
   }
 
   @Test
+  void specificationReviewSnapshotExcludesNewAndExistingFreeText() {
+    ProductSpecifications before =
+        new ProductSpecifications(
+            "PRIVATE_CPU_BEFORE",
+            "PRIVATE_GPU",
+            8,
+            256,
+            "SSD",
+            "PRIVATE_DISPLAY",
+            90,
+            "PRIVATE_OS");
+    CreateHistoryEventRequest request =
+        new CreateHistoryEventRequest(
+            HistoryEventType.SPEC_CHANGE,
+            LocalDate.of(2026, 10, 19),
+            "메모리와 CPU 변경",
+            null,
+            null,
+            null,
+            null,
+            Map.of("cpu", "PRIVATE_CPU_AFTER", "ramGb", 16),
+            List.of());
+    when(historyRepository.lockOwnedProduct(PRODUCT, OWNER)).thenReturn(true);
+    when(historyRepository.documentsCanBeLinked(PRODUCT, List.of())).thenReturn(true);
+    when(historyRepository.findSpecifications(PRODUCT)).thenReturn(before);
+    when(historyRepository.insertEvent(anyLong(), anyLong(), any(), anyString(), anyString()))
+        .thenReturn(EVENT);
+    when(historyRepository.findFactsVersion(PRODUCT)).thenReturn(2L);
+    when(changeReviewRecorders.getIfAvailable()).thenReturn(changeReviewRecorder);
+    when(historyRepository.findEvent(PRODUCT, EVENT))
+        .thenReturn(java.util.Optional.of(specEvent()));
+
+    historyService.create(OWNER, PRODUCT, request);
+
+    ArgumentCaptor<tools.jackson.databind.JsonNode> snapshot =
+        ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
+    verify(changeReviewRecorder)
+        .recordCreated(
+            org.mockito.ArgumentMatchers.eq(PRODUCT),
+            org.mockito.ArgumentMatchers.eq(EVENT),
+            org.mockito.ArgumentMatchers.eq(2L),
+            snapshot.capture());
+    var beforeSnapshot = snapshot.getValue().get("specsBefore");
+    var afterSnapshot = snapshot.getValue().get("specsAfter");
+    assertEquals(8, beforeSnapshot.get("ramGb").asInt());
+    assertEquals(16, afterSnapshot.get("ramGb").asInt());
+    assertEquals("SSD", afterSnapshot.get("storageType").asText());
+    for (String field : List.of("cpu", "gpu", "display", "os")) {
+      assertEquals(false, beforeSnapshot.has(field));
+      assertEquals(false, afterSnapshot.has(field));
+    }
+    verify(historyRepository)
+        .replaceSpecifications(
+            PRODUCT,
+            new ProductSpecifications(
+                "PRIVATE_CPU_AFTER",
+                "PRIVATE_GPU",
+                16,
+                256,
+                "SSD",
+                "PRIVATE_DISPLAY",
+                90,
+                "PRIVATE_OS"));
+  }
+
+  @Test
   void partReplacementCanBeRecordedWithoutChangingSpecifications() {
     CreateHistoryEventRequest request =
         new CreateHistoryEventRequest(

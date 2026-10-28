@@ -369,6 +369,59 @@ class TradeP3PostgresIntegrationTest {
     }
   }
 
+  /** H40-02/05: 원본 사양은 보존하되 신규·기존 자유 문자열은 저장 사본과 구매자 응답에서 제외한다. */
+  @Test
+  void historySpecificationSnapshotExcludesFreeTextFromStoredReviewAndBuyerResponse() {
+    Fixture fixture = insertReservedFixture();
+    jdbc.update(
+        "insert into laptop_details (product_id, cpu_spec, gpu_spec, ram_gb, storage_gb, storage_type, display_spec, battery_health_percent, os_name) values (?, 'PRIVATE_CPU_BEFORE', 'PRIVATE_GPU', 8, 256, 'SSD', 'PRIVATE_DISPLAY', 90, 'PRIVATE_OS')",
+        PRODUCT_ID);
+    HistoryService history =
+        historyService(
+            new ReservedHistoryChangeReviewRecorder(listings, requests, changes),
+            mock(ApplicationEventPublisher.class));
+
+    long eventId =
+        transactions
+            .execute(
+                ignored ->
+                    history.create(
+                        SELLER_ID,
+                        PRODUCT_ID,
+                        new CreateHistoryEventRequest(
+                            HistoryEventType.SPEC_CHANGE,
+                            LocalDate.of(2026, 10, 25),
+                            "사양 변경",
+                            null,
+                            null,
+                            null,
+                            null,
+                            java.util.Map.of("cpu", "PRIVATE_CPU_AFTER", "ramGb", 16),
+                            List.of())))
+            .eventId();
+
+    String storedFacts =
+        value(
+            "select change_facts::text from transaction_change_reviews where purchase_request_id = ?",
+            fixture.requestId());
+    assertThat(storedFacts)
+        .doesNotContain("PRIVATE_CPU_BEFORE", "PRIVATE_CPU_AFTER", "PRIVATE_GPU")
+        .contains("\"ramGb\": 8", "\"ramGb\": 16", "\"storageType\": \"SSD\"");
+    assertThat(value("select specs_after ->> 'cpu' from product_events where id = ?", eventId))
+        .isEqualTo("PRIVATE_CPU_AFTER");
+
+    var buyerReview = changes.findAll(fixture.requestId(), BUYER_ID, 0, 20).items().get(0);
+    assertThat(buyerReview.changeFacts().toString())
+        .doesNotContain(
+            "PRIVATE_CPU_BEFORE",
+            "PRIVATE_CPU_AFTER",
+            "PRIVATE_GPU",
+            "PRIVATE_DISPLAY",
+            "PRIVATE_OS");
+    assertThat(buyerReview.changeFacts().get("specsBefore").get("ramGb").asInt()).isEqualTo(8);
+    assertThat(buyerReview.changeFacts().get("specsAfter").get("ramGb").asInt()).isEqualTo(16);
+  }
+
   /** H40-03/04: P3 저장 뒤 실패하면 history·버전·확인 변경이 모두 원복되고 R10 이벤트도 전달되지 않는다. */
   @Test
   void historyCreateRollsBackEveryWriteAndRefreshWhenReviewConnectionFails() {

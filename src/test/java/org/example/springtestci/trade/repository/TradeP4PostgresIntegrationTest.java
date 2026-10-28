@@ -23,6 +23,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
@@ -587,13 +588,14 @@ class TradeP4PostgresIntegrationTest {
     Fixture fixture = insertReservedFixture(FACTS_VERSION, null);
     HistoryService history = historyService(mock(ApplicationEventPublisher.class));
 
-    runConcurrentlyAllowingHistoryConflict(
-        () ->
-            transactions.executeWithoutResult(
-                ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest())),
-        () ->
-            transactions.executeWithoutResult(
-                ignored -> completions.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)));
+    RaceOutcomes outcomes =
+        runConcurrentlyAllowingHistoryConflict(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest())),
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> completions.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)));
 
     String status =
         value("select transaction_status from purchase_requests where id = ?", fixture.requestId());
@@ -602,12 +604,16 @@ class TradeP4PostgresIntegrationTest {
             "select count(*) from product_events where product_id = ? and event_type = 'REPAIR'",
             PRODUCT_ID);
     if (status.equals("COMPLETED")) {
+      assertThat(outcomes.historyFailure()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+      assertThat(outcomes.completionFailure()).isNull();
       assertThat(historyCount).isZero();
       assertThat(
               jdbc.queryForObject(
                   "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
           .isEqualTo(BUYER_ID);
     } else {
+      assertThat(outcomes.historyFailure()).isNull();
+      assertThat(outcomes.completionFailure()).isEqualTo(ErrorCode.TRADE_CONFLICT);
       assertThat(status).isEqualTo("RESERVED");
       assertThat(historyCount).isEqualTo(1L);
       assertThat(
@@ -628,6 +634,19 @@ class TradeP4PostgresIntegrationTest {
                   fixture.requestId()))
           .isNull();
     }
+  }
+
+  @Test
+  void completionRacePolicyDoesNotHideResourceNotFound() {
+    assertThatThrownBy(
+            () ->
+                runAllowingCompletionConflict(
+                    () -> {
+                      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+                    }))
+        .isInstanceOf(CommonException.class)
+        .extracting(failure -> ((CommonException) failure).errorCode())
+        .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
   }
 
   private static void createCompletionFixtureTables() {
@@ -882,20 +901,38 @@ class TradeP4PostgresIntegrationTest {
         () -> runIgnoringExpectedConflict(first), () -> runIgnoringExpectedConflict(second));
   }
 
-  private void runConcurrentlyAllowingHistoryConflict(Runnable first, Runnable second)
+  private RaceOutcomes runConcurrentlyAllowingHistoryConflict(Runnable history, Runnable completion)
       throws Exception {
+    AtomicReference<ErrorCode> historyFailure = new AtomicReference<>();
+    AtomicReference<ErrorCode> completionFailure = new AtomicReference<>();
     runConcurrently(
-        () -> runIgnoringHistoryConflict(first), () -> runIgnoringHistoryConflict(second));
+        () -> historyFailure.set(runAllowingHistoryConflict(history)),
+        () -> completionFailure.set(runAllowingCompletionConflict(completion)));
+    return new RaceOutcomes(historyFailure.get(), completionFailure.get());
   }
 
-  private static void runIgnoringHistoryConflict(Runnable operation) {
+  private static ErrorCode runAllowingHistoryConflict(Runnable operation) {
     try {
       operation.run();
+      return null;
     } catch (CommonException exception) {
       if (exception.errorCode() != ErrorCode.TRADE_CONFLICT
           && exception.errorCode() != ErrorCode.RESOURCE_NOT_FOUND) {
         throw exception;
       }
+      return exception.errorCode();
+    }
+  }
+
+  private static ErrorCode runAllowingCompletionConflict(Runnable operation) {
+    try {
+      operation.run();
+      return null;
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT) {
+        throw exception;
+      }
+      return exception.errorCode();
     }
   }
 
@@ -949,6 +986,8 @@ class TradeP4PostgresIntegrationTest {
   }
 
   private record Fixture(long requestId, long otherRequestId, long roomId, long otherRoomId) {}
+
+  private record RaceOutcomes(ErrorCode historyFailure, ErrorCode completionFailure) {}
 
   private static class FixtureCompletionPort implements InternalTradeCompletionPort {
 
