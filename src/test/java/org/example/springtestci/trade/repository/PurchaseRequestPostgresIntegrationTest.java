@@ -50,7 +50,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 승인된 PostgreSQL에서만 실행하는 P2 잠금·원자성 시험이다.
  *
- * <p>내부 {@code JdbcTransferWriter}는 ownership 운영 구현이 아니라 동일 트랜잭션 롤백을 관찰하기 위한 시험 전용 대역이다.
+ * <p>내부 {@code JdbcTransferWriter}는 ownership 운영 구현이 아니라 동일 트랜잭션 롤백을 관찰하기 위한 시험 전용 대역이다. 정식
+ * ownership 테이블은 Migration 그대로 유지하고, 미합의 포트 계약은 별도 trade_fixture_transfers에서 검증한다.
  */
 @EnabledIfEnvironmentVariable(named = "P2_TRADE_TEST_ENABLED", matches = "true")
 class PurchaseRequestPostgresIntegrationTest {
@@ -112,7 +113,7 @@ class PurchaseRequestPostgresIntegrationTest {
   @BeforeEach
   void resetFixtures() {
     jdbcTemplate.execute(
-        "truncate table ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users restart identity cascade");
+        "truncate table trade_fixture_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users restart identity cascade");
     insertUser(SELLER_ID, "seller@example.test", "seller");
     insertUser(BUYER_ONE_ID, "buyer1@example.test", "buyer1");
     insertUser(BUYER_TWO_ID, "buyer2@example.test", "buyer2");
@@ -135,7 +136,7 @@ class PurchaseRequestPostgresIntegrationTest {
         .isEqualTo("RESERVED");
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from ownership_transfers where purchase_request_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING' and from_user_id = ? and to_user_id = ? and token_hash is null and recipient_approved_at is null and owner_approved_at is null",
+                "select count(*) from trade_fixture_transfers where purchase_request_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING' and from_user_id = ? and to_user_id = ? and token_hash is null and recipient_approved_at is null and owner_approved_at is null",
                 Long.class,
                 requestId,
                 SELLER_ID,
@@ -172,7 +173,7 @@ class PurchaseRequestPostgresIntegrationTest {
         .isEqualTo("RESERVED");
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from ownership_transfers where product_id = 1 and status = 'PENDING'",
+                "select count(*) from trade_fixture_transfers where product_id = 1 and status = 'PENDING'",
                 Long.class))
         .isEqualTo(1L);
   }
@@ -246,7 +247,8 @@ class PurchaseRequestPostgresIntegrationTest {
             jdbcTemplate.queryForObject(
                 "select status from listings where id = ?", String.class, fixture.listingId()))
         .isEqualTo("ACTIVE");
-    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class))
         .isZero();
   }
 
@@ -267,7 +269,8 @@ class PurchaseRequestPostgresIntegrationTest {
             jdbcTemplate.queryForObject(
                 "select status from listings where id = ?", String.class, fixture.listingId()))
         .isEqualTo("ACTIVE");
-    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class))
         .isZero();
   }
 
@@ -332,7 +335,8 @@ class PurchaseRequestPostgresIntegrationTest {
         .isEqualTo(1L);
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from ownership_transfers where status = 'PENDING'", Long.class))
+                "select count(*) from trade_fixture_transfers where status = 'PENDING'",
+                Long.class))
         .isEqualTo(1L);
   }
 
@@ -360,7 +364,7 @@ class PurchaseRequestPostgresIntegrationTest {
         jdbcTemplate.queryForObject(
             "select status from listings where id = ?", String.class, fixture.listingId());
     Long transferCount =
-        jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class);
+        jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class);
     if (stored.requestStatus() == PurchaseRequestStatus.ACCEPTED) {
       assertThat(stored.transactionStatus()).isEqualTo(TransactionStatus.RESERVED);
       assertThat(listingStatus).isEqualTo("RESERVED");
@@ -498,7 +502,8 @@ class PurchaseRequestPostgresIntegrationTest {
             jdbcTemplate.queryForObject(
                 "select status from listings where id = ?", String.class, fixture.listingId()))
         .isEqualTo("ACTIVE");
-    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class))
         .isZero();
   }
 
@@ -534,7 +539,7 @@ class PurchaseRequestPostgresIntegrationTest {
     long otherRoomId = insertRoom(fixture.listingId(), BUYER_TWO_ID);
     long otherRequestId = createRequest(new Fixture(fixture.listingId(), otherRoomId));
     jdbcTemplate.update(
-        "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (1, ?, ?, ?, 'INTERNAL', 'PENDING')",
+        "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (1, ?, ?, ?, 'INTERNAL', 'PENDING')",
         otherRequestId,
         SELLER_ID,
         BUYER_TWO_ID);
@@ -554,7 +559,7 @@ class PurchaseRequestPostgresIntegrationTest {
         .isEqualTo("ACTIVE");
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from ownership_transfers where product_id = 1 and status = 'PENDING'",
+                "select count(*) from trade_fixture_transfers where product_id = 1 and status = 'PENDING'",
                 Long.class))
         .isEqualTo(1L);
   }
@@ -649,7 +654,7 @@ class PurchaseRequestPostgresIntegrationTest {
   private static void createOwnershipTransferFixtureTable() {
     jdbcTemplate.execute(
         """
-        create table ownership_transfers (
+        create table trade_fixture_transfers (
           id bigint generated by default as identity primary key,
           product_id bigint not null references products(id),
           purchase_request_id bigint not null unique references purchase_requests(id),
@@ -664,7 +669,7 @@ class PurchaseRequestPostgresIntegrationTest {
         )
         """);
     jdbcTemplate.execute(
-        "create unique index uq_ownership_transfers_pending_product on ownership_transfers (product_id) where status = 'PENDING'");
+        "create unique index uq_ownership_transfers_pending_product on trade_fixture_transfers (product_id) where status = 'PENDING'");
   }
 
   private static String requiredEnvironment(String name) {
@@ -745,7 +750,7 @@ class PurchaseRequestPostgresIntegrationTest {
       try {
         inserted =
             jdbcTemplate.update(
-                "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
+                "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
                 command.productId(),
                 command.purchaseRequestId(),
                 command.fromUserId(),

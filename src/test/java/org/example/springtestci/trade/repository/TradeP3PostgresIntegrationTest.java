@@ -72,7 +72,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 승인된 PostgreSQL에서만 실행하는 P3 취소·변경 확인 원자성 시험이다.
  *
  * <p>정식 history 스키마와 서비스를 사용한다. 내부 이전 취소 구현과 ownership 테이블은 시험 fixture이며 정식 ownership 연동 완료의 근거가
- * 아니다.
+ * 아니다. 정식 ownership 테이블과 구분되는 trade_fixture_transfers를 사용하며 정식 스키마 제약은 별도 시험한다.
  */
 @EnabledIfEnvironmentVariable(named = "P3_TRADE_TEST_ENABLED", matches = "true")
 class TradeP3PostgresIntegrationTest {
@@ -160,7 +160,7 @@ class TradeP3PostgresIntegrationTest {
   @BeforeEach
   void resetFixtures() {
     jdbc.execute(
-        "truncate table transaction_change_reviews, ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, product_events, products, users, audit_logs restart identity cascade");
+        "truncate table transaction_change_reviews, trade_fixture_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, product_events, products, users, audit_logs restart identity cascade");
     insertUser(SELLER_ID, "seller-p3@example.test", "seller-p3");
     insertUser(BUYER_ID, "buyer-p3@example.test", "buyer-p3");
     insertUser(OTHER_BUYER_ID, "buyer2-p3@example.test", "buyer2-p3");
@@ -189,7 +189,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     assertThat(
@@ -221,7 +221,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("ACCEPTED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("PENDING");
   }
@@ -366,6 +366,22 @@ class TradeP3PostgresIntegrationTest {
           .isNull();
       verify(summaries).publicListingsForProduct(PRODUCT_ID);
       verify(summaries).refresh(LISTING_ID);
+      var publicHistory =
+          transactions.execute(
+              ignored -> {
+                new HistoryRepository(jdbc).lockOwnedProduct(PRODUCT_ID, SELLER_ID);
+                return new org.example.springtestci.listing.repository.JdbcListingHistoryReader(
+                        jdbc)
+                    .read(PRODUCT_ID);
+              });
+      assertThat(publicHistory.sample()).isFalse();
+      assertThat(publicHistory.state())
+          .isEqualTo(org.example.springtestci.listing.service.ListingHistoryReader.State.READY);
+      assertThat(publicHistory.events()).hasSize(1);
+      assertThat(publicHistory.events().get(0).eventId()).isEqualTo(eventId);
+      assertThat(publicHistory.events().get(0).text().reviewed()).isFalse();
+      assertThat(publicHistory.events().get(0).text().title()).isNull();
+      assertThat(publicHistory.events().get(0).text().content()).isNull();
     }
   }
 
@@ -716,17 +732,17 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("RESERVED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 otherRequestId))
         .isEqualTo("PENDING");
     assertThat(
             count(
-                "select count(*) from ownership_transfers where product_id = ? and status = 'PENDING'",
+                "select count(*) from trade_fixture_transfers where product_id = ? and status = 'PENDING'",
                 PRODUCT_ID))
         .isEqualTo(1L);
   }
@@ -811,7 +827,7 @@ class TradeP3PostgresIntegrationTest {
     assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("RESERVED");
     assertThat(
             count(
-                "select count(*) from ownership_transfers where purchase_request_id = ? and status = 'PENDING'",
+                "select count(*) from trade_fixture_transfers where purchase_request_id = ? and status = 'PENDING'",
                 fixture.requestId()))
         .isEqualTo(1L);
     assertThat(
@@ -935,7 +951,7 @@ class TradeP3PostgresIntegrationTest {
     assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("ACTIVE");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     assertThat(
@@ -1013,7 +1029,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     assertThat(
@@ -1025,9 +1041,9 @@ class TradeP3PostgresIntegrationTest {
 
   private static void createOwnershipFixtureTable() {
     jdbc.execute(
-        "create table ownership_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
+        "create table trade_fixture_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
     jdbc.execute(
-        "create unique index uq_p3_fixture_pending_transfer on ownership_transfers(product_id) where status = 'PENDING'");
+        "create unique index uq_p3_fixture_pending_transfer on trade_fixture_transfers(product_id) where status = 'PENDING'");
   }
 
   private Fixture insertReservedFixture() {
@@ -1048,7 +1064,7 @@ class TradeP3PostgresIntegrationTest {
             roomId,
             LISTING_ID);
     jdbc.update(
-        "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, 'INTERNAL', 'PENDING')",
+        "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, 'INTERNAL', 'PENDING')",
         PRODUCT_ID,
         requestId,
         SELLER_ID,
@@ -1171,7 +1187,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo(1L);
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("PENDING");
     assertThat(count("select count(*) from audit_logs where target_id = ?", fixture.requestId()))
@@ -1246,7 +1262,7 @@ class TradeP3PostgresIntegrationTest {
     public void cancelPending(Command command) {
       int updated =
           jdbc.update(
-              "update ownership_transfers set status = 'CANCELLED' where product_id = ? and purchase_request_id = ? and from_user_id = ? and to_user_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING'",
+              "update trade_fixture_transfers set status = 'CANCELLED' where product_id = ? and purchase_request_id = ? and from_user_id = ? and to_user_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING'",
               command.productId(),
               command.purchaseRequestId(),
               command.fromUserId(),
@@ -1273,7 +1289,7 @@ class TradeP3PostgresIntegrationTest {
     public void createPending(Command command) {
       int inserted =
           jdbc.update(
-              "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
+              "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
               command.productId(),
               command.purchaseRequestId(),
               command.fromUserId(),
