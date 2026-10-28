@@ -26,12 +26,14 @@ import org.example.springtestci.document.repository.DocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 
 @ExtendWith(MockitoExtension.class)
 class DocumentExtractionProcessorTest {
@@ -102,6 +104,19 @@ class DocumentExtractionProcessorTest {
 
     assertEquals(ExtractionStatus.FAILED, extraction.getStatus());
     assertEquals("AI_BUSY", extraction.getErrorCode());
+  }
+
+  @Test
+  void statusChangesRunInTheirOwnTransaction() {
+    processor.failRejected(EXTRACTION);
+
+    // 접수 트랜잭션의 afterCommit 안에서 불려도 이미 끝난 트랜잭션에 참여하면 커밋되지 않는다.
+    ArgumentCaptor<TransactionDefinition> definition =
+        ArgumentCaptor.forClass(TransactionDefinition.class);
+    verify(transactionManager).getTransaction(definition.capture());
+    assertEquals(
+        TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+        definition.getValue().getPropagationBehavior());
   }
 
   @Test

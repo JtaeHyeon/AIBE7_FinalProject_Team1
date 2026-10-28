@@ -18,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -47,6 +48,8 @@ public class DocumentExtractionProcessor {
     this.storage = storage;
     this.extractor = extractor;
     this.transaction = new TransactionTemplate(transactionManager);
+    // 접수 트랜잭션의 afterCommit 안에서 호출돼도 기존(이미 끝난) 트랜잭션에 참여하지 않고 새로 커밋하도록 한다.
+    this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   @Async("documentExtractionExecutor")
