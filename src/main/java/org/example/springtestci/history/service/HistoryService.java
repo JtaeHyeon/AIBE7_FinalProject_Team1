@@ -357,9 +357,29 @@ public class HistoryService {
     snapshot.put("occurredOn", request.occurredOn().toString());
     snapshot.put("status", HistoryEventStatus.VALID.name());
     if (specsBeforeJson != null)
-      snapshot.set("specsBefore", objectMapper.readTree(specsBeforeJson));
-    if (specsAfterJson != null) snapshot.set("specsAfter", objectMapper.readTree(specsAfterJson));
+      snapshot.set("specsBefore", publicSpecificationSnapshot(specsBeforeJson));
+    if (specsAfterJson != null)
+      snapshot.set("specsAfter", publicSpecificationSnapshot(specsAfterJson));
     return snapshot;
+  }
+
+  /** 공개 검토 근거가 없는 사양 자유 문자열은 제외하고 검증된 숫자·제한 enum만 거래 사본으로 만든다. */
+  private JsonNode publicSpecificationSnapshot(String specificationsJson) {
+    Map<String, Object> specifications = parseMap(specificationsJson);
+    var snapshot = objectMapper.createObjectNode();
+    copyPublicSpecification(specifications, snapshot, "ramGb");
+    copyPublicSpecification(specifications, snapshot, "storageGb");
+    copyPublicSpecification(specifications, snapshot, "storageType");
+    copyPublicSpecification(specifications, snapshot, "batteryHealthPercent");
+    return snapshot;
+  }
+
+  private void copyPublicSpecification(
+      Map<String, Object> specifications,
+      tools.jackson.databind.node.ObjectNode snapshot,
+      String field) {
+    Object value = specifications.get(field);
+    if (value != null) snapshot.set(field, objectMapper.valueToTree(value));
   }
 
   private void requireOwnedLock(long productId, long ownerId) {
