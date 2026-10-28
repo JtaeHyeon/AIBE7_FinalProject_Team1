@@ -1,5 +1,8 @@
 # P1~P4 최신 main 회귀검사·랩업 재실행 결과
 
+> 2026-10-28 후속 지시 v1.1에서 전용 로컬 PostgreSQL·Redis 실행이 승인되어 R1~R3 보정과 G2 시험을 수행했다.
+> 아래 기존 실행 표의 `APPROVAL_BLOCKED`는 당시 사실이며, 현행 후속 결과는 문서 마지막 절을 기준으로 한다.
+
 ## 실행 개요
 
 | 항목 | 결과 |
@@ -132,3 +135,105 @@ P3 변경 review를 같은 트랜잭션으로 생성하는 정식 연결은 여�
 - 외부 DB·Redis 승인이 없어 G2는 `NOT_RUN / APPROVAL_BLOCKED`, 정식 연결 G3는 `DEPENDENCY_BLOCKED`다.
 - 따라서 이번 결과는 **PR #50 rename을 수동 반영한 G1 회귀 PASS**다. 미병합 변경을 전제로 하므로 정식 main PASS나 전체 통합 인수 완료로 확대하지 않는다.
 - 컨테이너·DB·Redis·외부 서비스·공유 자원을 만들거나 접속하지 않았고 정리 대상이 없다.
+
+## 후속 v1.1 — R1~R3 보정 및 승인 로컬 회귀
+
+### 실행 대상과 기준
+
+| 항목 | 후속 실행 값 |
+|---|---|
+| 실제 작업 경로 | `C:/Workspace/AIBE7_FinalProject_Team1-regression-followup-20261028` |
+| 로컬 브랜치 | `test/p1-p4-regression-followup-20261028` |
+| 시작 SHA | `30877cfaa32aaf4d0bd363bf65231e40aed8e7ee` |
+| 시험 보정 SHA | `e56683c78c50579090ab7049c0003f90d7ecfd5f` |
+| 원격 main 시작 | 팀·개인 `5bc3bca3d57e782a4c44bd6096e73b288205bd02` |
+| 원격 main 종료 | 팀 `b21c42e96eb6745f95d8f9f764a3a99075d9c35a`, 개인 `5bc3bca3d57e782a4c44bd6096e73b288205bd02` |
+| rename 원본 | 시작 시 미병합 PR #50 head `73de8689d18af9b5c85ec5a21a6e5480b3b3207a`, 종료 전 팀 main 병합 확인 |
+| Java | Eclipse Temurin `17.0.19+10` |
+| Gradle Wrapper | `9.7.1` |
+| 승인 | 전용 폐기 가능 PostgreSQL·Redis 및 필요한 기존 Rancher Desktop 사용 승인 |
+
+검수본 `30877cf`는 기존 worktree에 그대로 보존하고 새 후속 worktree에서 작업했다. 일반 migration에는
+`V2026102002__align_listing_draft_images.sql`과 `V2026102801__create_product_history.sql`이 함께 있으며,
+소스와 `build/resources/main` 모두 이전 이름 `V2026102002__create_product_history.sql`이 남지 않았다.
+
+종료 직전 팀 main은 PR #50 merge commit `b21c42e`로 전진했다. 팀 main과 후보의
+`V2026102801__create_product_history.sql` blob은 동일하며 PR #50 head와 merge commit 사이 추가 내용 차이는 없다.
+따라서 rename을 중복 적용하거나 진행 중 후보에 merge하지 않았고, 팀 main 대비 후보 차이는 시험·결과 문서 3개뿐이다.
+
+Flyway 위치별 버전 중복은 각각 0건이다.
+
+- 일반: `classpath:db/migration`
+- P2 pending: `classpath:db/pending/trade-p2` — `V2026102103__create_purchase_requests.sql`
+- P3 pending: `classpath:db/pending/trade-p3` — `V2026102602__create_transaction_change_reviews.sql`
+
+일반·pending 위치는 시험에서 단계적으로 합쳐 실행했으며 운영 Flyway locations나 migration 내용을 변경하지 않았다.
+
+### R1 — 정식 history 스키마 정합화
+
+- P3/P4 시험의 `create table product_events` fixture를 제거하고 일반 migration의 실제 테이블을 사용했다.
+- P3 `SPEC_CHANGE` fixture에 실제 소유자 작성자, 전후 사양 JSON, 제목·상태를 채워 author/spec CHECK를 유지했다.
+- P4 제품 변경 fixture도 같은 실제 제약을 사용했다.
+- P4 완료 fixture는 구매 요청 ID를 사건 컬럼에 직접 저장하지 않고, 실제 `ownership_transfers.id`를
+  `product_events.transfer_request_id`로 저장하도록 변경했다.
+- TRANSFER 단일성·롤백 assertion은 `product_events.transfer_request_id`와 `ownership_transfers.id` JOIN으로 확인했다.
+- 기존 판매 중지 fixture는 `CANCELLED` 전환 시 `active_slot = null`을 함께 반영해 실제 listing CHECK를 유지했다.
+- test-only ownership/completion 대역은 `src/test`에만 남겼으며 정식 운영 구현으로 판정하지 않았다.
+
+### R2 — 최초 KEEP 경합
+
+- 신규: `p3C04FirstKeepAndNewChangeRacePreserveSnapshotsAndReservation`.
+- 미응답 review의 최초 KEEP와 새 사건 등록을 유한 latch/timeout 경합으로 실행했다.
+- 기존 사본·최초 KEEP·결정 시각, 새 사건의 미확인 사본, 양측 완료 확인 무효화, RESERVED/PENDING 유지,
+  TRANSFER 사건 미생성을 실제 PostgreSQL에서 확인했다.
+- 기존 재요청 시험은 `p3C04NewChangeAndRepeatedKeepPreserveSnapshotsAndInvalidateConfirmations`로 목적을 명확히 해 보존했다.
+- 두 시험 모두 HistoryService/API가 아닌 `ReservationChangeService.recordChange()` 직접 호출의 부분 연결 시험이다.
+
+### 실제 실행 결과
+
+| 실행 | 결과 | 통과 | 실패 | 오류 | 건너뜀 | 증거 |
+|---|---|---:|---:|---:|---:|---|
+| P3 최초 실행 | FAIL | 12 | 1 | 0 | 0 | `build/regression-evidence/followup-p3-postgres` |
+| P3 fixture 보정 재실행 | PASS | 13 | 0 | 0 | 0 | `build/regression-evidence/followup-p3-postgres-rerun` |
+| P4 PostgreSQL | PASS | 9 | 0 | 0 | 0 | `build/regression-evidence/followup-p4-postgres` |
+| P2 저장소 PostgreSQL | PASS | 15 | 0 | 0 | 0 | `build/regression-evidence/followup-p2-postgres` |
+| P2 HTTP/STOMP PostgreSQL·Redis | PASS | 7 | 0 | 0 | 0 | `build/regression-evidence/followup-p2-http-postgres-redis` |
+| 최종 기본 build | PASS | 583 | 0 | 0 | 45 | `build/regression-evidence/followup-g1-final-e56683c` |
+
+P3 최초 실패는 `listingShutdownNeverReactivatesCancelledListingAndCancelsAllRequests`의 setup이
+`CANCELLED` 전환 시 `active_slot`을 유지해 `ck_listings_open_slot`을 위반한 `TEST_HARNESS` 결함이다.
+실제 CHECK를 약화하지 않고 fixture를 보정했으며 전체 P3 재실행으로 13건 통과를 확인했다.
+
+최종 기본 build의 45건 SKIPPED는 외부 opt-in을 해제한 별도 실행의 예상 결과다.
+동일 후보에서 별도로 실제 실행한 P2 22건, P3 13건, P4 9건은 위 표의 XML로 구분한다.
+
+주요 실행 명령은 다음과 같다.
+
+- `gradlew.bat spotlessCheck classes testClasses --no-daemon --console=plain`
+- `gradlew.bat build -x spotlessCheck --rerun-tasks --no-build-cache --no-daemon --console=plain`
+- `gradlew.bat test --tests "org.example.springtestci.trade.repository.PurchaseRequestPostgresIntegrationTest" ...`
+- `gradlew.bat test --tests "org.example.springtestci.trade.repository.TradeP3PostgresIntegrationTest" ...`
+- `gradlew.bat test --tests "org.example.springtestci.trade.repository.TradeP4PostgresIntegrationTest" ...`
+- `gradlew.bat test --tests "org.example.springtestci.trade.controller.PurchaseRequestHttpPostgresTest" ...`
+
+### 전용 로컬 자원 사용과 정리
+
+| 자원 | 식별·사용 |
+|---|---|
+| Rancher Desktop | 작업 전 Docker API 중지. 작업에서 기동, Docker client `29.6.2-rd`, server `29.5.3` |
+| PostgreSQL | `postgres:17-alpine`, digest `sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b`, 컨테이너 `c298935ec538…`, `127.0.0.1:55432`, tmpfs |
+| Redis | `redis:8-alpine`, digest `sha256:47b08295737773de3b711fb86f13ae802f5074e96a9a2d29f5f80164ac08c046`, 컨테이너 `26d0532cbe94…`, `127.0.0.1:56379`, tmpfs |
+
+시험 종료 시 거래 시험 schema는 0개, Redis DB size는 0이었다. 두 전용 컨테이너와 시험 자격 증명 파일을
+삭제했으며 전용 volume은 생성하지 않았다. Rancher 기동 후 작업에서 생성하지 않은 기존 컨테이너 17개가
+자동 실행된 상태를 확인해 엔진 전체는 임의 종료하지 않았다. 상세 정리 로그는
+`build/regression-evidence/followup-local-resources/resource-cleanup.log`에 있다.
+
+### 후속 종료 판정과 이월
+
+- R1/R2/R3 보정, 컴파일, 기본 build, 승인된 P2/P3/P4 PostgreSQL 및 P2 HTTP/STOMP 회귀를 완료했다.
+- P3-C01~C05와 P4-DB02-B는 이번 전용 PostgreSQL에서 실제 실행되어 PASS했다.
+- PR #40 history 코드가 P3 review를 같은 트랜잭션에서 호출하는 정식 H40 연결은 여전히 미제공이다.
+- 정식 ownership/completion 구현, 공유·보존 DB 적용 이력/checksum, 화면 인수, P5는 별도 이월이다.
+- 실제 AI·S3·Supabase·메일, 공유 DB, Flyway repair/clean, 배포 서버는 사용하지 않았다.
+- 이 결과는 **격리 로컬 환경의 거래 측 G1/G2 1차 회귀 PASS**이며 공유 환경·정식 외부 연결 인수 완료가 아니다.
