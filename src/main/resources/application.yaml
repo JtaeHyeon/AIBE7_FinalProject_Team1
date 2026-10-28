@@ -2,7 +2,7 @@ spring:
   application:
     name: aibe7-final-project-team1
   config:
-    import: optional:file:.env[.properties]
+    import: optional:file:${DOTENV_PATH:.env}[.properties]
   profiles:
     default: local
   flyway:
@@ -34,10 +34,18 @@ app:
       timeout-seconds: ${AI_TIMEOUT_SECONDS:20}
       user-requests-per-minute: ${AI_USER_REQUESTS_PER_MINUTE:3}
       global-requests-per-minute: ${AI_GLOBAL_REQUESTS_PER_MINUTE:30}
+    stale-minutes: 5
+    gemini:
+      # 키가 비어 있으면 AI 추출 API는 503(DOC_010)으로 응답한다. 키는 환경 변수로만 주입한다.
+      api-key: ${GEMINI_API_KEY:}
+      model: ${GEMINI_MODEL:gemini-3.5-flash-lite}
+      timeout-seconds: 30
   supabase:
     url: ${SUPABASE_URL:}
     secret: ${SUPABASE_SECRET:}
   features:
+    listing-history:
+      enabled: ${LISTING_HISTORY_ENABLED:false}
     trade-purchase-requests:
       enabled: false
     trade-p3:

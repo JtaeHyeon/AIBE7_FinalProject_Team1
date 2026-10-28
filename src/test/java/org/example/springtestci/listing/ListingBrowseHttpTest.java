@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
@@ -178,7 +179,8 @@ class ListingBrowseHttpTest {
             "manufacturer",
             "modelName",
             "specifications",
-            "thumbnailUrl");
+            "thumbnailUrl",
+            "aiSummary");
     for (var item : data.get("items")) {
       var actual = new HashSet<String>();
       item.propertyNames().forEach(actual::add);
@@ -202,6 +204,76 @@ class ListingBrowseHttpTest {
       assertFalse(response.body().contains(forbidden), forbidden);
     }
     assertEquals(0, HISTORY_READS.get());
+  }
+
+  @Test
+  void memberCardsReadStoredShortSummaryButAnonymousResponsesCannotLeakIt() throws Exception {
+    String text = "18GB 메모리 모델로, 정정된 점검 기록이 있습니다.";
+    readyCard(text);
+    HISTORY_STATE.set(State.UNAVAILABLE);
+    var member = get("/api/v1/listings?manufacturer=Apple", "2");
+    var ai = data(member).get("items").get(0).get("aiSummary");
+    assertEquals("READY", ai.get("status").asString());
+    assertEquals(text, ai.get("text").asString());
+    assertFalse(ai.get("outdated").asBoolean());
+    assertTrue(String.join(",", member.headers().allValues("Vary")).contains("Authorization"));
+    for (String url : List.of("/api/v1/listings", "/api/v1/listings?member=true&userId=2")) {
+      var anonymous = get(url, null);
+      assertFalse(anonymous.body().contains(text));
+      for (var item : data(anonymous).get("items")) {
+        assertEquals("LOGIN_REQUIRED", item.at("/aiSummary/status").asString());
+        assertTrue(item.at("/aiSummary/text").isNull());
+      }
+    }
+    assertFalse(member.body().contains("sourceProductVersion"));
+    assertFalse(member.body().contains("errorCode"));
+    assertEquals(0, HISTORY_READS.get());
+  }
+
+  @Test
+  void cardsHideLegacyAndChangedFactsAndMarkRetainedTextDuringRefresh() throws Exception {
+    readyCard("18GB 메모리 모델입니다.");
+    jdbc.update(
+        "UPDATE listings SET summary_status='QUEUED',summary_requested_at=CURRENT_TIMESTAMP,summary_available_at=CURRENT_TIMESTAMP WHERE id=11");
+    var updating = cardSummary();
+    assertEquals("QUEUED", updating.get("status").asString());
+    assertTrue(updating.get("outdated").asBoolean());
+    assertEquals("18GB 메모리 모델입니다.", updating.get("text").asString());
+    jdbc.update("UPDATE products SET facts_version=facts_version+1 WHERE id=101");
+    assertEquals("STALE", cardSummary().get("status").asString());
+    assertTrue(cardSummary().get("text").isNull());
+    readyCard("MacBook Pro 14입니다. 첫 안내입니다. 다음 안내입니다.");
+    jdbc.update("UPDATE listings SET summary_format_version=0 WHERE id=11");
+    assertEquals("NOT_REQUESTED", cardSummary().get("status").asString());
+    assertTrue(cardSummary().get("text").isNull());
+    assertEquals(0, HISTORY_READS.get());
+  }
+
+  @Test
+  void malformedStoredCardIsHiddenAndClosedOrTransferredCardsDisappear() throws Exception {
+    readyCard("MacBook Pro 14입니다. 작성 지침을 설명합니다.");
+    assertEquals("FAILED", cardSummary().get("status").asString());
+    assertTrue(cardSummary().get("text").isNull());
+    readyCard("18GB 메모리 모델입니다.");
+    jdbc.update("UPDATE listings SET status='SOLD',active_slot=NULL WHERE id=11");
+    assertEquals(0, data(get("/api/v1/listings?manufacturer=Apple", "2")).get("items").size());
+    jdbc.update("UPDATE listings SET status='ACTIVE',active_slot=1 WHERE id=11");
+    jdbc.update("UPDATE products SET owner_id=2 WHERE id=101");
+    assertEquals(0, data(get("/api/v1/listings?manufacturer=Apple", "2")).get("items").size());
+  }
+
+  private JsonNode cardSummary() throws Exception {
+    return data(get("/api/v1/listings?manufacturer=Apple", "2"))
+        .get("items")
+        .get(0)
+        .get("aiSummary");
+  }
+
+  private void readyCard(String text) {
+    jdbc.update(
+        "UPDATE listings SET summary_status='READY',summary_text=?,summary_format_version=1,summary_attempt_id=?,summary_source_product_version=(SELECT facts_version FROM products WHERE id=101),summary_source_listing_version=content_version,summary_requested_at=CURRENT_TIMESTAMP,summary_available_at=CURRENT_TIMESTAMP,summary_error_code=NULL,summary_updated_at=CURRENT_TIMESTAMP WHERE id=11",
+        text,
+        UUID.randomUUID());
   }
 
   @Test
@@ -368,6 +440,37 @@ class ListingBrowseHttpTest {
     assertTrue(
         data(get("/api/v1/listings", null)).get("items").get(2).get("thumbnailUrl").isNull());
     assertEquals(404, get("/api/v1/listings/11/thumbnail", null).statusCode());
+  }
+
+  /** NFR-01: 판매글 목록과 상세 조회 API는 측정 요청의 95%가 1초 이내에 응답한다. */
+  @Test
+  void p95ResponseTimeUnderOneSecondForListingBrowse() throws Exception {
+    int iterations = 30;
+    long[] listTimes = new long[iterations];
+    long[] detailTimes = new long[iterations];
+
+    for (int i = 0; i < iterations; i++) {
+      long start = System.nanoTime();
+      var response = get("/api/v1/listings?page=0&size=10", null);
+      listTimes[i] = (System.nanoTime() - start) / 1_000_000;
+      assertEquals(200, response.statusCode());
+
+      start = System.nanoTime();
+      var detail = get("/api/v1/listings/11", "1");
+      detailTimes[i] = (System.nanoTime() - start) / 1_000_000;
+      assertEquals(200, detail.statusCode());
+    }
+
+    java.util.Arrays.sort(listTimes);
+    java.util.Arrays.sort(detailTimes);
+
+    int p95Index = (int) Math.ceil(iterations * 0.95) - 1;
+    long listP95 = listTimes[p95Index];
+    long detailP95 = detailTimes[p95Index];
+
+    assertTrue(listP95 < 1000, "Listing browse P95 response time must be under 1000ms: " + listP95);
+    assertTrue(
+        detailP95 < 1000, "Listing detail P95 response time must be under 1000ms: " + detailP95);
   }
 
   private void seed(long id, long product, long seller, int price, int grade, String date) {

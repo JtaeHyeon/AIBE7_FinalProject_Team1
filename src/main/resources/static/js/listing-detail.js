@@ -76,8 +76,8 @@
     }
     main.append(history);
 
-    if (data.listingId) {
-      const summary = section('AI 제품 상태 요약');
+    if (data.listingId && data.canManage) {
+      const summary = section('AI 카드 요약 관리');
       summary.classList.add('listing-ai-summary'); summary.dataset.listingSummary = '';
       summary.append(element('p', 'sub', 'AI 요약 상태를 확인하고 있어요.'));
       main.append(summary);

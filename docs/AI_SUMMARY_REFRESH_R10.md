@@ -1,3 +1,8 @@
+# 카드 표시 변경
+
+자동 갱신 파이프라인은 유지하며, 현재 화면은 회원용 목록 카드의 짧은 요약과 판매자 관리 영역을 사용한다.
+표시 위치·길이·기존 긴 문구의 전환은 [카드 요약 변경](AI_LISTING_CARD_SUMMARY.md)을 따른다. 아래는 R10 구현 기록이다.
+
 # R10 판매글 AI 요약 자동 최신화
 
 R09의 게시 후 요약 생성에 정보 변경 후 자동 갱신을 연결한다. 요구사항 AI-03의 최신화 안내·결과 교체와 ERD의 제품 버전·판매글 버전·시도 ID 검사를 따른다.
@@ -50,7 +55,7 @@ events.publishEvent(new ProductFactsChanged(productId));
 
 ## DB 변경
 
-새 `V2026102701__support_listing_summary_refresh.sql`만 추가한다. 기존 마이그레이션은 수정하지 않는다.
+새 `V2026102706__support_listing_summary_refresh.sql`만 추가한다. 기존 마이그레이션은 수정하지 않는다.
 
 - `summary_requested_at`: 실행 제한 대기와 별개로 유지하는 최초 접수 시각.
 - `summary_available_at`: 짧은 수정 대기·Redis 실행 제한 후 다음 실행이 가능한 시각.

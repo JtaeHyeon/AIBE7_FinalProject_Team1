@@ -62,10 +62,12 @@ public class ListingController {
   /** 비회원도 볼 수 있는 판매 중 목록이다. 검색·필터·정렬 조건은 서비스로 전달한다. */
   @GetMapping("/listings")
   public ResponseEntity<ApiResponse<ListingPageResponse>> list(
-      @Valid @ModelAttribute ListingSearchRequest request) {
+      @Valid @ModelAttribute ListingSearchRequest request, Authentication authentication) {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
-        .body(ApiResponse.success(browse.list(request)));
+        .header("Vary", "Cookie, Authorization")
+        .body(
+            ApiResponse.success(browse.list(request, authenticatedUserId(authentication) != null)));
   }
 
   /** 목록 카드에 필요한 대표 사진 한 장만 제공한다. 상세 사진 조회와는 공개 범위가 다르다. */
@@ -152,13 +154,18 @@ public class ListingController {
   }
 
   private long userId(Authentication authentication) {
-    if (authentication == null || !authentication.isAuthenticated())
-      throw new CommonException(ErrorCode.UNAUTHORIZED);
+    Long id = authenticatedUserId(authentication);
+    if (id != null) return id;
+    throw new CommonException(ErrorCode.UNAUTHORIZED);
+  }
+
+  private Long authenticatedUserId(Authentication authentication) {
+    if (authentication == null || !authentication.isAuthenticated()) return null;
     try {
       long id = Long.parseLong(authentication.getName());
       if (id > 0) return id;
     } catch (NumberFormatException ignored) {
     }
-    throw new CommonException(ErrorCode.UNAUTHORIZED);
+    return null;
   }
 }

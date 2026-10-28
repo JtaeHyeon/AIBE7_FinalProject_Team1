@@ -105,10 +105,7 @@ class ListingSummaryHttpTest {
           if (DURING.get() != null) DURING.get().run();
           if (ERROR.get() != null) throw new CommonException(ERROR.get());
           if (OUTPUT.get() != null) return OUTPUT.get();
-          return List.of(
-              "등록된 사양은 Apple M3 Pro입니다.",
-              "등록된 메모리는 18GB입니다.",
-              "전체 누적 핵심 이력은 아래 타임라인에서 확인할 수 있습니다.");
+          return List.of("등록된 사양은 Apple M3 Pro입니다.", "등록된 메모리는 18GB입니다.");
         }
       };
     }
@@ -254,11 +251,7 @@ class ListingSummaryHttpTest {
 
   @Test
   void instructionEchoFailsWithoutPublishingItsTextAndKeepsBasicDetail() throws Exception {
-    OUTPUT.set(
-        List.of(
-            "등록된 사양은 Apple M3 Pro입니다.",
-            "등록된 메모리는 18GB입니다.",
-            "정정된 유효 사실을 기준으로 설명하고 VOID는 수리 사실로 단정하지 않는다."));
+    OUTPUT.set(List.of("등록된 사양은 Apple M3 Pro입니다.", "정정된 유효 사실을 기준으로 설명하고 VOID는 수리 사실로 단정하지 않는다."));
     assertEquals(202, post(PATH, "1", "").statusCode());
     processor.process(repository.pending().get(0));
     var result = data(get(PATH, "1"));
@@ -275,14 +268,13 @@ class ListingSummaryHttpTest {
     OUTPUT.set(
         List.of(
             "MacBook Pro 14의 등록된 메모리는 18GB입니다.",
-            "제품 구매일은 2024년 2월 12일이며 보증 만료일은 2027년 2월 12일입니다.",
-            "전체 핵심 이력을 확인해 주세요."));
+            "제품 구매일은 2024년 2월 12일이며 보증 만료일은 2027년 2월 12일입니다."));
     assertEquals(202, post(PATH, "1", "").statusCode());
     processor.process(repository.pending().get(0));
     var result = data(get(PATH, "2"));
     assertEquals("READY", result.get("status").asString());
     String expected =
-        "MacBook Pro 14의 등록된 메모리는 18GB입니다. 제품 구매일은 2024-02-12이며 보증 만료일은 2027-02-12입니다. 전체 핵심 이력을 확인해 주세요.";
+        "MacBook Pro 14의 등록된 메모리는 18GB입니다. 제품 구매일은 2024-02-12이며 보증 만료일은 2027-02-12입니다.";
     assertEquals(expected, result.get("text").asString());
     assertEquals(
         expected,
@@ -314,6 +306,28 @@ class ListingSummaryHttpTest {
     assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
     processor.process(repository.pending().get(0));
     assertEquals("READY", data(get(PATH, "2")).get("status").asString());
+    assertEquals(2, CALLS.get());
+  }
+
+  @Test
+  void legacyDetailTextIsHiddenAndReconciledOnceIntoCardFormat() throws Exception {
+    readySummary();
+    String legacy = "MacBook Pro 14로 등록된 제품입니다. " + "등록된 자료를 확인합니다. ".repeat(8);
+    jdbc.update("UPDATE listings SET summary_format_version=0,summary_text=? WHERE id=1", legacy);
+    var value = data(get(PATH, "1"));
+    assertEquals("NOT_REQUESTED", value.get("status").asString());
+    assertTrue(value.get("text").isNull());
+    assertTrue(value.get("canRequest").asBoolean());
+    assertEquals(1, CALLS.get());
+    assertEquals(
+        legacy, jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    assertEquals(List.of(1L), repository.staleListings());
+    store.refresh(1);
+    assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    processor.process(repository.pending().get(0));
+    assertEquals(1, repository.read(1).formatVersion());
+    assertTrue(repository.read(1).text().length() <= 90);
+    assertTrue(repository.staleListings().isEmpty());
     assertEquals(2, CALLS.get());
   }
 
@@ -613,9 +627,7 @@ class ListingSummaryHttpTest {
     processor.process(first);
     assertEquals(1, CALLS.get());
     assertEquals(previous, data(get(PATH, "2")).get("text").asString());
-    OUTPUT.set(
-        List.of(
-            "MacBook Pro 14의 메모리는 18GB입니다.", "판매자가 선택한 상태는 5등급입니다.", "전체 이력은 타임라인에서 확인할 수 있습니다."));
+    OUTPUT.set(List.of("MacBook Pro 14의 메모리는 18GB입니다.", "판매자가 선택한 상태는 5등급입니다."));
     processor.process(newest);
     var value = data(get(PATH, "2"));
     assertEquals("READY", value.get("status").asString());
