@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -37,6 +39,7 @@ import org.example.springtestci.product.service.ProductService;
 import org.example.springtestci.trade.entity.TradeCancellationReason;
 import org.example.springtestci.trade.service.InternalTradeCompletionPort;
 import org.example.springtestci.trade.service.InternalTransferCancellationPort;
+import org.example.springtestci.trade.service.PublishedListingAccess;
 import org.example.springtestci.trade.service.ReservationChangeService;
 import org.example.springtestci.trade.service.TradeAuditRecorder;
 import org.example.springtestci.trade.service.TradeCancellationService;
@@ -78,6 +81,7 @@ class TradeP4PostgresIntegrationTest {
   private static TransactionTemplate transactions;
   private static JdbcPurchaseRequestRepository requests;
   private static JdbcPublishedListingAccess listings;
+  private static JdbcRoomRepository rooms;
   private static FixtureCompletionPort completionPort;
   private static FaultInjectingAuditRecorder audit;
   private static TradeCompletionService completions;
@@ -128,7 +132,7 @@ class TradeP4PostgresIntegrationTest {
     completionPort = new FixtureCompletionPort(jdbc);
     var json = JsonMapper.builder().build();
     audit = new FaultInjectingAuditRecorder(new JdbcTradeAuditRecorder(jdbc, json));
-    var rooms = new JdbcRoomRepository(jdbc);
+    rooms = new JdbcRoomRepository(jdbc);
     cancellations =
         new TradeCancellationService(
             requests,
@@ -218,6 +222,60 @@ class TradeP4PostgresIntegrationTest {
                         completions.complete(auditFixture.requestId(), BUYER_ID, FACTS_VERSION)))
         .isInstanceOf(IllegalStateException.class);
     assertRolledBackLastConfirmation(auditFixture);
+  }
+
+  /** P4-DB02-B: 거래 COMPLETED UPDATE 직후 실패해도 선행 첫 확인만 남기고 마지막 확인과 완료 효과를 원복한다. */
+  @Test
+  void p4Db02bRollsBackWhenTradeCompletionUpdateFailsAfterWrite() {
+    Fixture fixture = insertReservedFixture(null, null);
+    transactions.execute(
+        ignored -> completions.complete(fixture.requestId(), SELLER_ID, FACTS_VERSION));
+    var failingRequests = spy(requests);
+    doAnswer(
+            invocation -> {
+              requests.complete(invocation.getArgument(0), invocation.getArgument(1));
+              throw new IllegalStateException("Injected trade completion update failure");
+            })
+        .when(failingRequests)
+        .complete(anyLong(), anyLong());
+    TradeCompletionService failingCompletion = completionService(failingRequests, listings);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored ->
+                        failingCompletion.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("trade completion update");
+
+    assertRolledBackLastConfirmation(fixture);
+  }
+
+  /** P4-DB02-B: SOLD UPDATE 직후 실패해도 거래 UPDATE와 마지막 확인을 포함한 완료 쓰기를 모두 원복한다. */
+  @Test
+  void p4Db02bRollsBackWhenSoldUpdateFailsAfterWrite() {
+    Fixture fixture = insertReservedFixture(null, null);
+    transactions.execute(
+        ignored -> completions.complete(fixture.requestId(), SELLER_ID, FACTS_VERSION));
+    var failingListings = spy(listings);
+    doAnswer(
+            invocation -> {
+              listings.sell(invocation.getArgument(0));
+              throw new IllegalStateException("Injected sold update failure");
+            })
+        .when(failingListings)
+        .sell(anyLong());
+    TradeCompletionService failingCompletion = completionService(requests, failingListings);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored ->
+                        failingCompletion.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("sold update");
+
+    assertRolledBackLastConfirmation(fixture);
   }
 
   @Test
@@ -614,6 +672,20 @@ class TradeP4PostgresIntegrationTest {
                 "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
                 fixture.requestId()))
         .isZero();
+  }
+
+  private TradeCompletionService completionService(
+      PurchaseRequestRepository requestRepository, PublishedListingAccess listingAccess) {
+    return new TradeCompletionService(
+        requestRepository,
+        rooms,
+        listingAccess,
+        products,
+        details,
+        changes,
+        completionPort,
+        audit,
+        Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
   private static ProductResponse currentProduct() {
