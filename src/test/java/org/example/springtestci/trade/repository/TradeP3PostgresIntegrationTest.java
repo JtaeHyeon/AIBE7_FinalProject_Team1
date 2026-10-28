@@ -97,7 +97,7 @@ class TradeP3PostgresIntegrationTest {
         .outOfOrder(true)
         .load()
         .migrate();
-    createExternalFixtureTables();
+    createOwnershipFixtureTable();
     Flyway.configure()
         .dataSource(schemaDataSource)
         .locations(
@@ -291,7 +291,8 @@ class TradeP3PostgresIntegrationTest {
             Long.class,
             otherRoom,
             LISTING_ID);
-    jdbc.update("update listings set status = 'CANCELLED' where id = ?", LISTING_ID);
+    jdbc.update(
+        "update listings set status = 'CANCELLED', active_slot = null where id = ?", LISTING_ID);
 
     transactions.executeWithoutResult(
         ignored ->
@@ -476,9 +477,99 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo(1L);
   }
 
-  /** P3-C04: 새 사건 등록과 기존 KEEP 재시도가 경합해도 새 사본만 미확인이고 양측 확인은 무효화된다. */
+  /** P3-C04: 미응답 review의 최초 KEEP와 새 사건 등록이 경합해도 결정·사본·예약 상태가 일관된다. */
   @Test
-  void p3C04NewChangeAndKeepRacePreserveSnapshotsAndInvalidateConfirmations() throws Exception {
+  void p3C04FirstKeepAndNewChangeRacePreserveSnapshotsAndReservation() throws Exception {
+    Fixture fixture = insertReservedFixture();
+    insertProductEvent(101L);
+    insertProductEvent(102L);
+    transactions.execute(
+        ignored ->
+            changes.recordChange(
+                PRODUCT_ID,
+                fixture.requestId(),
+                101L,
+                2L,
+                JsonMapper.builder().build().readTree("{\"title\":\"first\"}")));
+    jdbc.update(
+        "update purchase_requests set seller_confirmed_version = 2, buyer_confirmed_version = 2 where id = ?",
+        fixture.requestId());
+
+    runConcurrently(
+        () ->
+            transactions.execute(
+                ignored ->
+                    changes.recordChange(
+                        PRODUCT_ID,
+                        fixture.requestId(),
+                        102L,
+                        3L,
+                        JsonMapper.builder().build().readTree("{\"grade\":2}"))),
+        () ->
+            transactions.execute(
+                ignored ->
+                    changes.review(
+                        fixture.requestId(), 101L, BUYER_ID, ChangeReviewDecision.KEEP, null)));
+
+    assertThat(
+            value(
+                "select decision from transaction_change_reviews where purchase_request_id = ? and event_id = 101",
+                fixture.requestId()))
+        .isEqualTo("KEEP");
+    assertThat(
+            jdbc.queryForObject(
+                "select reviewed_at from transaction_change_reviews where purchase_request_id = ? and event_id = 101",
+                Timestamp.class,
+                fixture.requestId()))
+        .isNotNull();
+    assertThat(
+            value(
+                "select change_facts ->> 'title' from transaction_change_reviews where purchase_request_id = ? and event_id = 101",
+                fixture.requestId()))
+        .isEqualTo("first");
+    assertThat(
+            count(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ? and event_id = 102 and decision is null",
+                fixture.requestId()))
+        .isEqualTo(1L);
+    assertThat(
+            value(
+                "select change_facts ->> 'grade' from transaction_change_reviews where purchase_request_id = ? and event_id = 102",
+                fixture.requestId()))
+        .isEqualTo("2");
+    assertThat(
+            jdbc.queryForObject(
+                "select seller_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            jdbc.queryForObject(
+                "select buyer_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            value(
+                "select transaction_status from purchase_requests where id = ?",
+                fixture.requestId()))
+        .isEqualTo("RESERVED");
+    assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("RESERVED");
+    assertThat(
+            count(
+                "select count(*) from ownership_transfers where purchase_request_id = ? and status = 'PENDING'",
+                fixture.requestId()))
+        .isEqualTo(1L);
+    assertThat(
+            count(
+                "select count(*) from product_events where event_type = 'TRANSFER' and product_id = ?",
+                PRODUCT_ID))
+        .isZero();
+  }
+
+  /** P3-C04: 이미 저장된 KEEP 재요청과 새 사건 등록이 경합해도 새 사본만 미확인으로 남는다. */
+  @Test
+  void p3C04NewChangeAndRepeatedKeepPreserveSnapshotsAndInvalidateConfirmations() throws Exception {
     Fixture fixture = insertReservedFixture();
     insertProductEvent(101L);
     insertProductEvent(102L);
@@ -678,9 +769,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo(1L);
   }
 
-  private static void createExternalFixtureTables() {
-    jdbc.execute(
-        "create table product_events (id bigint primary key, product_id bigint not null references products(id))");
+  private static void createOwnershipFixtureTable() {
     jdbc.execute(
         "create table ownership_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
     jdbc.execute(
@@ -723,7 +812,13 @@ class TradeP3PostgresIntegrationTest {
   }
 
   private void insertProductEvent(long eventId) {
-    jdbc.update("insert into product_events (id, product_id) values (?, ?)", eventId, PRODUCT_ID);
+    jdbc.update(
+        "insert into product_events (id, product_id, author_id, event_type, occurred_on, title, specs_before, specs_after, status) values (?, ?, ?, 'SPEC_CHANGE', current_date, 'spec change', cast(? as jsonb), cast(? as jsonb), 'VALID')",
+        eventId,
+        PRODUCT_ID,
+        SELLER_ID,
+        "{\"ram\":\"16GB\"}",
+        "{\"ram\":\"32GB\"}");
   }
 
   private void insertUser(long id, String email, String nickname) {
