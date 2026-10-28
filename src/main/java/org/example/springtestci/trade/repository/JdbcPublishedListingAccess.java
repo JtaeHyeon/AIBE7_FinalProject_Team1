@@ -68,6 +68,25 @@ public class JdbcPublishedListingAccess implements PublishedListingAccess {
         SELECT_LISTING + " and listing.product_id = ? for update", listingId, productId.get());
   }
 
+  /** history 호출자가 잠근 제품에 연결된 RESERVED 판매글 한 건을 이어서 잠근다. */
+  @Override
+  public Optional<PublishedListing> findReservedByProductIdForUpdate(long productId) {
+    return jdbcTemplate
+        .query(
+            """
+            SELECT listing.id, listing.product_id, listing.seller_id, product.owner_id,
+                   CASE WHEN product.archived_at IS NULL THEN listing.status ELSE 'CANCELLED' END AS status
+              FROM listings listing
+              JOIN products product ON product.id = listing.product_id
+             WHERE listing.product_id = ? AND listing.status = 'RESERVED'
+             FOR UPDATE
+            """,
+            this::mapListing,
+            productId)
+        .stream()
+        .findFirst();
+  }
+
   /** 목록 응답용 판매글 상태를 한 번에 조회하며 보관 제품은 CANCELLED로 투영한다. */
   @Override
   public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
