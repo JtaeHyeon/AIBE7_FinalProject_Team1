@@ -34,6 +34,12 @@ app:
       timeout-seconds: ${AI_TIMEOUT_SECONDS:20}
       user-requests-per-minute: ${AI_USER_REQUESTS_PER_MINUTE:3}
       global-requests-per-minute: ${AI_GLOBAL_REQUESTS_PER_MINUTE:30}
+    stale-minutes: 5
+    gemini:
+      # 키가 비어 있으면 AI 추출 API는 503(DOC_010)으로 응답한다. 키는 환경 변수로만 주입한다.
+      api-key: ${GEMINI_API_KEY:}
+      model: ${GEMINI_MODEL:gemini-3.5-flash-lite}
+      timeout-seconds: 30
   supabase:
     url: ${SUPABASE_URL:}
     secret: ${SUPABASE_SECRET:}
@@ -51,13 +57,6 @@ app:
   storage:
     local-root: ${LOCAL_STORAGE_ROOT:./storage}
     signing-secret: ${STORAGE_SIGNING_SECRET:${app.jwt.secret}}
-  ai:
-    stale-minutes: 5
-    gemini:
-      # 키가 비어 있으면 AI 추출 API는 503(DOC_010)으로 응답한다. 키는 환경 변수로만 주입한다.
-      api-key: ${GEMINI_API_KEY:}
-      model: ${GEMINI_MODEL:gemini-3.5-flash-lite}
-      timeout-seconds: 30
 
 logging:
   pattern:
