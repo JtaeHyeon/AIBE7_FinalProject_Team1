@@ -35,7 +35,9 @@ history CRUD, ownership 운영 테이블, 새 채팅 프로토콜은 추가하�
 - 변경 review는 `(purchase_request_id, event_id)` 사본을 덮어쓰지 않으며 새 사건에서만 완료 확인 버전을 초기화한다.
 - 변경 응답은 제품→판매글→구매 요청 잠금 뒤 review를 잠가 최신 결정을 우선 판정한다. 동일 CANCEL 재전송은 저장 결과를 반환하고, 일반 취소 후 남은 미응답 review와 다른 결정 덮어쓰기는 거부한다.
 - 예약 취소 메타데이터 CHECK는 거래 상태와 사유의 NULL을 명시적으로 차단하면서 기존 PENDING 취소의 NULL 메타데이터를 허용한다.
-- `V2026102601__create_transaction_change_reviews.sql`은 pending 경로에만 두었다. P2 DDL과 일반 Flyway 위치는 수정하지 않았다.
+- `V2026102602__create_transaction_change_reviews.sql`은 pending 경로에만 두었다. 최신 main의 일반 경로
+  `V2026102601__add_listing_ai_summary.sql`과 버전이 겹치지 않도록 미적용 pending 파일만 재번호화했으며, P2 DDL과 일반
+  Flyway 위치는 수정하지 않았다.
 
 ## 검증 결과
 

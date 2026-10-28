@@ -438,7 +438,8 @@ class TradeCompletionServiceTest {
             new ListingPublicationResponse.Page(0, 20, 0, 0, false),
             0,
             0),
-        true);
+        true,
+        null);
   }
 
   private void assertError(ErrorCode errorCode, Runnable operation) {

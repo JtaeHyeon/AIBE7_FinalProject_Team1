@@ -652,7 +652,8 @@ class TradeP4PostgresIntegrationTest {
             new ListingPublicationResponse.Page(0, 20, 0, 0, false),
             0,
             0),
-        true);
+        true,
+        null);
   }
 
   private void runConcurrently(Runnable first, Runnable second) throws Exception {
