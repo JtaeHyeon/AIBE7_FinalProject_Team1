@@ -701,6 +701,11 @@ class PurchaseRequestPostgresIntegrationTest {
     }
 
     @Override
+    public Optional<PublishedListing> findReservedByProductIdForUpdate(long productId) {
+      return delegate.findReservedByProductIdForUpdate(productId);
+    }
+
+    @Override
     public Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds) {
       return delegate.findStatuses(listingIds);
     }

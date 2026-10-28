@@ -26,11 +26,15 @@ import org.example.springtestci.history.entity.HistoryEventType;
 import org.example.springtestci.history.repository.HistoryRepository;
 import org.example.springtestci.history.repository.HistoryRepository.HistoryEventRecord;
 import org.example.springtestci.history.repository.HistoryRepository.ProductSpecifications;
+import org.example.springtestci.product.event.ProductFactsChanged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,12 +47,17 @@ class HistoryServiceTest {
       Clock.fixed(Instant.parse("2026-10-20T00:00:00Z"), ZoneOffset.UTC);
 
   @Mock private HistoryRepository historyRepository;
+  @Mock private ObjectProvider<HistoryChangeReviewRecorder> changeReviewRecorders;
+  @Mock private HistoryChangeReviewRecorder changeReviewRecorder;
+  @Mock private ApplicationEventPublisher events;
 
   private HistoryService historyService;
 
   @BeforeEach
   void setUp() {
-    historyService = new HistoryService(historyRepository, JsonMapper.builder().build(), CLOCK);
+    historyService =
+        new HistoryService(
+            historyRepository, JsonMapper.builder().build(), CLOCK, changeReviewRecorders, events);
   }
 
   @Test
@@ -74,6 +83,46 @@ class HistoryServiceTest {
     assertEquals(EVENT, response.eventId());
     assertEquals(List.of(31L), response.documentIds());
     verify(historyRepository).linkDocuments(EVENT, List.of(31L));
+  }
+
+  @Test
+  void createIncrementsFactsRecordsOnlyPublicSafeFieldsAndPublishesRefresh() {
+    CreateHistoryEventRequest request =
+        new CreateHistoryEventRequest(
+            HistoryEventType.REPAIR,
+            LocalDate.of(2026, 10, 19),
+            "홍길동 고객 키보드 수리",
+            "010-1234-5678 연락 요청",
+            "개인 수리점",
+            120000L,
+            "키보드",
+            null,
+            List.of(31L));
+    when(historyRepository.lockOwnedProduct(PRODUCT, OWNER)).thenReturn(true);
+    when(historyRepository.documentsCanBeLinked(PRODUCT, List.of(31L))).thenReturn(true);
+    when(historyRepository.insertEvent(PRODUCT, OWNER, request, null, null)).thenReturn(EVENT);
+    when(historyRepository.findFactsVersion(PRODUCT)).thenReturn(2L);
+    when(changeReviewRecorders.getIfAvailable()).thenReturn(changeReviewRecorder);
+    when(historyRepository.findEvent(PRODUCT, EVENT)).thenReturn(java.util.Optional.of(event()));
+
+    historyService.create(OWNER, PRODUCT, request);
+
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    ArgumentCaptor<tools.jackson.databind.JsonNode> snapshot =
+        ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
+    verify(changeReviewRecorder)
+        .recordCreated(
+            org.mockito.ArgumentMatchers.eq(PRODUCT),
+            org.mockito.ArgumentMatchers.eq(EVENT),
+            org.mockito.ArgumentMatchers.eq(2L),
+            snapshot.capture());
+    assertEquals("CREATED", snapshot.getValue().get("changeType").asText());
+    assertEquals("REPAIR", snapshot.getValue().get("eventType").asText());
+    assertEquals(false, snapshot.getValue().has("title"));
+    assertEquals(false, snapshot.getValue().has("content"));
+    assertEquals(false, snapshot.getValue().has("cost"));
+    assertEquals(false, snapshot.getValue().has("documentIds"));
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -104,6 +153,7 @@ class HistoryServiceTest {
     verify(historyRepository)
         .replaceSpecifications(
             PRODUCT, new ProductSpecifications("M3", null, 16, 256, "SSD", "14 inch", 90, "macOS"));
+    verify(historyRepository, never()).incrementFactsVersion(PRODUCT);
   }
 
   @Test
@@ -171,6 +221,7 @@ class HistoryServiceTest {
             anyString(),
             org.mockito.ArgumentMatchers.eq("수리 명세서 확인"),
             org.mockito.ArgumentMatchers.eq("HISTORY_CORRECTED"));
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -264,6 +315,7 @@ class HistoryServiceTest {
     historyService.voidEvent(OWNER, PRODUCT, EVENT, new VoidHistoryEventRequest("중복 등록"));
 
     verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   private static CorrectHistoryEventRequest correctionRequest() {

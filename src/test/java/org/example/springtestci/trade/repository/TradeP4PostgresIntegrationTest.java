@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +28,11 @@ import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.history.dto.CreateHistoryEventRequest;
+import org.example.springtestci.history.entity.HistoryEventType;
+import org.example.springtestci.history.repository.HistoryRepository;
+import org.example.springtestci.history.service.HistoryChangeReviewRecorder;
+import org.example.springtestci.history.service.HistoryService;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
 import org.example.springtestci.listing.dto.ListingPreviewResponse;
 import org.example.springtestci.listing.dto.ListingPublicationResponse;
@@ -41,6 +47,7 @@ import org.example.springtestci.trade.service.InternalTradeCompletionPort;
 import org.example.springtestci.trade.service.InternalTransferCancellationPort;
 import org.example.springtestci.trade.service.PublishedListingAccess;
 import org.example.springtestci.trade.service.ReservationChangeService;
+import org.example.springtestci.trade.service.ReservedHistoryChangeReviewRecorder;
 import org.example.springtestci.trade.service.TradeAuditRecorder;
 import org.example.springtestci.trade.service.TradeCancellationService;
 import org.example.springtestci.trade.service.TradeCompletionService;
@@ -51,6 +58,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,7 +71,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 승인된 전용 PostgreSQL에서만 실행하는 P4 완료·취소·변경 경합 검증이다.
  *
- * <p>ownership/history/document 테이블과 포트는 원자성 시험용 fixture이며 정식 운영 구현이 아니다.
+ * <p>정식 history 스키마와 서비스를 사용한다. ownership, history 공개 상태, 완료 문서 포트는 원자성 시험용 fixture이며 정식 운영 구현이
+ * 아니다.
  */
 @EnabledIfEnvironmentVariable(named = "P4_TRADE_TEST_ENABLED", matches = "true")
 class TradeP4PostgresIntegrationTest {
@@ -531,6 +541,95 @@ class TradeP4PostgresIntegrationTest {
         .isInstanceOf(RuntimeException.class);
   }
 
+  /** H40-01~03: 실제 history 등록이 과거 양측 확인을 지우고 P4 재완료를 미확인 변경으로 차단한다. */
+  @Test
+  void historyCreateInvalidatesBothConfirmationsAndBlocksCompletionUntilReview() {
+    Fixture fixture = insertReservedFixture(FACTS_VERSION, FACTS_VERSION);
+    HistoryService history = historyService(mock(ApplicationEventPublisher.class));
+
+    transactions.execute(ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest()));
+
+    assertThat(
+            jdbc.queryForObject(
+                "select seller_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            jdbc.queryForObject(
+                "select buyer_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            count(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                fixture.requestId()))
+        .isEqualTo(1L);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> completions.complete(fixture.requestId(), SELLER_ID, 2L)))
+        .isInstanceOf(CommonException.class)
+        .extracting(failure -> ((CommonException) failure).errorCode())
+        .isEqualTo(ErrorCode.TRADE_CONFLICT);
+    assertThat(
+            value(
+                "select transaction_status from purchase_requests where id = ?",
+                fixture.requestId()))
+        .isEqualTo("RESERVED");
+  }
+
+  /** H40-03: 완료와 실제 history 등록 경합은 완료 또는 변경 대기 중 하나의 일관된 결과만 남긴다. */
+  @Test
+  void completionAndHistoryCreateRaceLeaveOneConsistentOutcome() throws Exception {
+    Fixture fixture = insertReservedFixture(FACTS_VERSION, null);
+    HistoryService history = historyService(mock(ApplicationEventPublisher.class));
+
+    runConcurrentlyAllowingHistoryConflict(
+        () ->
+            transactions.executeWithoutResult(
+                ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest())),
+        () ->
+            transactions.executeWithoutResult(
+                ignored -> completions.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)));
+
+    String status =
+        value("select transaction_status from purchase_requests where id = ?", fixture.requestId());
+    long historyCount =
+        count(
+            "select count(*) from product_events where product_id = ? and event_type = 'REPAIR'",
+            PRODUCT_ID);
+    if (status.equals("COMPLETED")) {
+      assertThat(historyCount).isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
+          .isEqualTo(BUYER_ID);
+    } else {
+      assertThat(status).isEqualTo("RESERVED");
+      assertThat(historyCount).isEqualTo(1L);
+      assertThat(
+              count(
+                  "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isEqualTo(1L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select seller_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select buyer_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+    }
+  }
+
   private static void createCompletionFixtureTables() {
     jdbc.execute(
         "create table ownership_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
@@ -685,6 +784,33 @@ class TradeP4PostgresIntegrationTest {
         Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
+  @SuppressWarnings("unchecked")
+  private HistoryService historyService(ApplicationEventPublisher events) {
+    HistoryChangeReviewRecorder recorder =
+        new ReservedHistoryChangeReviewRecorder(listings, requests, changes);
+    ObjectProvider<HistoryChangeReviewRecorder> provider = mock(ObjectProvider.class);
+    when(provider.getIfAvailable()).thenReturn(recorder);
+    return new HistoryService(
+        new HistoryRepository(jdbc),
+        JsonMapper.builder().build(),
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        provider,
+        events);
+  }
+
+  private CreateHistoryEventRequest generalHistoryRequest() {
+    return new CreateHistoryEventRequest(
+        HistoryEventType.REPAIR,
+        LocalDate.of(2026, 10, 25),
+        "키보드 수리",
+        null,
+        null,
+        null,
+        null,
+        null,
+        List.of());
+  }
+
   private static ProductResponse currentProduct() {
     long version =
         jdbc.queryForObject(
@@ -754,6 +880,23 @@ class TradeP4PostgresIntegrationTest {
   private void runConcurrentlyAllowingConflict(Runnable first, Runnable second) throws Exception {
     runConcurrently(
         () -> runIgnoringExpectedConflict(first), () -> runIgnoringExpectedConflict(second));
+  }
+
+  private void runConcurrentlyAllowingHistoryConflict(Runnable first, Runnable second)
+      throws Exception {
+    runConcurrently(
+        () -> runIgnoringHistoryConflict(first), () -> runIgnoringHistoryConflict(second));
+  }
+
+  private static void runIgnoringHistoryConflict(Runnable operation) {
+    try {
+      operation.run();
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT
+          && exception.errorCode() != ErrorCode.RESOURCE_NOT_FOUND) {
+        throw exception;
+      }
+    }
   }
 
   static void runIgnoringExpectedConflict(Runnable operation) {

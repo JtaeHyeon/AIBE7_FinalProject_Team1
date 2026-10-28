@@ -4,12 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -17,12 +24,22 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
+import org.example.springtestci.ai.service.ListingSummaryRefreshListener;
+import org.example.springtestci.ai.service.ListingSummaryStore;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
+import org.example.springtestci.history.dto.CreateHistoryEventRequest;
+import org.example.springtestci.history.dto.VoidHistoryEventRequest;
+import org.example.springtestci.history.entity.HistoryEventType;
+import org.example.springtestci.history.repository.HistoryRepository;
+import org.example.springtestci.history.service.HistoryChangeReviewRecorder;
+import org.example.springtestci.history.service.HistoryService;
 import org.example.springtestci.listing.entity.ListingStatus;
 import org.example.springtestci.listing.service.ListingTradeCanceller;
+import org.example.springtestci.product.event.ProductFactsChanged;
 import org.example.springtestci.trade.entity.ChangeReviewDecision;
 import org.example.springtestci.trade.entity.TradeCancellationReason;
 import org.example.springtestci.trade.service.InternalTransferCancellationPort;
@@ -30,6 +47,7 @@ import org.example.springtestci.trade.service.InternalTransferPendingWriter;
 import org.example.springtestci.trade.service.PublishedListingStatus;
 import org.example.springtestci.trade.service.PurchaseRequestService;
 import org.example.springtestci.trade.service.ReservationChangeService;
+import org.example.springtestci.trade.service.ReservedHistoryChangeReviewRecorder;
 import org.example.springtestci.trade.service.TradeCancellationService;
 import org.example.springtestci.trade.service.TradeListingCanceller;
 import org.flywaydb.core.Flyway;
@@ -38,18 +56,23 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.event.TransactionalEventListenerFactory;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 승인된 PostgreSQL에서만 실행하는 P3 취소·변경 확인 원자성 시험이다.
  *
- * <p>내부 이전 취소 구현과 product event 테이블은 시험 fixture이며 정식 ownership/history 연동 완료의 근거가 아니다.
+ * <p>정식 history 스키마와 서비스를 사용한다. 내부 이전 취소 구현과 ownership 테이블은 시험 fixture이며 정식 ownership 연동 완료의 근거가
+ * 아니다.
  */
 @EnabledIfEnvironmentVariable(named = "P3_TRADE_TEST_ENABLED", matches = "true")
 class TradeP3PostgresIntegrationTest {
@@ -279,6 +302,184 @@ class TradeP3PostgresIntegrationTest {
                 String.class,
                 fixture.requestId()))
         .isEqualTo("changed");
+  }
+
+  /** H40-01~04: 실제 history 등록이 버전·P3 사본·확인 무효화·커밋 후 R10 접수를 함께 연결한다. */
+  @Test
+  void historyCreateConnectsFactsReviewConfirmationInvalidationAndAfterCommitRefresh() {
+    Fixture fixture = insertReservedFixture();
+    ListingSummaryStore summaries = mock(ListingSummaryStore.class);
+    when(summaries.publicListingsForProduct(PRODUCT_ID)).thenReturn(List.of(LISTING_ID));
+    try (var context = new AnnotationConfigApplicationContext()) {
+      context.getBeanFactory().registerSingleton("listingSummaryStore", summaries);
+      context.registerBean(TransactionalEventListenerFactory.class);
+      context.registerBean(ListingSummaryRefreshListener.class);
+      context.refresh();
+      HistoryService history =
+          historyService(
+              new ReservedHistoryChangeReviewRecorder(listings, requests, changes), context);
+
+      transactions.execute(
+          ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest()));
+
+      long eventId =
+          jdbc.queryForObject(
+              "select id from product_events where product_id = ? and event_type = 'REPAIR'",
+              Long.class,
+              PRODUCT_ID);
+      assertThat(
+              jdbc.queryForObject(
+                  "select facts_version from products where id = ?", Long.class, PRODUCT_ID))
+          .isEqualTo(2L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select facts_version from transaction_change_reviews where purchase_request_id = ? and event_id = ?",
+                  Long.class,
+                  fixture.requestId(),
+                  eventId))
+          .isEqualTo(2L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select change_facts ->> 'eventType' from transaction_change_reviews where purchase_request_id = ? and event_id = ?",
+                  String.class,
+                  fixture.requestId(),
+                  eventId))
+          .isEqualTo("REPAIR");
+      assertThat(
+              jdbc.queryForObject(
+                  "select jsonb_exists(change_facts, 'title') from transaction_change_reviews where purchase_request_id = ? and event_id = ?",
+                  Boolean.class,
+                  fixture.requestId(),
+                  eventId))
+          .isFalse();
+      assertThat(
+              jdbc.queryForObject(
+                  "select seller_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select buyer_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+      verify(summaries).publicListingsForProduct(PRODUCT_ID);
+      verify(summaries).refresh(LISTING_ID);
+    }
+  }
+
+  /** H40-03/04: P3 저장 뒤 실패하면 history·버전·확인 변경이 모두 원복되고 R10 이벤트도 전달되지 않는다. */
+  @Test
+  void historyCreateRollsBackEveryWriteAndRefreshWhenReviewConnectionFails() {
+    Fixture fixture = insertReservedFixture();
+    HistoryChangeReviewRecorder delegate =
+        new ReservedHistoryChangeReviewRecorder(listings, requests, changes);
+    HistoryChangeReviewRecorder failing =
+        (productId, eventId, factsVersion, snapshot) -> {
+          delegate.recordCreated(productId, eventId, factsVersion, snapshot);
+          throw new IllegalStateException("Injected history review failure");
+        };
+    ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    HistoryService history = historyService(failing, events);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest())))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("history review failure");
+
+    assertThat(count("select count(*) from product_events where product_id = ?", PRODUCT_ID))
+        .isZero();
+    assertThat(
+            count(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                fixture.requestId()))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select facts_version from products where id = ?", Long.class, PRODUCT_ID))
+        .isEqualTo(1L);
+    assertThat(
+            jdbc.queryForObject(
+                "select seller_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isEqualTo(1L);
+    assertThat(
+            jdbc.queryForObject(
+                "select buyer_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isEqualTo(1L);
+    verify(events, never()).publishEvent(new ProductFactsChanged(PRODUCT_ID));
+  }
+
+  /** H40-01/04/07: P3 OFF에서도 실제 history 쓰기마다 버전과 R10 원천 이벤트가 정확히 한 번 반영된다. */
+  @Test
+  void historyLifecycleIncrementsOneVersionPerWriteAndPublishesRefreshWithP3Off() {
+    insertStandaloneLaptop();
+    ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    HistoryService history = historyService(null, events);
+
+    long specEventId =
+        transactions
+            .execute(
+                ignored ->
+                    history.create(
+                        SELLER_ID,
+                        PRODUCT_ID,
+                        new CreateHistoryEventRequest(
+                            HistoryEventType.SPEC_CHANGE,
+                            LocalDate.of(2026, 10, 24),
+                            "메모리 증설",
+                            null,
+                            null,
+                            null,
+                            null,
+                            java.util.Map.of("ramGb", 16),
+                            List.of())))
+            .eventId();
+    long generalEventId =
+        transactions
+            .execute(ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest()))
+            .eventId();
+    transactions.execute(
+        ignored ->
+            history.correct(
+                SELLER_ID,
+                PRODUCT_ID,
+                generalEventId,
+                new CorrectHistoryEventRequest(
+                    LocalDate.of(2026, 10, 25),
+                    "키보드 수리 정정",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "작업 명칭 정정")));
+    transactions.execute(
+        ignored ->
+            history.voidEvent(
+                SELLER_ID, PRODUCT_ID, generalEventId, new VoidHistoryEventRequest("중복 이력 무효화")));
+
+    assertThat(specEventId).isPositive();
+    assertThat(
+            jdbc.queryForObject(
+                "select ram_gb from laptop_details where product_id = ?",
+                Integer.class,
+                PRODUCT_ID))
+        .isEqualTo(16);
+    assertThat(
+            jdbc.queryForObject(
+                "select facts_version from products where id = ?", Long.class, PRODUCT_ID))
+        .isEqualTo(5L);
+    assertThat(value("select status from product_events where id = ?", generalEventId))
+        .isEqualTo("VOID");
+    assertThat(count("select count(*) from transaction_change_reviews")).isZero();
+    verify(events, times(4)).publishEvent(new ProductFactsChanged(PRODUCT_ID));
   }
 
   @Test
@@ -800,6 +1001,42 @@ class TradeP3PostgresIntegrationTest {
         SELLER_ID,
         BUYER_ID);
     return new Fixture(requestId, roomId);
+  }
+
+  private void insertStandaloneLaptop() {
+    jdbc.update(
+        "insert into products (id, category, manufacturer, manufacturer_normalized, model_name, serial_number_fingerprint, title, owner_id, serial_number_ciphertext) values (?, 'LAPTOP', 'maker', 'MAKER', 'model', 'h40-fingerprint', 'title', ?, 'ciphertext')",
+        PRODUCT_ID,
+        SELLER_ID);
+    jdbc.update(
+        "insert into laptop_details (product_id, ram_gb, storage_gb, storage_type) values (?, 8, 256, 'SSD')",
+        PRODUCT_ID);
+  }
+
+  @SuppressWarnings("unchecked")
+  private HistoryService historyService(
+      HistoryChangeReviewRecorder recorder, ApplicationEventPublisher events) {
+    ObjectProvider<HistoryChangeReviewRecorder> provider = mock(ObjectProvider.class);
+    if (recorder != null) when(provider.getIfAvailable()).thenReturn(recorder);
+    return new HistoryService(
+        new HistoryRepository(jdbc),
+        JsonMapper.builder().build(),
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        provider,
+        events);
+  }
+
+  private CreateHistoryEventRequest generalHistoryRequest() {
+    return new CreateHistoryEventRequest(
+        HistoryEventType.REPAIR,
+        LocalDate.of(2026, 10, 25),
+        "홍길동 키보드 수리",
+        "010-1234-5678로 연락",
+        "개인 수리점",
+        120000L,
+        "키보드",
+        null,
+        List.of());
   }
 
   private long insertRoom(long buyerId) {
