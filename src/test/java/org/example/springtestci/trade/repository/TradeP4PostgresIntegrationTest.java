@@ -245,6 +245,12 @@ class TradeP4PostgresIntegrationTest {
                 "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
                 fixture.requestId()))
         .isEqualTo(1L);
+    // 열린 판매글이 없어진 판매 완료는 이력 비공개 전환 기록도 한 번만 남긴다(SEC-08).
+    assertThat(
+            count(
+                "select count(*) from audit_logs where action = 'HISTORY_VISIBILITY_CHANGED' and target_id = ?",
+                fixture.requestId()))
+        .isEqualTo(1L);
   }
 
   @Test

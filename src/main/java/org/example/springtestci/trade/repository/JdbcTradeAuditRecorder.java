@@ -66,6 +66,33 @@ public class JdbcTradeAuditRecorder implements TradeAuditRecorder {
     if (inserted != 1) {
       throw new IllegalStateException("Trade audit insert affected an unexpected row count");
     }
+    recordHistoryPrivatized(productId, actorId, purchaseRequestId);
+  }
+
+  /**
+   * 판매 완료로 열린 판매글(ACTIVE·RESERVED)이 더 없으면 이력이 비공개로 바뀐 것이므로 SEC-08 처리 기록을 남긴다. 호출 시점에 판매글은 이미 SOLD로
+   * 저장되어 있어야 하며, 삽입 실패는 거래 완료 트랜잭션 전체를 롤백한다.
+   */
+  private void recordHistoryPrivatized(long productId, long actorId, long purchaseRequestId) {
+    Integer open =
+        jdbcTemplate.queryForObject(
+            "select count(*) from listings where product_id = ? and status in ('ACTIVE', 'RESERVED')",
+            Integer.class,
+            productId);
+    if (open != null && open > 0) {
+      return;
+    }
+    int inserted =
+        jdbcTemplate.update(
+            "insert into audit_logs (product_id, actor_id, target_id, action, before_facts, after_facts) values (?, ?, ?, 'HISTORY_VISIBILITY_CHANGED', ?, ?)",
+            productId,
+            actorId,
+            purchaseRequestId,
+            "{\"visibility\":\"PUBLIC\"}",
+            "{\"visibility\":\"PRIVATE\"}");
+    if (inserted != 1) {
+      throw new IllegalStateException("Trade audit insert affected an unexpected row count");
+    }
   }
 
   private record CancellationFacts(
