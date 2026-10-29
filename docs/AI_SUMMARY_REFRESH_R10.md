@@ -55,7 +55,7 @@ events.publishEvent(new ProductFactsChanged(productId));
 
 ## DB 변경
 
-새 `V2026102706__support_listing_summary_refresh.sql`만 추가한다. 기존 마이그레이션은 수정하지 않는다.
+요약 갱신의 원래 버전은 `V2026102701__support_listing_summary_refresh.sql`이다. SQL 본문은 유지한다. 이름만 바뀐 `2706`을 이미 적용한 DB는 [번호 정리 절차](FLYWAY_VERSION_ALIGNMENT.md)를 따른다.
 
 - `summary_requested_at`: 실행 제한 대기와 별개로 유지하는 최초 접수 시각.
 - `summary_available_at`: 짧은 수정 대기·Redis 실행 제한 후 다음 실행이 가능한 시각.
