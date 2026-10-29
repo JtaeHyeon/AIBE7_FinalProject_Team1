@@ -9,6 +9,7 @@ import org.example.springtestci.listing.service.ListingHistoryPrivatizer;
 import org.example.springtestci.listing.service.ListingHistoryPublisher;
 import org.example.springtestci.listing.service.ListingPublishConstraints;
 import org.example.springtestci.listing.service.ListingTradeCanceller;
+import org.example.springtestci.trade.repository.JdbcPublishedListingAccess;
 import org.example.springtestci.trade.service.InternalTransferPendingWriter;
 import org.example.springtestci.trade.service.PublishedListing;
 import org.example.springtestci.trade.service.PublishedListingAccess;
@@ -52,6 +53,12 @@ public class ListingDefaultConfig {
   @ConditionalOnMissingBean(PublishedListingAccess.class)
   PublishedListingAccess defaultPublishedListingAccess(JdbcTemplate jdbc) {
     return new PublishedListingAccess() {
+      /** 호출자가 잠근 제품 ID의 RESERVED 판매글을 기존 거래 JDBC 잠금 계약으로 조회한다. */
+      @Override
+      public Optional<PublishedListing> findReservedByProductIdForUpdate(long productId) {
+        return new JdbcPublishedListingAccess(jdbc).findReservedByProductIdForUpdate(productId);
+      }
+
       @Override
       public Optional<PublishedListing> findById(long listingId) {
         return jdbc

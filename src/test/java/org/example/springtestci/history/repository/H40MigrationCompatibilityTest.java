@@ -1,0 +1,212 @@
+package org.example.springtestci.history.repository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import db.migration.V2026102102__isolate_published_listing_ids;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+
+/** 합성 신규/demo/옛 일반 DB를 검증하며 팀 DB 적용 사실이나 ownership 업무 매핑을 판정하지 않는다. */
+class H40MigrationCompatibilityTest {
+  private static final String CURRENT_OWNERSHIP = "V2026102702__create_ownership_tables.sql";
+  private static final String OLD_OWNERSHIP = "V2026102702__create_ownership_tables.sql";
+  @TempDir Path legacyResources;
+  private SingleConnectionDataSource source;
+  private JdbcTemplate jdbc;
+  private String schema;
+  private boolean postgres;
+
+  @BeforeEach
+  void connectDedicatedDatabase() {
+    String url = System.getenv("SALE_DRAFT_TEST_DB_URL");
+    postgres = url != null && !url.isBlank();
+    if (postgres && !url.contains("sale_ai_test")) {
+      throw new IllegalStateException("Use a dedicated sale_ai_test database only");
+    }
+    schema = postgres ? "h40_migration_" + UUID.randomUUID().toString().replace("-", "") : "public";
+    source =
+        new SingleConnectionDataSource(
+            postgres
+                ? url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema
+                : "jdbc:h2:mem:h40_"
+                    + UUID.randomUUID()
+                    + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
+            postgres ? System.getenv("SALE_DRAFT_TEST_DB_USER") : "sa",
+            postgres ? System.getenv("SALE_DRAFT_TEST_DB_PASSWORD") : "",
+            true);
+    jdbc = new JdbcTemplate(source);
+    if (postgres) jdbc.execute("CREATE SCHEMA " + schema);
+  }
+
+  @AfterEach
+  void closeDedicatedSchema() {
+    if (source != null) {
+      if (postgres) jdbc.execute("DROP SCHEMA " + schema + " CASCADE");
+      source.destroy();
+    }
+  }
+
+  @Test
+  void freshGeneralAndDemoUseGeneralOwnershipAndCardSummaryVersions() {
+    candidate("classpath:db/migration", "classpath:db/demo/sale-draft").migrate();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT script FROM flyway_schema_history WHERE version='2026102702'",
+                String.class))
+        .isEqualTo(CURRENT_OWNERSHIP);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT script FROM flyway_schema_history WHERE version='2026102802'",
+                String.class))
+        .isEqualTo("V2026102802__version_listing_card_summary.sql");
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version='2026102702.1' OR script='V2026102702__version_listing_card_summary.sql'",
+                Integer.class))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' AND column_name IN ('token_hash','expires_at','pending_slot')",
+                Integer.class))
+        .isEqualTo(3);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='listings' AND column_name='summary_format_version'",
+                Integer.class))
+        .isEqualTo(1);
+    System.out.println(
+        "L-03 VERIFIED general+demo fresh " + databaseKind() + " history=" + history());
+  }
+
+  /** 고정 일반 SQL로 2707까지 적용한 DB에서 후보 업그레이드와 기존 제품·이전·이력 보존을 검사한다. */
+  @Test
+  void previouslyAppliedGeneralOwnershipUpgradesWithoutReexecutingOwnershipOrLosingData()
+      throws Exception {
+    for (var resource :
+        new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/V*.sql")) {
+      if (!CURRENT_OWNERSHIP.equals(resource.getFilename())) {
+        try (var input = resource.getInputStream()) {
+          Files.copy(input, legacyResources.resolve(resource.getFilename()));
+        }
+      }
+    }
+    try (var input =
+        new ClassPathResource("db/fixtures/h40-legacy-general/" + OLD_OWNERSHIP).getInputStream()) {
+      Files.copy(input, legacyResources.resolve(OLD_OWNERSHIP));
+    }
+    Flyway.configure()
+        .dataSource(source)
+        .schemas(schema)
+        .defaultSchema(schema)
+        .locations("filesystem:" + legacyResources.toAbsolutePath())
+        .javaMigrations(new V2026102102__isolate_published_listing_ids())
+        .target("2026102707")
+        .load()
+        .migrate();
+    jdbc.update(
+        "INSERT INTO users(id,email,password_hash,nickname,role,created_at,updated_at) VALUES(1,'legacy-owner@fixture.invalid','unused','owner','USER',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),(2,'legacy-buyer@fixture.invalid','unused','buyer','USER',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+    jdbc.update(
+        "INSERT INTO products(id,category,manufacturer,manufacturer_normalized,model_name,title,owner_id,serial_number_fingerprint,serial_number_ciphertext) VALUES(1,'LAPTOP','maker','MAKER','model','preserved product',1,'legacy-fingerprint','synthetic')");
+    jdbc.update(
+        "INSERT INTO ownership_transfers(product_id,from_user_id,to_user_id,token_hash,expires_at,transfer_type,status,pending_slot) VALUES(1,1,2,?,?,'INTERNAL','PENDING',1)",
+        "0".repeat(64),
+        Timestamp.from(Instant.now().plusSeconds(3600)));
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT script FROM flyway_schema_history WHERE version='2026102702'",
+                String.class))
+        .isEqualTo(OLD_OWNERSHIP);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT success FROM flyway_schema_history WHERE version='2026102707'",
+                Boolean.class))
+        .isTrue();
+    var beforeHistory = history();
+    var beforeRows = jdbc.queryForList("SELECT * FROM ownership_transfers ORDER BY id");
+    var beforeProduct = jdbc.queryForMap("SELECT * FROM products WHERE id=1");
+    var beforeColumns =
+        jdbc.queryForList(
+            "SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY ordinal_position");
+    var beforeConstraints =
+        jdbc.queryForList(
+            "SELECT constraint_name,constraint_type FROM information_schema.table_constraints WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY constraint_name");
+    Flyway current = candidate("classpath:db/migration");
+
+    Flyway.configure()
+        .dataSource(source)
+        .schemas(schema)
+        .defaultSchema(schema)
+        .locations("classpath:db/migration")
+        .target("2026102707")
+        .load()
+        .validate();
+    assertThat(current.migrate().migrationsExecuted).isPositive();
+    current.validate();
+    assertThat(current.migrate().migrationsExecuted).isZero();
+
+    assertThat(history().subList(0, beforeHistory.size())).isEqualTo(beforeHistory);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version='2026102702' AND script=? AND success=true",
+                Integer.class,
+                OLD_OWNERSHIP))
+        .isEqualTo(1);
+    assertThat(jdbc.queryForList("SELECT * FROM ownership_transfers ORDER BY id"))
+        .isEqualTo(beforeRows);
+    assertThat(jdbc.queryForMap("SELECT * FROM products WHERE id=1")).isEqualTo(beforeProduct);
+    assertThat(
+            jdbc.queryForList(
+                "SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY ordinal_position"))
+        .isEqualTo(beforeColumns);
+    assertThat(
+            jdbc.queryForList(
+                "SELECT constraint_name,constraint_type FROM information_schema.table_constraints WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY constraint_name"))
+        .isEqualTo(beforeConstraints);
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "INSERT INTO ownership_transfers(product_id,from_user_id,to_user_id,token_hash,expires_at,transfer_type,status,pending_slot) VALUES(1,1,2,?,?,'INTERNAL','PENDING',1)",
+                    "1".repeat(64),
+                    Timestamp.from(Instant.now().plusSeconds(3600))))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    System.out.println(
+        "G-03 GENERAL_UPGRADE_PASS "
+            + databaseKind()
+            + ": validate/migrate succeed; ownership data/constraints/history preserved; before="
+            + beforeHistory);
+  }
+
+  private Flyway candidate(String... locations) {
+    return Flyway.configure()
+        .dataSource(source)
+        .schemas(schema)
+        .defaultSchema(schema)
+        .locations(locations)
+        .load();
+  }
+
+  private List<Map<String, Object>> history() {
+    return jdbc.queryForList(
+        "SELECT installed_rank,version,script,checksum,success FROM flyway_schema_history ORDER BY installed_rank");
+  }
+
+  private String databaseKind() {
+    return postgres ? "PostgreSQL" : "H2";
+  }
+}

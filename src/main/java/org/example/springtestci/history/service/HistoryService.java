@@ -18,9 +18,13 @@ import org.example.springtestci.history.repository.HistoryRepository;
 import org.example.springtestci.history.repository.HistoryRepository.HistoryChangeRecord;
 import org.example.springtestci.history.repository.HistoryRepository.HistoryEventRecord;
 import org.example.springtestci.history.repository.HistoryRepository.ProductSpecifications;
+import org.example.springtestci.product.event.ProductFactsChanged;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
@@ -40,12 +44,20 @@ public class HistoryService {
   private final HistoryRepository historyRepository;
   private final ObjectMapper objectMapper;
   private final Clock clock;
+  private final ObjectProvider<HistoryChangeReviewRecorder> changeReviewRecorders;
+  private final ApplicationEventPublisher events;
 
   public HistoryService(
-      HistoryRepository historyRepository, ObjectMapper objectMapper, Clock clock) {
+      HistoryRepository historyRepository,
+      ObjectMapper objectMapper,
+      Clock clock,
+      ObjectProvider<HistoryChangeReviewRecorder> changeReviewRecorders,
+      ApplicationEventPublisher events) {
     this.historyRepository = historyRepository;
     this.objectMapper = objectMapper;
     this.clock = clock;
+    this.changeReviewRecorders = changeReviewRecorders;
+    this.events = events;
   }
 
   @Transactional
@@ -76,6 +88,17 @@ public class HistoryService {
         historyRepository.insertEvent(productId, ownerId, request, specsBeforeJson, specsAfterJson);
     historyRepository.linkDocuments(eventId, documentIds);
     if (after != null) historyRepository.replaceSpecifications(productId, after);
+    else historyRepository.incrementFactsVersion(productId);
+    long factsVersion = historyRepository.findFactsVersion(productId);
+    HistoryChangeReviewRecorder recorder = changeReviewRecorders.getIfAvailable();
+    if (recorder != null) {
+      recorder.recordCreated(
+          productId,
+          eventId,
+          factsVersion,
+          createdSnapshot(request, specsBeforeJson, specsAfterJson));
+    }
+    events.publishEvent(new ProductFactsChanged(productId));
     return getOwnedEvent(productId, eventId, documentIds);
   }
 
@@ -128,6 +151,7 @@ public class HistoryService {
         json(after),
         request.reason(),
         "HISTORY_CORRECTED");
+    events.publishEvent(new ProductFactsChanged(productId));
     return toResponse(
         after,
         historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
@@ -148,6 +172,7 @@ public class HistoryService {
     HistoryEventRecord after = historyRepository.findEvent(productId, eventId).orElseThrow();
     historyRepository.insertAudit(
         productId, ownerId, eventId, json(before), json(after), request.reason(), "HISTORY_VOIDED");
+    events.publishEvent(new ProductFactsChanged(productId));
     return toResponse(
         after,
         historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
@@ -321,6 +346,40 @@ public class HistoryService {
     } catch (JacksonException exception) {
       throw new IllegalStateException("Failed to serialize history facts", exception);
     }
+  }
+
+  /** 거래 당사자에게 전달 가능한 구조화 필드만 복사하고 자유 입력·비용·문서·계정 정보는 제외한다. */
+  private JsonNode createdSnapshot(
+      CreateHistoryEventRequest request, String specsBeforeJson, String specsAfterJson) {
+    var snapshot = objectMapper.createObjectNode();
+    snapshot.put("changeType", "CREATED");
+    snapshot.put("eventType", request.eventType().name());
+    snapshot.put("occurredOn", request.occurredOn().toString());
+    snapshot.put("status", HistoryEventStatus.VALID.name());
+    if (specsBeforeJson != null)
+      snapshot.set("specsBefore", publicSpecificationSnapshot(specsBeforeJson));
+    if (specsAfterJson != null)
+      snapshot.set("specsAfter", publicSpecificationSnapshot(specsAfterJson));
+    return snapshot;
+  }
+
+  /** 공개 검토 근거가 없는 사양 자유 문자열은 제외하고 검증된 숫자·제한 enum만 거래 사본으로 만든다. */
+  private JsonNode publicSpecificationSnapshot(String specificationsJson) {
+    Map<String, Object> specifications = parseMap(specificationsJson);
+    var snapshot = objectMapper.createObjectNode();
+    copyPublicSpecification(specifications, snapshot, "ramGb");
+    copyPublicSpecification(specifications, snapshot, "storageGb");
+    copyPublicSpecification(specifications, snapshot, "storageType");
+    copyPublicSpecification(specifications, snapshot, "batteryHealthPercent");
+    return snapshot;
+  }
+
+  private void copyPublicSpecification(
+      Map<String, Object> specifications,
+      tools.jackson.databind.node.ObjectNode snapshot,
+      String field) {
+    Object value = specifications.get(field);
+    if (value != null) snapshot.set(field, objectMapper.valueToTree(value));
   }
 
   private void requireOwnedLock(long productId, long ownerId) {

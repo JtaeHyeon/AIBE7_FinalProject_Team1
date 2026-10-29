@@ -737,6 +737,73 @@ class ListingSummaryHttpTest {
     assertEquals("READY", repository.read(1).status().name());
   }
 
+  /** 실제 history 서비스의 커밋은 정식 R10 저장 접수로 이어지고 롤백은 접수·버전·이력을 모두 남기지 않는다. */
+  @Test
+  void actualHistoryServiceQueuesRefreshOnlyAfterCommit() {
+    var history = context.getBean(org.example.springtestci.history.service.HistoryService.class);
+    var transaction =
+        new org.springframework.transaction.support.TransactionTemplate(
+            context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+    long eventCount =
+        jdbc.queryForObject("select count(*) from product_events where product_id=101", Long.class);
+    transaction.executeWithoutResult(
+        status -> {
+          history.create(1, 101, historyRequest());
+          status.setRollbackOnly();
+        });
+    assertEquals(
+        eventCount,
+        jdbc.queryForObject(
+            "select count(*) from product_events where product_id=101", Long.class));
+    assertEquals(
+        7L, jdbc.queryForObject("select facts_version from products where id=101", Long.class));
+    assertEquals("NOT_REQUESTED", repository.read(1).status().name());
+
+    history.create(1, 101, historyRequest());
+
+    assertEquals(
+        eventCount + 1,
+        jdbc.queryForObject(
+            "select count(*) from product_events where product_id=101", Long.class));
+    assertEquals("QUEUED", repository.read(1).status().name());
+    assertEquals(8L, repository.read(1).productVersion());
+    assertEquals(0, CALLS.get());
+  }
+
+  /** 커밋 이후 정식 요약 저장 접수 실패가 이미 저장된 실제 history와 버전을 되돌리지 않는다. */
+  @Test
+  void summaryQueueStorageFailureDoesNotFailCommittedHistory() {
+    var history = context.getBean(org.example.springtestci.history.service.HistoryService.class);
+    jdbc.execute(
+        "alter table listings add constraint h40_reject_summary_queue check (summary_status is null or summary_status <> 'QUEUED')");
+    try {
+      var created = assertDoesNotThrow(() -> history.create(1, 101, historyRequest()));
+      assertEquals(
+          1L,
+          jdbc.queryForObject(
+              "select count(*) from product_events where id=?", Long.class, created.eventId()));
+      assertEquals(
+          8L, jdbc.queryForObject("select facts_version from products where id=101", Long.class));
+      assertEquals("NOT_REQUESTED", repository.read(1).status().name());
+      assertEquals(0, CALLS.get());
+    } finally {
+      jdbc.execute("alter table listings drop constraint h40_reject_summary_queue");
+    }
+  }
+
+  private static org.example.springtestci.history.dto.CreateHistoryEventRequest historyRequest() {
+    return new org.example.springtestci.history.dto.CreateHistoryEventRequest(
+        org.example.springtestci.history.entity.HistoryEventType.REPAIR,
+        LocalDate.of(2025, 5, 20),
+        "PRIVATE_HISTORY_TITLE",
+        "PRIVATE_HISTORY_CONTENT",
+        null,
+        null,
+        null,
+        null,
+        List.of());
+  }
+
   @Test
   void retainedSummaryIsNeverReturnedAfterOwnershipLossOrSaleEnd() throws Exception {
     readySummary();
