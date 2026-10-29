@@ -1,5 +1,26 @@
 # H40 로컬 Migration 보정·회귀 결과
 
+## 2026-10-29 개발 기준·지원 범위 결정 (v1.2)
+
+사용자 결정에 따라 R0 `863907f546549382223bf4e73ccdd832e27b8f05`의 ownership 구현과 보정된 `V2026102702_1__create_ownership_tables.sql`을 후속 개발 기준으로 채택한다. 현재 판정은 **LOCAL_VALIDATED / CURRENT_BASELINE_ADOPTED**다. 아래의 `PENDING_TEAM_DB_DECISION` 및 병합 전 적용 이력 확인 요구는 당시 판단으로 보존하며, 이번 지원 범위 결정으로 대체한다. 팀 전체 합의나 실제 DB 이행 완료를 뜻하지 않는다.
+
+| 경로 | 현재 지원 범위 |
+|---|---|
+| 현재 후보로 구성하는 신규 일반 DB | 현행 개발·검증 기준 |
+| 검증한 일반+pending 순차 적용, 신규 일반+demo | 기존 검증 범위 유지. pending 일반 편입·운영 활성화 아님 |
+| 검증한 구버전 demo 출발 상태 | 기존 데이터·이력 보존 검증 유지. 모든 과거 상태 호환 보증 아님 |
+| 옛 일반 ownership `V2026102702` 적용 DB | **자동 업그레이드 미지원 / 구체적 요청 시 별도 이행 작업**. 기존 HARNESS_PASS / UPGRADE_INCOMPATIBLE 유지 |
+| 실제 팀 보존·공유·운영 DB | NOT_TESTED. 이번 작업에서 접속·변경·이행하지 않으며 초기화·폐기를 추정하지 않음 |
+
+구버전 이력 미확인만으로 일반 PR 제출을 중단하거나 Draft를 강제하지 않는다. 지원 대상의 실제 회귀·충돌, CI와 리뷰는 별도로 판단한다. 정식 ownership 전체 연결 및 H40-06/R07/P5는 계속 별도 이월이며 기존 BLOCKED / CONTRACT_REVIEW를 해제한 것이 아니다. 구버전 지원 요청 시 실제 locations와 version/script/checksum/success를 분류하고 별도 보존·이행안을 검토한다. 데이터 삭제·reset·repair·이력 직접 수정은 이번 작업에 포함하지 않는다.
+
+### 기존 검증 재사용 근거
+
+- 시작 HEAD와 원격 제출 브랜치는 R0, 팀 main은 B `f5ad1025abb86a79cb8ff35d7178c8e80aade151`로 동일했다. R0 이후 변경은 없었다.
+- `git diff --name-status 7b701c017c3711b7003bd58735c8e00994ee5184 HEAD`는 결과·인계 문서 두 파일만 표시했다. C0와 R0의 `src` tree는 모두 `fd397a9c162e9da70771ef62dd145b05aa178ad1`이며 `.github`, Gradle 설정·wrapper·scripts도 동일했다. 이번 후속 변경 역시 문서만 포함한다.
+- 기존 검수 디렉터리의 MANIFEST와 실행별 JSON·로그·JUnit XML을 확보했다. MANIFEST의 145개 파일 SHA-256을 전부 대조해 불일치 0건이며 네 실행의 XML 집계가 보고와 일치했다. 기본 759건 중 704 PASS / 55 SKIPPED, 실패·오류 0 및 build 성공, 선택 PG·Redis 109/109 PASS는 **C0의 기존 실행**이다. 기본 skip 54건의 선택 실행 대응 및 Redis 단위시험 1건 별도 NOT_RUN을 유지한다.
+- v1.2 작업에서는 문서 diff·링크·지원 범위·실행 트리 동일성을 검사하며 spotlessCheck/test/build 및 전용 DB 회귀는 재실행하지 않는다. 정확한 제출 SHA·PR/CI 조회 결과와 증거 대조 수준은 이번 검수 자료의 MANIFEST/PR_INFO에 기록한다. 과거 원본 로그를 새 실행으로 복제하지 않는다.
+
 ## 현재 판정
 
 **LOCAL_VALIDATED / PENDING_TEAM_DB_DECISION.** 신규 DB와 기존 demo 업그레이드는 H2·전용 PostgreSQL에서 검증했다. **옛 일반 ownership `2026102702`가 적용된 DB는 UPGRADE_INCOMPATIBLE**이며 실제 팀 환경의 지원 여부·채택 판단은 병합 전에 확인해야 한다. 이 조건을 정상 업그레이드로 표현하지 않는다. 정식 거래·이전 전체 인수는 계속 **BLOCKED / CONTRACT_REVIEW**다.
