@@ -91,6 +91,23 @@ class RateLimitInterceptorTest {
     verify(rateLimiter).check("auth-refresh", "ip:10.0.0.3", 30, Duration.ofMinutes(1));
   }
 
+  /** AI 질문·시세 추정은 비로그인도 호출할 수 있어 접속 IP 기준으로 센다. */
+  @Test
+  void limitsAiCallsByIpWithoutAuthentication() {
+    RateLimitInterceptor interceptor = new RateLimitInterceptor(rateLimiter);
+    MockHttpServletRequest ask = new MockHttpServletRequest("POST", "/api/v1/ai/ask");
+    ask.setRemoteAddr("10.0.0.5");
+    MockHttpServletRequest estimate =
+        new MockHttpServletRequest("POST", "/api/v1/ai/estimate-price");
+    estimate.setRemoteAddr("10.0.0.5");
+
+    interceptor.preHandle(ask, new MockHttpServletResponse(), new Object());
+    interceptor.preHandle(estimate, new MockHttpServletResponse(), new Object());
+
+    verify(rateLimiter).check("ai-ask", "ip:10.0.0.5", 10, Duration.ofMinutes(1));
+    verify(rateLimiter).check("ai-estimate-price", "ip:10.0.0.5", 10, Duration.ofMinutes(1));
+  }
+
   /** 소유권 이전 수락도 규칙에 걸린다. */
   @Test
   void limitsOwnershipAccept() {

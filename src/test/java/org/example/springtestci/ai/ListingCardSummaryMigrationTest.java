@@ -47,7 +47,7 @@ class ListingCardSummaryMigrationTest {
           .schemas(schema)
           .defaultSchema(schema)
           .locations(locations)
-          .target(legacyDemo ? "2026102702" : "2026102801")
+          .target(legacyDemo ? "2026102708" : "2026102801")
           .load()
           .migrate();
       var jdbc = new JdbcTemplate(source);
