@@ -14,7 +14,7 @@ class ListingCardSummaryMigrationTest {
   }
 
   @Test
-  void upgradesTheAlreadyAppliedDemoVersionWithoutLosingSummaryOrChecksumHistory() {
+  void upgradesGeneralOwnershipWithDemoFixturesWithoutLosingSummaryOrChecksumHistory() {
     verifyUpgrade(true);
   }
 
@@ -58,13 +58,13 @@ class ListingCardSummaryMigrationTest {
               : null;
       if (legacyDemo) {
         assertEquals(
-            0,
+            1,
             jdbc.queryForObject(
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='ownership_transfers'",
                 Integer.class));
       }
       assertEquals(
-          legacyDemo ? 1 : 0,
+          0,
           jdbc.queryForObject(
               "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='listings' AND column_name='summary_format_version'",
               Integer.class));
@@ -91,7 +91,7 @@ class ListingCardSummaryMigrationTest {
             legacyHistory,
             jdbc.queryForMap(
                 "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102702'"));
-        assertEquals("V2026102702__version_listing_card_summary.sql", legacyHistory.get("script"));
+        assertEquals("V2026102702__create_ownership_tables.sql", legacyHistory.get("script"));
         assertNotNull(legacyHistory.get("checksum"));
         assertEquals(true, legacyHistory.get("success"));
         assertEquals(
@@ -104,7 +104,7 @@ class ListingCardSummaryMigrationTest {
             jdbc.queryForObject(
                 "SELECT summary_available_at FROM listings WHERE id=1",
                 java.time.OffsetDateTime.class));
-        System.out.println("L-04 VERIFIED legacy demo history preserved: " + legacyHistory);
+        System.out.println("G-04 VERIFIED general ownership history preserved: " + legacyHistory);
       }
       assertTrue(
           jdbc.queryForObject(

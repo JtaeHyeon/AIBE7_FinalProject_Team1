@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:h2:file:${java.io.tmpdir}/pastport-sale-draft-r01;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    url: jdbc:h2:file:${java.io.tmpdir}/pastport-sale-draft-general-r02;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
     driver-class-name: org.h2.Driver
     username: sa
     password: ""

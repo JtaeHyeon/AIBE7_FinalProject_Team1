@@ -12,19 +12,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.exception.FlywayValidateException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 /** 합성 신규/demo/옛 일반 DB를 검증하며 팀 DB 적용 사실이나 ownership 업무 매핑을 판정하지 않는다. */
 class H40MigrationCompatibilityTest {
-  private static final String CURRENT_OWNERSHIP = "V2026102702_1__create_ownership_tables.sql";
+  private static final String CURRENT_OWNERSHIP = "V2026102702__create_ownership_tables.sql";
   private static final String OLD_OWNERSHIP = "V2026102702__create_ownership_tables.sql";
   @TempDir Path legacyResources;
   private SingleConnectionDataSource source;
@@ -63,18 +63,23 @@ class H40MigrationCompatibilityTest {
   }
 
   @Test
-  void freshGeneralAndDemoResolveBothVersionsAndKeepRequiredSchemas() {
+  void freshGeneralAndDemoUseGeneralOwnershipAndCardSummaryVersions() {
     candidate("classpath:db/migration", "classpath:db/demo/sale-draft").migrate();
     assertThat(
             jdbc.queryForObject(
                 "SELECT script FROM flyway_schema_history WHERE version='2026102702'",
                 String.class))
-        .isEqualTo("V2026102702__version_listing_card_summary.sql");
+        .isEqualTo(CURRENT_OWNERSHIP);
     assertThat(
             jdbc.queryForObject(
-                "SELECT script FROM flyway_schema_history WHERE version='2026102702.1'",
+                "SELECT script FROM flyway_schema_history WHERE version='2026102802'",
                 String.class))
-        .isEqualTo(CURRENT_OWNERSHIP);
+        .isEqualTo("V2026102802__version_listing_card_summary.sql");
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version='2026102702.1' OR script='V2026102702__version_listing_card_summary.sql'",
+                Integer.class))
+        .isZero();
     assertThat(
             jdbc.queryForObject(
                 "SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' AND column_name IN ('token_hash','expires_at','pending_slot')",
@@ -89,9 +94,9 @@ class H40MigrationCompatibilityTest {
         "L-03 VERIFIED general+demo fresh " + databaseKind() + " history=" + history());
   }
 
-  /** B의 옛 일반 경로를 정상 적용한 뒤 후보 validate/migrate를 진단하고 데이터·이력을 보존한다. */
+  /** 고정 일반 SQL로 2707까지 적용한 DB에서 후보 업그레이드와 기존 제품·이전·이력 보존을 검사한다. */
   @Test
-  void previouslyAppliedGeneralOwnershipIsIncompatibleWithoutChangingDataOrHistory()
+  void previouslyAppliedGeneralOwnershipUpgradesWithoutReexecutingOwnershipOrLosingData()
       throws Exception {
     for (var resource :
         new PathMatchingResourcePatternResolver().getResources("classpath*:db/migration/V*.sql")) {
@@ -111,6 +116,7 @@ class H40MigrationCompatibilityTest {
         .defaultSchema(schema)
         .locations("filesystem:" + legacyResources.toAbsolutePath())
         .javaMigrations(new V2026102102__isolate_published_listing_ids())
+        .target("2026102707")
         .load()
         .migrate();
     jdbc.update(
@@ -136,30 +142,46 @@ class H40MigrationCompatibilityTest {
     var beforeProduct = jdbc.queryForMap("SELECT * FROM products WHERE id=1");
     var beforeColumns =
         jdbc.queryForList(
-            "SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY table_name,ordinal_position");
+            "SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY ordinal_position");
+    var beforeConstraints =
+        jdbc.queryForList(
+            "SELECT constraint_name,constraint_type FROM information_schema.table_constraints WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY constraint_name");
     Flyway current = candidate("classpath:db/migration");
 
-    assertThatThrownBy(current::validate)
-        .isInstanceOf(FlywayValidateException.class)
-        .hasMessageContaining("2026102702")
-        .hasMessageContaining("not resolved locally");
-    assertThatThrownBy(current::migrate)
-        .isInstanceOf(FlywayValidateException.class)
-        .hasMessageContaining("2026102702")
-        .hasMessageContaining("not resolved locally");
+    current.validate();
+    assertThat(current.migrate().migrationsExecuted).isPositive();
+    current.validate();
+    assertThat(current.migrate().migrationsExecuted).isZero();
 
-    assertThat(history()).isEqualTo(beforeHistory);
+    assertThat(history()).startsWithElementsOf(beforeHistory);
+    assertThat(
+            jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version='2026102702' AND script=? AND success=true",
+                Integer.class,
+                OLD_OWNERSHIP))
+        .isEqualTo(1);
     assertThat(jdbc.queryForList("SELECT * FROM ownership_transfers ORDER BY id"))
         .isEqualTo(beforeRows);
     assertThat(jdbc.queryForMap("SELECT * FROM products WHERE id=1")).isEqualTo(beforeProduct);
     assertThat(
             jdbc.queryForList(
-                "SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() ORDER BY table_name,ordinal_position"))
+                "SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY ordinal_position"))
         .isEqualTo(beforeColumns);
+    assertThat(
+            jdbc.queryForList(
+                "SELECT constraint_name,constraint_type FROM information_schema.table_constraints WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY constraint_name"))
+        .isEqualTo(beforeConstraints);
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "INSERT INTO ownership_transfers(product_id,from_user_id,to_user_id,token_hash,expires_at,transfer_type,status,pending_slot) VALUES(1,1,2,?,?,'INTERNAL','PENDING',1)",
+                    "1".repeat(64),
+                    Timestamp.from(Instant.now().plusSeconds(3600))))
+        .isInstanceOf(DataIntegrityViolationException.class);
     System.out.println(
-        "L-05 HARNESS_PASS / UPGRADE_INCOMPATIBLE "
+        "G-03 GENERAL_UPGRADE_PASS "
             + databaseKind()
-            + ": validate/migrate reject unresolved old 2026102702; data/schema/history unchanged; before="
+            + ": validate/migrate succeed; ownership data/constraints/history preserved; before="
             + beforeHistory);
   }
 
