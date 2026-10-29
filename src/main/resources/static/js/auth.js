@@ -131,6 +131,7 @@ const auth = (() => {
       setSession(data);
       const listingId = new URL(window.location.href).searchParams.get('listingId');
       if (/^[1-9]\d*$/.test(listingId || '') && window.PastportPublishedListing) window.PastportPublishedListing.open(listingId);
+      else if (new URL(window.location.href).searchParams.get('myListings') === '1') goto('my-listings');
       else goto('landing');
     } catch (error) {
       form.elements.password.value = '';

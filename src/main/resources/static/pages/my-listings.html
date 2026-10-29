@@ -1,0 +1,22 @@
+<div class="sc-head ml-head">
+  <div><h1>내 판매글</h1><p>판매 중인 글부터 종료된 글까지, 내가 게시한 판매글을 관리하세요.</p></div>
+  <button type="button" class="sc-btn primary" data-page="sell">판매글 작성</button>
+</div>
+<div class="ml-toolbar">
+  <div class="ml-filters" role="group" aria-label="내 판매글 상태">
+    <button type="button" data-my-status="" aria-pressed="true">전체</button>
+    <button type="button" data-my-status="ACTIVE" aria-pressed="false">판매 중</button>
+    <button type="button" data-my-status="RESERVED" aria-pressed="false">예약 중</button>
+    <button type="button" data-my-status="SOLD" aria-pressed="false">판매 완료</button>
+    <button type="button" data-my-status="CANCELLED" aria-pressed="false">판매 중지</button>
+  </div>
+  <button type="button" class="sc-btn" data-my-retry>새로고침</button>
+</div>
+<p class="ml-message" role="status" aria-live="polite" data-my-message>내 판매글을 불러오는 중이에요…</p>
+<button type="button" class="sc-btn primary" data-page="auth" data-my-login hidden>로그인하기</button>
+<div class="ml-list" data-my-items aria-label="내 판매글 목록"></div>
+<nav class="ml-pagination" aria-label="내 판매글 페이지" data-my-pagination hidden>
+  <button type="button" class="sc-btn" data-my-prev>이전</button>
+  <span data-my-range></span>
+  <button type="button" class="sc-btn" data-my-next>다음</button>
+</nav>

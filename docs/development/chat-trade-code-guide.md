@@ -47,6 +47,8 @@ Controller
 
 ## P3 예약 취소
 
+R07 판매중지의 정식 내부 이전 취소는 ownership의 `JdbcInternalTransferCancellation`이 담당한다. 같은 거래 트랜잭션에서 INTERNAL/PENDING 한 건을 조건부 취소하고 대기 슬롯을 해제한다. 예약 중 판매중지는 자유문장 `reason`과 선택형 `tradeReason`을 분리한다. [실제 취소 연결](../LISTING_CANCELLATION_INTEGRATION.md)을 참고한다.
+
 판매글 신규 게시의 거래 검사는 일반 환경에서 `JdbcListingPublishConstraints`가 실제 RESERVED 구매 요청과 유효한 PENDING 이전을 조회한다. 제품 잠금 안에서 검사하고 원천 미배포 시 503으로 거부한다. 외부 이전 발급도 같은 제품 잠금 아래 열린 판매글을 검사한다. [게시 조건 연동](../LISTING_PUBLISH_CONSTRAINTS.md)을 참고한다.
 
 1. `trade/controller/TradeController.cancel()`이 API의 tradeId로 사용하는 구매 요청 ID와 취소 enum을 받는다.
@@ -83,6 +85,14 @@ INTERNAL/PENDING 이전 취소
 6. `InternalTradeCompletionPort#complete()`와 `TradeAuditRecorder#tradeCompleted()`가 같은 트랜잭션에 참여한다. 운영 완료 포트는 아직 없으며 기능 활성화 시 필수 Bean이다.
 
 완료된 거래의 재요청은 원래 방 당사자에게 최소 상태만 반환한다. 이후 제품 소유자 변경이나 facts 버전 증가를 이유로 과거 완료를 다시 수행하지 않는다.
+
+## 내 판매글 진입
+
+`GET /api/v1/my-listings`는 JWT의 판매자 ID로만 조회한다. `MyListingController → MyListingService → MyListingQueryRepository`에서 ACTIVE/RESERVED/SOLD/CANCELLED를 페이지로 반환하고, 선택한 상태의 건수와 목록을 함께 계산한다. 공개 마켓의 ACTIVE 필터는 그대로 유지한다.
+
+상단 메뉴·마켓 상단·마이페이지·판매글 상세에서 내 판매글로 이동한다. 목록의 `관리하기`는 기존 상세 조회와 관리 API로 이어지며, 현재 소유자가 아니거나 제품이 보관 처리됐거나 판매글이 종료됐으면 관리 버튼과 제품 사진 URL을 제공하지 않는다. 관리 API 자체의 권한·상태 검사도 유지한다. 종료된 글은 과거 판매글의 제목·가격·상태만 확인할 수 있고 새로운 소유자의 제품 정보는 조회하지 않는다.
+
+`my-listings.js`는 상태·페이지를 URL에 보관하고 계정 변경·화면 이탈 시 요청을 중단하고 비공개 목록을 비운다. 예약 취소나 소유권 이전 등 상태 변경은 이 화면에서 직접 수행하지 않고 기존 관리 API에 위임한다.
 
 ## 주석 유지 기준
 

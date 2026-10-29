@@ -95,7 +95,7 @@ class TradeListingCancellerTest {
         .thenReturn(List.of(reserved(1L, ROOM_ID)));
 
     assertError(
-        ErrorCode.LISTING_CANCEL_UNAVAILABLE,
+        ErrorCode.INVALID_INPUT,
         () -> canceller.cancel(command(ListingStatus.RESERVED, "buyer changed mind")));
   }
 

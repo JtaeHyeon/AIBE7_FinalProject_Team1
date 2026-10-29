@@ -66,7 +66,10 @@ public class TradeListingCanceller implements ListingTradeCanceller {
         throw new CommonException(ErrorCode.TRADE_CONFLICT);
       }
     } else if (command.status() == ListingStatus.RESERVED) {
-      TradeCancellationReason reason = parseReservedReason(command.reason());
+      TradeCancellationReason reason =
+          command.tradeReason() != null
+              ? command.tradeReason()
+              : parseReservedReason(command.reason());
       List<PurchaseRequest> reserved =
           requests.stream().filter(PurchaseRequest::isReserved).toList();
       if (reserved.size() != 1) {
@@ -97,12 +100,12 @@ public class TradeListingCanceller implements ListingTradeCanceller {
     }
   }
 
-  /** R07 자유문이 취소 enum 이름과 정확히 일치할 때만 RESERVED 거래 정리에 사용한다. */
+  /** 이전 클라이언트의 enum 문자열을 호환한다. 자유문을 임의의 거래 사유로 바꾸지 않는다. */
   private TradeCancellationReason parseReservedReason(String reason) {
     try {
       return TradeCancellationReason.valueOf(reason);
     } catch (IllegalArgumentException | NullPointerException exception) {
-      throw new CommonException(ErrorCode.LISTING_CANCEL_UNAVAILABLE);
+      throw new CommonException(ErrorCode.INVALID_INPUT);
     }
   }
 
