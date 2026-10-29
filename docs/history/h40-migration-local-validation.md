@@ -1,6 +1,12 @@
 # H40 로컬 Migration 보정·회귀 결과
 
-## 2026-10-29 개발 기준·지원 범위 결정 (v1.2)
+## 현재 기준 (v1.3)
+
+일반 ownership `2026102702`와 일반 카드 요약 `2026102802`를 기준으로 한다. `2702.1` 개명을 철회하고 충돌 demo 카드 요약 SQL은 자료 경로로 퇴역시켰다. 현재 실행 결과와 지원 범위는 [일반 기준 복구 결과](h40-general-authority-result.md)를 따른다.
+
+**이하 전체는 이전 C0/v1.2 실행의 역사 기록이다.** `CURRENT_BASELINE_ADOPTED`, 일반 DB `UPGRADE_INCOMPATIBLE`, 옛 demo 자동 업그레이드 지원은 당시 판정이며 v1.3 현재 계약이 아니다. 기존 로그·수치는 이번 실행의 통과 근거로 재사용하지 않는다.
+
+## 과거 2026-10-29 개발 기준·지원 범위 결정 (v1.2)
 
 사용자 결정에 따라 R0 `863907f546549382223bf4e73ccdd832e27b8f05`의 ownership 구현과 보정된 `V2026102702_1__create_ownership_tables.sql`을 후속 개발 기준으로 채택한다. 현재 판정은 **LOCAL_VALIDATED / CURRENT_BASELINE_ADOPTED**다. 아래의 `PENDING_TEAM_DB_DECISION` 및 병합 전 적용 이력 확인 요구는 당시 판단으로 보존하며, 이번 지원 범위 결정으로 대체한다. 팀 전체 합의나 실제 DB 이행 완료를 뜻하지 않는다.
 
@@ -21,7 +27,7 @@
 - 기존 검수 디렉터리의 MANIFEST와 실행별 JSON·로그·JUnit XML을 확보했다. MANIFEST의 145개 파일 SHA-256을 전부 대조해 불일치 0건이며 네 실행의 XML 집계가 보고와 일치했다. 기본 759건 중 704 PASS / 55 SKIPPED, 실패·오류 0 및 build 성공, 선택 PG·Redis 109/109 PASS는 **C0의 기존 실행**이다. 기본 skip 54건의 선택 실행 대응 및 Redis 단위시험 1건 별도 NOT_RUN을 유지한다.
 - v1.2 작업에서는 문서 diff·링크·지원 범위·실행 트리 동일성을 검사하며 spotlessCheck/test/build 및 전용 DB 회귀는 재실행하지 않는다. 정확한 제출 SHA·PR/CI 조회 결과와 증거 대조 수준은 이번 검수 자료의 MANIFEST/PR_INFO에 기록한다. 과거 원본 로그를 새 실행으로 복제하지 않는다.
 
-## 현재 판정
+## 과거 C0 판정
 
 **LOCAL_VALIDATED / PENDING_TEAM_DB_DECISION.** 신규 DB와 기존 demo 업그레이드는 H2·전용 PostgreSQL에서 검증했다. **옛 일반 ownership `2026102702`가 적용된 DB는 UPGRADE_INCOMPATIBLE**이며 실제 팀 환경의 지원 여부·채택 판단은 병합 전에 확인해야 한다. 이 조건을 정상 업그레이드로 표현하지 않는다. 정식 거래·이전 전체 인수는 계속 **BLOCKED / CONTRACT_REVIEW**다.
 

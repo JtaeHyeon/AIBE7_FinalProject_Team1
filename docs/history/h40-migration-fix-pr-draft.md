@@ -1,5 +1,7 @@
 # 과거 PR 초안 — 현재 제출에 사용하지 않음
 
+> v1.3 현재 PR #55는 일반 ownership `2702`/카드 요약 `2802` 기준 복구를 적용한다. 아래 v1.2 안내와 초안의 `2702.1` 채택·일반 DB 업그레이드 미지원은 역사 기록이다. 현재 결과는 [일반 기준 복구 결과](h40-general-authority-result.md)를 따른다.
+
 > 2026-10-29 v1.2: 아래는 `28ad18f` 조사 당시 초안이다. 당시의 코드 변경 없음 / NOT_RUN / 원격 `44bd3f2` / BLOCKED 문구는 현재 후보나 이번 PR의 상태가 아니다. 현행 ownership 및 보정된 Migration을 개발 기준으로 채택했고, 옛 일반 DB 자동 업그레이드는 지원 범위에서 제외해 요청 시 별도 처리한다. 현재 결과·지원 범위는 [로컬 검증 결과](h40-migration-local-validation.md)와 [팀원 인계](h40-migration-team-handoff.md)를 사용한다. 현재 PR은 지정 개인 포크 `feat/h40-history-integration-20261028`에서 팀 `main`으로 제출하는 일반 PR을 목표로 한다. 아래 원문은 역사 기록으로 보존한다.
 
 제안 제목: **fix(trade): H40 history 연결 및 Migration 공존 보정 (적용 이력 확인 대기)**
