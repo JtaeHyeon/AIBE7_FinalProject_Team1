@@ -47,6 +47,8 @@ Controller
 
 ## P3 예약 취소
 
+판매글 신규 게시의 거래 검사는 일반 환경에서 `JdbcListingPublishConstraints`가 실제 RESERVED 구매 요청과 유효한 PENDING 이전을 조회한다. 제품 잠금 안에서 검사하고 원천 미배포 시 503으로 거부한다. 외부 이전 발급도 같은 제품 잠금 아래 열린 판매글을 검사한다. [게시 조건 연동](../LISTING_PUBLISH_CONSTRAINTS.md)을 참고한다.
+
 1. `trade/controller/TradeController.cancel()`이 API의 tradeId로 사용하는 구매 요청 ID와 취소 enum을 받는다.
 2. `TradeCancellationService.cancel()`이 원래 판매자 또는 선택 구매자인지 확인한다.
 3. 제품·판매글을 먼저 잠그고 구매 요청을 재조회한 뒤 `cancelLocked()`가 다음 순서로 처리한다.
