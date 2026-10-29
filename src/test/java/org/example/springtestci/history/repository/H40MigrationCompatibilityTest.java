@@ -148,7 +148,14 @@ class H40MigrationCompatibilityTest {
             "SELECT constraint_name,constraint_type FROM information_schema.table_constraints WHERE table_schema=current_schema() AND table_name='ownership_transfers' ORDER BY constraint_name");
     Flyway current = candidate("classpath:db/migration");
 
-    current.validate();
+    Flyway.configure()
+        .dataSource(source)
+        .schemas(schema)
+        .defaultSchema(schema)
+        .locations("classpath:db/migration")
+        .target("2026102707")
+        .load()
+        .validate();
     assertThat(current.migrate().migrationsExecuted).isPositive();
     current.validate();
     assertThat(current.migrate().migrationsExecuted).isZero();
