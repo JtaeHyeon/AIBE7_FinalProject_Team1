@@ -153,7 +153,7 @@ class H40MigrationCompatibilityTest {
     current.validate();
     assertThat(current.migrate().migrationsExecuted).isZero();
 
-    assertThat(history()).startsWithElementsOf(beforeHistory);
+    assertThat(history().subList(0, beforeHistory.size())).isEqualTo(beforeHistory);
     assertThat(
             jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE version='2026102702' AND script=? AND success=true",
