@@ -60,6 +60,7 @@ public class HistoryService {
     this.events = events;
   }
 
+  /** 현재 소유자의 이력·증빙·제품 버전을 함께 저장하고, 요약 갱신은 커밋 후 수신자가 접수한다. */
   @Transactional
   public HistoryEventResponse create(
       long ownerId, long productId, CreateHistoryEventRequest request) {
@@ -87,6 +88,7 @@ public class HistoryService {
     long eventId =
         historyRepository.insertEvent(productId, ownerId, request, specsBeforeJson, specsAfterJson);
     historyRepository.linkDocuments(eventId, documentIds);
+    // 사양 교체 경로는 저장소가 버전을 올리므로 일반 이력에서만 별도로 증가시킨다.
     if (after != null) historyRepository.replaceSpecifications(productId, after);
     else historyRepository.incrementFactsVersion(productId);
     long factsVersion = historyRepository.findFactsVersion(productId);
@@ -98,8 +100,9 @@ public class HistoryService {
           factsVersion,
           createdSnapshot(request, specsBeforeJson, specsAfterJson));
     }
+    var response = getOwnedEvent(productId, eventId, documentIds);
     events.publishEvent(new ProductFactsChanged(productId));
-    return getOwnedEvent(productId, eventId, documentIds);
+    return response;
   }
 
   @Transactional(readOnly = true)
@@ -119,6 +122,7 @@ public class HistoryService {
         .toList();
   }
 
+  /** 본인이 작성한 유효 이력을 정정한다. 감사 기록과 버전이 커밋된 뒤 AI가 최신 자료를 읽는다. */
   @Transactional
   public HistoryEventResponse correct(
       long ownerId, long productId, long eventId, CorrectHistoryEventRequest request) {
@@ -135,7 +139,10 @@ public class HistoryService {
       throw new CommonException(ErrorCode.INVALID_HISTORY_EVENT);
     }
     if (hadSpecificationChanges) {
-      rebuildBase = specifications(parseMap(before.specsBefore()));
+      var originalSpecs = parseMap(before.specsBefore());
+      // H2가 JSON을 문자열로 반환해도 원래 객체를 다시 저장해 반복 정정 시 이중 인코딩을 막는다.
+      specsBeforeJson = json(originalSpecs);
+      rebuildBase = specifications(originalSpecs);
       specsAfterJson = json(toMap(mergeSpecifications(rebuildBase, request.specsAfter())));
     }
 
@@ -151,13 +158,16 @@ public class HistoryService {
         json(after),
         request.reason(),
         "HISTORY_CORRECTED");
+    var response =
+        toResponse(
+            after,
+            historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
+            historyRepository.findLatestChanges(productId).get(eventId));
     events.publishEvent(new ProductFactsChanged(productId));
-    return toResponse(
-        after,
-        historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
-        historyRepository.findLatestChanges(productId).get(eventId));
+    return response;
   }
 
+  /** 이력을 보존한 채 무효 처리하고 제품 버전을 올린다. 롤백된 변경은 요약 갱신으로 전달되지 않는다. */
   @Transactional
   public HistoryEventResponse voidEvent(
       long ownerId, long productId, long eventId, VoidHistoryEventRequest request) {
@@ -172,11 +182,13 @@ public class HistoryService {
     HistoryEventRecord after = historyRepository.findEvent(productId, eventId).orElseThrow();
     historyRepository.insertAudit(
         productId, ownerId, eventId, json(before), json(after), request.reason(), "HISTORY_VOIDED");
+    var response =
+        toResponse(
+            after,
+            historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
+            historyRepository.findLatestChanges(productId).get(eventId));
     events.publishEvent(new ProductFactsChanged(productId));
-    return toResponse(
-        after,
-        historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
-        historyRepository.findLatestChanges(productId).get(eventId));
+    return response;
   }
 
   private void rebuildSpecifications(
@@ -374,6 +386,7 @@ public class HistoryService {
     return snapshot;
   }
 
+  /** 검증된 공개 사양 키만 거래 검토 사본에 복사한다. 자유 입력 사양은 호출 대상에 넣지 않는다. */
   private void copyPublicSpecification(
       Map<String, Object> specifications,
       tools.jackson.databind.node.ObjectNode snapshot,

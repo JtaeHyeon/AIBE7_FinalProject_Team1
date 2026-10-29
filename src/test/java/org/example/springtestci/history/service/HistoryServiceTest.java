@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -83,6 +84,8 @@ class HistoryServiceTest {
     assertEquals(EVENT, response.eventId());
     assertEquals(List.of(31L), response.documentIds());
     verify(historyRepository).linkDocuments(EVENT, List.of(31L));
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -153,9 +156,11 @@ class HistoryServiceTest {
     verify(historyRepository)
         .replaceSpecifications(
             PRODUCT, new ProductSpecifications("M3", null, 16, 256, "SSD", "14 inch", 90, "macOS"));
-    verify(historyRepository, never()).incrementFactsVersion(PRODUCT);
+    verify(historyRepository, never()).incrementFactsVersion(anyLong());
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
+  /** 사양 변경 전후 모두 숫자·제한 enum만 거래 검토에 넘기고 자유 입력은 제외한다. */
   @Test
   void specificationReviewSnapshotExcludesNewAndExistingFreeText() {
     ProductSpecifications before =
@@ -246,6 +251,8 @@ class HistoryServiceTest {
     assertEquals(HistoryEventType.PART_REPLACEMENT, response.eventType());
     verify(historyRepository, never()).findSpecifications(anyLong());
     verify(historyRepository, never()).replaceSpecifications(anyLong(), any());
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -263,6 +270,7 @@ class HistoryServiceTest {
 
     assertEquals(ErrorCode.HISTORY_EVENT_CHANGE_NOT_ALLOWED, exception.errorCode());
     verify(historyRepository, never()).voidEvent(anyLong());
+    verifyNoInteractions(events);
   }
 
   @Test
@@ -278,6 +286,7 @@ class HistoryServiceTest {
     assertEquals("키보드 상판 교체", response.title());
     verify(historyRepository).correctEvent(EVENT, request, null, null);
     verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
     verify(historyRepository)
         .insertAudit(
             org.mockito.ArgumentMatchers.eq(PRODUCT),
@@ -302,6 +311,7 @@ class HistoryServiceTest {
     assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
     verify(historyRepository, never()).findEvent(anyLong(), anyLong());
     verify(historyRepository, never()).correctEvent(anyLong(), any(), any(), any());
+    verifyNoInteractions(events);
   }
 
   @Test
@@ -361,6 +371,8 @@ class HistoryServiceTest {
     verify(historyRepository)
         .replaceSpecifications(
             PRODUCT, new ProductSpecifications("M3", null, 8, 512, "SSD", "14 inch", 90, "macOS"));
+    verify(historyRepository, never()).incrementFactsVersion(anyLong());
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
     verify(historyRepository)
         .insertAudit(
             org.mockito.ArgumentMatchers.eq(PRODUCT),

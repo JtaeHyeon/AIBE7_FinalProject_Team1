@@ -14,10 +14,11 @@ class ListingCardSummaryMigrationTest {
   }
 
   @Test
-  void upgradesGeneralOwnershipWithDemoFixturesWithoutLosingSummaryOrChecksumHistory() {
+  void upgradesGeneralAndDemoFromPreRefreshWithoutLosingSummaryOrChecksumHistory() {
     verifyUpgrade(true);
   }
 
+  /** 갱신 시각 컬럼이 없던 이전 단계에서 긴 문구·체크섬·시간 backfill을 함께 검증한다. */
   private void verifyUpgrade(boolean legacyDemo) {
     String testUrl = System.getenv("SALE_DRAFT_TEST_DB_URL");
     boolean postgres = testUrl != null && !testUrl.isBlank();
@@ -47,18 +48,18 @@ class ListingCardSummaryMigrationTest {
           .schemas(schema)
           .defaultSchema(schema)
           .locations(locations)
-          .target(legacyDemo ? "2026102708" : "2026102801")
+          .target("2026102601")
           .load()
           .migrate();
       var jdbc = new JdbcTemplate(source);
       var legacyHistory =
           legacyDemo
               ? jdbc.queryForMap(
-                  "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102702'")
+                  "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102601'")
               : null;
       if (legacyDemo) {
         assertEquals(
-            1,
+            0,
             jdbc.queryForObject(
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='ownership_transfers'",
                 Integer.class));
@@ -90,8 +91,8 @@ class ListingCardSummaryMigrationTest {
         assertEquals(
             legacyHistory,
             jdbc.queryForMap(
-                "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102702'"));
-        assertEquals("V2026102702__create_ownership_tables.sql", legacyHistory.get("script"));
+                "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102601'"));
+        assertEquals("V2026102601__add_listing_ai_summary.sql", legacyHistory.get("script"));
         assertNotNull(legacyHistory.get("checksum"));
         assertEquals(true, legacyHistory.get("success"));
         assertEquals(
@@ -104,8 +105,13 @@ class ListingCardSummaryMigrationTest {
             jdbc.queryForObject(
                 "SELECT summary_available_at FROM listings WHERE id=1",
                 java.time.OffsetDateTime.class));
-        System.out.println("G-04 VERIFIED general ownership history preserved: " + legacyHistory);
+        System.out.println(
+            "G-04 VERIFIED prior summary history and backfill preserved: " + legacyHistory);
       }
+      assertEquals(
+          "V2026102803__create_ownership_tables.sql",
+          jdbc.queryForObject(
+              "SELECT script FROM flyway_schema_history WHERE version='2026102803'", String.class));
       assertTrue(
           jdbc.queryForObject(
               "SELECT success FROM flyway_schema_history WHERE version='2026102802'",
