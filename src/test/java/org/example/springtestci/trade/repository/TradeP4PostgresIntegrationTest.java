@@ -4,14 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -20,11 +23,17 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.example.springtestci.chat.domain.ChatRoom;
 import org.example.springtestci.chat.repository.ChatRoomRepository;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.history.dto.CreateHistoryEventRequest;
+import org.example.springtestci.history.entity.HistoryEventType;
+import org.example.springtestci.history.repository.HistoryRepository;
+import org.example.springtestci.history.service.HistoryChangeReviewRecorder;
+import org.example.springtestci.history.service.HistoryService;
 import org.example.springtestci.listing.dto.ListingDetailResponse;
 import org.example.springtestci.listing.dto.ListingPreviewResponse;
 import org.example.springtestci.listing.dto.ListingPublicationResponse;
@@ -37,7 +46,9 @@ import org.example.springtestci.product.service.ProductService;
 import org.example.springtestci.trade.entity.TradeCancellationReason;
 import org.example.springtestci.trade.service.InternalTradeCompletionPort;
 import org.example.springtestci.trade.service.InternalTransferCancellationPort;
+import org.example.springtestci.trade.service.PublishedListingAccess;
 import org.example.springtestci.trade.service.ReservationChangeService;
+import org.example.springtestci.trade.service.ReservedHistoryChangeReviewRecorder;
 import org.example.springtestci.trade.service.TradeAuditRecorder;
 import org.example.springtestci.trade.service.TradeCancellationService;
 import org.example.springtestci.trade.service.TradeCompletionService;
@@ -48,6 +59,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -59,7 +72,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 승인된 전용 PostgreSQL에서만 실행하는 P4 완료·취소·변경 경합 검증이다.
  *
- * <p>ownership/history/document 테이블과 포트는 원자성 시험용 fixture이며 정식 운영 구현이 아니다.
+ * <p>정식 history 스키마와 서비스를 사용한다. ownership, history 공개 상태, 완료 문서 포트는 원자성 시험용 fixture이며 정식 운영 구현이
+ * 아니다. ACCEPTED 완료 상태는 trade_fixture_transfers 대역 계약만 의미하며 정식 COMPLETED 상태로 매핑하지 않는다.
  */
 @EnabledIfEnvironmentVariable(named = "P4_TRADE_TEST_ENABLED", matches = "true")
 class TradeP4PostgresIntegrationTest {
@@ -78,6 +92,7 @@ class TradeP4PostgresIntegrationTest {
   private static TransactionTemplate transactions;
   private static JdbcPurchaseRequestRepository requests;
   private static JdbcPublishedListingAccess listings;
+  private static JdbcRoomRepository rooms;
   private static FixtureCompletionPort completionPort;
   private static FaultInjectingAuditRecorder audit;
   private static TradeCompletionService completions;
@@ -109,7 +124,6 @@ class TradeP4PostgresIntegrationTest {
         .migrate();
 
     jdbc = new JdbcTemplate(schemaDataSource);
-    createProductEventFixtureTable();
     Flyway.configure()
         .dataSource(schemaDataSource)
         .locations(
@@ -128,7 +142,7 @@ class TradeP4PostgresIntegrationTest {
     completionPort = new FixtureCompletionPort(jdbc);
     var json = JsonMapper.builder().build();
     audit = new FaultInjectingAuditRecorder(new JdbcTradeAuditRecorder(jdbc, json));
-    var rooms = new JdbcRoomRepository(jdbc);
+    rooms = new JdbcRoomRepository(jdbc);
     cancellations =
         new TradeCancellationService(
             requests,
@@ -169,7 +183,7 @@ class TradeP4PostgresIntegrationTest {
   @BeforeEach
   void resetFixtures() {
     jdbc.execute(
-        "truncate table transaction_change_reviews, completion_drafts, completion_documents, product_history_state, product_events, ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users, audit_logs restart identity cascade");
+        "truncate table transaction_change_reviews, completion_drafts, completion_documents, product_history_state, product_events, trade_fixture_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users, audit_logs restart identity cascade");
     insertUser(SELLER_ID, "seller-p4@example.test", "seller-p4");
     insertUser(BUYER_ID, "buyer-p4@example.test", "buyer-p4");
     insertUser(OTHER_BUYER_ID, "buyer2-p4@example.test", "buyer2-p4");
@@ -220,6 +234,60 @@ class TradeP4PostgresIntegrationTest {
     assertRolledBackLastConfirmation(auditFixture);
   }
 
+  /** P4-DB02-B: 거래 COMPLETED UPDATE 직후 실패해도 선행 첫 확인만 남기고 마지막 확인과 완료 효과를 원복한다. */
+  @Test
+  void p4Db02bRollsBackWhenTradeCompletionUpdateFailsAfterWrite() {
+    Fixture fixture = insertReservedFixture(null, null);
+    transactions.execute(
+        ignored -> completions.complete(fixture.requestId(), SELLER_ID, FACTS_VERSION));
+    var failingRequests = spy(requests);
+    doAnswer(
+            invocation -> {
+              requests.complete(invocation.getArgument(0), invocation.getArgument(1));
+              throw new IllegalStateException("Injected trade completion update failure");
+            })
+        .when(failingRequests)
+        .complete(anyLong(), anyLong());
+    TradeCompletionService failingCompletion = completionService(failingRequests, listings);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored ->
+                        failingCompletion.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("trade completion update");
+
+    assertRolledBackLastConfirmation(fixture);
+  }
+
+  /** P4-DB02-B: SOLD UPDATE 직후 실패해도 거래 UPDATE와 마지막 확인을 포함한 완료 쓰기를 모두 원복한다. */
+  @Test
+  void p4Db02bRollsBackWhenSoldUpdateFailsAfterWrite() {
+    Fixture fixture = insertReservedFixture(null, null);
+    transactions.execute(
+        ignored -> completions.complete(fixture.requestId(), SELLER_ID, FACTS_VERSION));
+    var failingListings = spy(listings);
+    doAnswer(
+            invocation -> {
+              listings.sell(invocation.getArgument(0));
+              throw new IllegalStateException("Injected sold update failure");
+            })
+        .when(failingListings)
+        .sell(anyLong());
+    TradeCompletionService failingCompletion = completionService(requests, failingListings);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored ->
+                        failingCompletion.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("sold update");
+
+    assertRolledBackLastConfirmation(fixture);
+  }
+
   @Test
   void p4Db03ConcurrentConfirmationAndRetryProduceOneCompletion() throws Exception {
     Fixture fixture = insertReservedFixture(null, null);
@@ -237,12 +305,18 @@ class TradeP4PostgresIntegrationTest {
     assertCompletedFixture(fixture);
     assertThat(
             count(
-                "select count(*) from product_events where purchase_request_id = ?",
+                "select count(*) from product_events pe join trade_fixture_transfers ot on ot.id = pe.transfer_request_id where ot.purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo(1L);
     assertThat(
             count(
                 "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
+                fixture.requestId()))
+        .isEqualTo(1L);
+    // 열린 판매글이 없어진 판매 완료는 이력 비공개 전환 기록도 한 번만 남긴다(SEC-08).
+    assertThat(
+            count(
+                "select count(*) from audit_logs where action = 'HISTORY_VISIBILITY_CHANGED' and target_id = ?",
                 fixture.requestId()))
         .isEqualTo(1L);
   }
@@ -265,7 +339,7 @@ class TradeP4PostgresIntegrationTest {
     String listingStatus = value("select status from listings where id = ?", LISTING_ID);
     String transferStatus =
         value(
-            "select status from ownership_transfers where purchase_request_id = ?",
+            "select status from trade_fixture_transfers where purchase_request_id = ?",
             fixture.requestId());
     assertThat(transactionStatus).isIn("COMPLETED", "CANCELLED");
     if (transactionStatus.equals("COMPLETED")) {
@@ -302,7 +376,7 @@ class TradeP4PostgresIntegrationTest {
           .isEqualTo("PUBLIC");
       assertThat(
               count(
-                  "select count(*) from product_events where purchase_request_id = ?",
+                  "select count(*) from product_events pe join trade_fixture_transfers ot on ot.id = pe.transfer_request_id where ot.purchase_request_id = ?",
                   fixture.requestId()))
           .isZero();
       assertThat(
@@ -337,9 +411,12 @@ class TradeP4PostgresIntegrationTest {
                   if (changed == 1) {
                     long eventId =
                         jdbc.queryForObject(
-                            "insert into product_events (product_id, event_type) values (?, 'SPEC_CHANGE') returning id",
+                            "insert into product_events (product_id, author_id, event_type, occurred_on, title, specs_before, specs_after, status) values (?, ?, 'SPEC_CHANGE', current_date, 'spec change', cast(? as jsonb), cast(? as jsonb), 'VALID') returning id",
                             Long.class,
-                            PRODUCT_ID);
+                            PRODUCT_ID,
+                            SELLER_ID,
+                            "{\"ram\":\"16GB\"}",
+                            "{\"ram\":\"32GB\"}");
                     changes.recordChange(
                         PRODUCT_ID,
                         fixture.requestId(),
@@ -424,7 +501,7 @@ class TradeP4PostgresIntegrationTest {
       assertThat(otherStatus).isEqualTo("REJECTED");
       assertThat(
               count(
-                  "select count(*) from product_events where purchase_request_id = ?",
+                  "select count(*) from product_events pe join trade_fixture_transfers ot on ot.id = pe.transfer_request_id where ot.purchase_request_id = ?",
                   fixture.requestId()))
           .isEqualTo(1L);
     } else {
@@ -441,7 +518,7 @@ class TradeP4PostgresIntegrationTest {
           .isEqualTo(TradeCancellationReason.MUTUAL_AGREEMENT.name());
       assertThat(
               count(
-                  "select count(*) from product_events where purchase_request_id = ?",
+                  "select count(*) from product_events pe join trade_fixture_transfers ot on ot.id = pe.transfer_request_id where ot.purchase_request_id = ?",
                   fixture.requestId()))
           .isZero();
     }
@@ -471,14 +548,116 @@ class TradeP4PostgresIntegrationTest {
         .isInstanceOf(RuntimeException.class);
   }
 
-  private static void createProductEventFixtureTable() {
-    jdbc.execute(
-        "create table product_events (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint unique references purchase_requests(id), event_type varchar(20) not null)");
+  /** H40-01~03: 실제 history 등록이 과거 양측 확인을 지우고 P4 재완료를 미확인 변경으로 차단한다. */
+  @Test
+  void historyCreateInvalidatesBothConfirmationsAndBlocksCompletionUntilReview() {
+    Fixture fixture = insertReservedFixture(FACTS_VERSION, FACTS_VERSION);
+    HistoryService history = historyService(mock(ApplicationEventPublisher.class));
+
+    transactions.execute(ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest()));
+
+    assertThat(
+            jdbc.queryForObject(
+                "select seller_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            jdbc.queryForObject(
+                "select buyer_confirmed_version from purchase_requests where id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isNull();
+    assertThat(
+            count(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                fixture.requestId()))
+        .isEqualTo(1L);
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> completions.complete(fixture.requestId(), SELLER_ID, 2L)))
+        .isInstanceOf(CommonException.class)
+        .extracting(failure -> ((CommonException) failure).errorCode())
+        .isEqualTo(ErrorCode.TRADE_CONFLICT);
+    assertThat(
+            value(
+                "select transaction_status from purchase_requests where id = ?",
+                fixture.requestId()))
+        .isEqualTo("RESERVED");
+  }
+
+  /** H40-03: 완료와 실제 history 등록 경합은 완료 또는 변경 대기 중 하나의 일관된 결과만 남긴다. */
+  @Test
+  void completionAndHistoryCreateRaceLeaveOneConsistentOutcome() throws Exception {
+    Fixture fixture = insertReservedFixture(FACTS_VERSION, null);
+    HistoryService history = historyService(mock(ApplicationEventPublisher.class));
+
+    RaceOutcomes outcomes =
+        runConcurrentlyAllowingHistoryConflict(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> history.create(SELLER_ID, PRODUCT_ID, generalHistoryRequest())),
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> completions.complete(fixture.requestId(), BUYER_ID, FACTS_VERSION)));
+
+    String status =
+        value("select transaction_status from purchase_requests where id = ?", fixture.requestId());
+    long historyCount =
+        count(
+            "select count(*) from product_events where product_id = ? and event_type = 'REPAIR'",
+            PRODUCT_ID);
+    if (status.equals("COMPLETED")) {
+      assertThat(outcomes.historyFailure()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+      assertThat(outcomes.completionFailure()).isNull();
+      assertThat(historyCount).isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select owner_id from products where id = ?", Long.class, PRODUCT_ID))
+          .isEqualTo(BUYER_ID);
+    } else {
+      assertThat(outcomes.historyFailure()).isNull();
+      assertThat(outcomes.completionFailure()).isEqualTo(ErrorCode.TRADE_CONFLICT);
+      assertThat(status).isEqualTo("RESERVED");
+      assertThat(historyCount).isEqualTo(1L);
+      assertThat(
+              count(
+                  "select count(*) from transaction_change_reviews where purchase_request_id = ?",
+                  fixture.requestId()))
+          .isEqualTo(1L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select seller_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select buyer_confirmed_version from purchase_requests where id = ?",
+                  Long.class,
+                  fixture.requestId()))
+          .isNull();
+    }
+  }
+
+  @Test
+  void completionRacePolicyDoesNotHideResourceNotFound() {
+    assertThatThrownBy(
+            () ->
+                runAllowingCompletionConflict(
+                    () -> {
+                      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+                    }))
+        .isInstanceOf(CommonException.class)
+        .extracting(failure -> ((CommonException) failure).errorCode())
+        .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
   }
 
   private static void createCompletionFixtureTables() {
     jdbc.execute(
-        "create table ownership_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
+        "create table trade_fixture_transfers (id bigint generated by default as identity primary key, product_id bigint not null references products(id), purchase_request_id bigint not null unique references purchase_requests(id), from_user_id bigint not null references users(id), to_user_id bigint not null references users(id), transfer_type varchar(20) not null, status varchar(20) not null)");
     jdbc.execute(
         "create table product_history_state (product_id bigint primary key references products(id), visibility varchar(20) not null)");
     jdbc.execute(
@@ -514,7 +693,7 @@ class TradeP4PostgresIntegrationTest {
             otherRoomId,
             LISTING_ID);
     jdbc.update(
-        "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, 'INTERNAL', 'PENDING')",
+        "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, 'INTERNAL', 'PENDING')",
         PRODUCT_ID,
         requestId,
         SELLER_ID,
@@ -534,7 +713,7 @@ class TradeP4PostgresIntegrationTest {
     assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("SOLD");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("ACCEPTED");
     assertThat(
@@ -577,7 +756,7 @@ class TradeP4PostgresIntegrationTest {
         .isNull();
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("PENDING");
     assertThat(
@@ -591,7 +770,7 @@ class TradeP4PostgresIntegrationTest {
         .isEqualTo("PENDING");
     assertThat(
             count(
-                "select count(*) from product_events where purchase_request_id = ?",
+                "select count(*) from product_events pe join trade_fixture_transfers ot on ot.id = pe.transfer_request_id where ot.purchase_request_id = ?",
                 fixture.requestId()))
         .isZero();
     assertThat(
@@ -614,6 +793,47 @@ class TradeP4PostgresIntegrationTest {
                 "select count(*) from audit_logs where action = 'TRADE_COMPLETED' and target_id = ?",
                 fixture.requestId()))
         .isZero();
+  }
+
+  private TradeCompletionService completionService(
+      PurchaseRequestRepository requestRepository, PublishedListingAccess listingAccess) {
+    return new TradeCompletionService(
+        requestRepository,
+        rooms,
+        listingAccess,
+        products,
+        details,
+        changes,
+        completionPort,
+        audit,
+        Clock.fixed(NOW, ZoneOffset.UTC));
+  }
+
+  @SuppressWarnings("unchecked")
+  private HistoryService historyService(ApplicationEventPublisher events) {
+    HistoryChangeReviewRecorder recorder =
+        new ReservedHistoryChangeReviewRecorder(listings, requests, changes);
+    ObjectProvider<HistoryChangeReviewRecorder> provider = mock(ObjectProvider.class);
+    when(provider.getIfAvailable()).thenReturn(recorder);
+    return new HistoryService(
+        new HistoryRepository(jdbc),
+        JsonMapper.builder().build(),
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        provider,
+        events);
+  }
+
+  private CreateHistoryEventRequest generalHistoryRequest() {
+    return new CreateHistoryEventRequest(
+        HistoryEventType.REPAIR,
+        LocalDate.of(2026, 10, 25),
+        "키보드 수리",
+        null,
+        null,
+        null,
+        null,
+        null,
+        List.of());
   }
 
   private static ProductResponse currentProduct() {
@@ -687,6 +907,41 @@ class TradeP4PostgresIntegrationTest {
         () -> runIgnoringExpectedConflict(first), () -> runIgnoringExpectedConflict(second));
   }
 
+  private RaceOutcomes runConcurrentlyAllowingHistoryConflict(Runnable history, Runnable completion)
+      throws Exception {
+    AtomicReference<ErrorCode> historyFailure = new AtomicReference<>();
+    AtomicReference<ErrorCode> completionFailure = new AtomicReference<>();
+    runConcurrently(
+        () -> historyFailure.set(runAllowingHistoryConflict(history)),
+        () -> completionFailure.set(runAllowingCompletionConflict(completion)));
+    return new RaceOutcomes(historyFailure.get(), completionFailure.get());
+  }
+
+  private static ErrorCode runAllowingHistoryConflict(Runnable operation) {
+    try {
+      operation.run();
+      return null;
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT
+          && exception.errorCode() != ErrorCode.RESOURCE_NOT_FOUND) {
+        throw exception;
+      }
+      return exception.errorCode();
+    }
+  }
+
+  private static ErrorCode runAllowingCompletionConflict(Runnable operation) {
+    try {
+      operation.run();
+      return null;
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT) {
+        throw exception;
+      }
+      return exception.errorCode();
+    }
+  }
+
   static void runIgnoringExpectedConflict(Runnable operation) {
     try {
       operation.run();
@@ -738,6 +993,8 @@ class TradeP4PostgresIntegrationTest {
 
   private record Fixture(long requestId, long otherRequestId, long roomId, long otherRoomId) {}
 
+  private record RaceOutcomes(ErrorCode historyFailure, ErrorCode completionFailure) {}
+
   private static class FixtureCompletionPort implements InternalTradeCompletionPort {
 
     private final JdbcTemplate jdbc;
@@ -751,7 +1008,7 @@ class TradeP4PostgresIntegrationTest {
     public void complete(Command command) {
       requireOne(
           jdbc.update(
-              "update ownership_transfers set status = 'ACCEPTED' where purchase_request_id = ? and product_id = ? and from_user_id = ? and to_user_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING'",
+              "update trade_fixture_transfers set status = 'ACCEPTED' where purchase_request_id = ? and product_id = ? and from_user_id = ? and to_user_id = ? and transfer_type = 'INTERNAL' and status = 'PENDING'",
               command.purchaseRequestId(),
               command.productId(),
               command.fromUserId(),
@@ -764,9 +1021,10 @@ class TradeP4PostgresIntegrationTest {
               command.fromUserId()));
       requireOne(
           jdbc.update(
-              "insert into product_events (product_id, purchase_request_id, event_type) values (?, ?, 'TRANSFER')",
+              "insert into product_events (product_id, event_type, occurred_on, title, transfer_request_id) select ?, 'TRANSFER', current_date, 'ownership transfer', id from trade_fixture_transfers where purchase_request_id = ? and product_id = ? and status = 'ACCEPTED'",
               command.productId(),
-              command.purchaseRequestId()));
+              command.purchaseRequestId(),
+              command.productId()));
       requireOne(
           jdbc.update(
               "update product_history_state set visibility = 'PRIVATE' where product_id = ? and visibility = 'PUBLIC'",
@@ -795,7 +1053,7 @@ class TradeP4PostgresIntegrationTest {
     public void cancelPending(Command command) {
       requireOne(
           jdbc.update(
-              "update ownership_transfers set status = 'CANCELLED' where purchase_request_id = ? and product_id = ? and status = 'PENDING'",
+              "update trade_fixture_transfers set status = 'CANCELLED' where purchase_request_id = ? and product_id = ? and status = 'PENDING'",
               command.purchaseRequestId(),
               command.productId()));
     }

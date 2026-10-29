@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-/** 파일 업로드, 소유권 이전 수락, 채팅 전송처럼 반복 호출이 부담이 되는 쓰기 요청에 사용자별 횟수 제한을 적용한다. */
+/** 파일 업로드, AI 호출, 소유권 이전 수락, 채팅 전송처럼 반복 호출이 부담이 되는 쓰기 요청에 사용자별 횟수 제한을 적용한다. */
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
@@ -61,6 +61,13 @@ public class RateLimitInterceptor implements HandlerInterceptor {
               30,
               Duration.ofMinutes(1)),
           new Rule("auth-refresh", HttpMethod.POST, "/api/auth/refresh", 30, Duration.ofMinutes(1)),
+          new Rule("ai-ask", HttpMethod.POST, "/api/v1/ai/ask", 10, Duration.ofMinutes(1)),
+          new Rule(
+              "ai-estimate-price",
+              HttpMethod.POST,
+              "/api/v1/ai/estimate-price",
+              10,
+              Duration.ofMinutes(1)),
           new Rule(
               "ownership-accept",
               HttpMethod.POST,

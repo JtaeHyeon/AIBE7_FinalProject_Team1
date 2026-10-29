@@ -14,10 +14,11 @@ class ListingCardSummaryMigrationTest {
   }
 
   @Test
-  void upgradesTheAlreadyAppliedDemoVersionWithoutLosingSummaryOrChecksumHistory() {
+  void upgradesGeneralAndDemoFromPreRefreshWithoutLosingSummaryOrChecksumHistory() {
     verifyUpgrade(true);
   }
 
+  /** 갱신 시각 컬럼이 없던 이전 단계에서 긴 문구·체크섬·시간 backfill을 함께 검증한다. */
   private void verifyUpgrade(boolean legacyDemo) {
     String testUrl = System.getenv("SALE_DRAFT_TEST_DB_URL");
     boolean postgres = testUrl != null && !testUrl.isBlank();
@@ -47,12 +48,24 @@ class ListingCardSummaryMigrationTest {
           .schemas(schema)
           .defaultSchema(schema)
           .locations(locations)
-          .target(legacyDemo ? "2026102702" : "2026102801")
+          .target("2026102601")
           .load()
           .migrate();
       var jdbc = new JdbcTemplate(source);
+      var legacyHistory =
+          legacyDemo
+              ? jdbc.queryForMap(
+                  "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102601'")
+              : null;
+      if (legacyDemo) {
+        assertEquals(
+            0,
+            jdbc.queryForObject(
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='ownership_transfers'",
+                Integer.class));
+      }
       assertEquals(
-          legacyDemo ? 1 : 0,
+          0,
           jdbc.queryForObject(
               "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='listings' AND column_name='summary_format_version'",
               Integer.class));
@@ -62,8 +75,11 @@ class ListingCardSummaryMigrationTest {
           "INSERT INTO products(id,category,manufacturer,manufacturer_normalized,model_name,title,owner_id,serial_number_fingerprint,serial_number_ciphertext) VALUES(1001,'LAPTOP','Apple','APPLE','MacBook','내 제품',1001,'card-upgrade-fp','fixture')");
       String text = "기존 긴 제품 요약입니다. ".repeat(10);
       jdbc.update(
-          "INSERT INTO listings(id,product_id,seller_id,title,price,condition_grade,description,status,published_at,source_draft_id,source_draft_version,active_slot,summary_status,summary_text,summary_attempt_id,summary_source_product_version,summary_source_listing_version,summary_updated_at,summary_requested_at,summary_available_at) VALUES(1,1001,1001,'기존 제목',1000,3,'기존 설명','ACTIVE',CURRENT_TIMESTAMP,1,0,1,'READY',?,CAST('00000000-0000-0000-0000-000000000001' AS UUID),0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+          "INSERT INTO listings(id,product_id,seller_id,title,price,condition_grade,description,status,published_at,source_draft_id,source_draft_version,active_slot,summary_status,summary_text,summary_attempt_id,summary_source_product_version,summary_source_listing_version,summary_updated_at) VALUES(1,1001,1001,'기존 제목',1000,3,'기존 설명','ACTIVE',CURRENT_TIMESTAMP,1,0,1,'READY',?,CAST('00000000-0000-0000-0000-000000000001' AS UUID),0,0,CURRENT_TIMESTAMP)",
           text);
+      var summaryUpdatedAt =
+          jdbc.queryForObject(
+              "SELECT summary_updated_at FROM listings WHERE id=1", java.time.OffsetDateTime.class);
       Flyway.configure()
           .dataSource(source)
           .schemas(schema)
@@ -71,6 +87,31 @@ class ListingCardSummaryMigrationTest {
           .locations(locations)
           .load()
           .migrate();
+      if (legacyDemo) {
+        assertEquals(
+            legacyHistory,
+            jdbc.queryForMap(
+                "SELECT version,script,checksum,success FROM flyway_schema_history WHERE version='2026102601'"));
+        assertEquals("V2026102601__add_listing_ai_summary.sql", legacyHistory.get("script"));
+        assertNotNull(legacyHistory.get("checksum"));
+        assertEquals(true, legacyHistory.get("success"));
+        assertEquals(
+            summaryUpdatedAt,
+            jdbc.queryForObject(
+                "SELECT summary_requested_at FROM listings WHERE id=1",
+                java.time.OffsetDateTime.class));
+        assertEquals(
+            summaryUpdatedAt,
+            jdbc.queryForObject(
+                "SELECT summary_available_at FROM listings WHERE id=1",
+                java.time.OffsetDateTime.class));
+        System.out.println(
+            "G-04 VERIFIED prior summary history and backfill preserved: " + legacyHistory);
+      }
+      assertEquals(
+          "V2026102803__create_ownership_tables.sql",
+          jdbc.queryForObject(
+              "SELECT script FROM flyway_schema_history WHERE version='2026102803'", String.class));
       assertTrue(
           jdbc.queryForObject(
               "SELECT success FROM flyway_schema_history WHERE version='2026102802'",

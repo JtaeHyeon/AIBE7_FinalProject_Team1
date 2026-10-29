@@ -31,8 +31,10 @@ import org.example.springtestci.product.event.ProductFactsChanged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -46,6 +48,8 @@ class HistoryServiceTest {
       Clock.fixed(Instant.parse("2026-10-20T00:00:00Z"), ZoneOffset.UTC);
 
   @Mock private HistoryRepository historyRepository;
+  @Mock private ObjectProvider<HistoryChangeReviewRecorder> changeReviewRecorders;
+  @Mock private HistoryChangeReviewRecorder changeReviewRecorder;
   @Mock private ApplicationEventPublisher events;
 
   private HistoryService historyService;
@@ -53,7 +57,8 @@ class HistoryServiceTest {
   @BeforeEach
   void setUp() {
     historyService =
-        new HistoryService(historyRepository, JsonMapper.builder().build(), CLOCK, events);
+        new HistoryService(
+            historyRepository, JsonMapper.builder().build(), CLOCK, changeReviewRecorders, events);
   }
 
   @Test
@@ -80,6 +85,46 @@ class HistoryServiceTest {
     assertEquals(List.of(31L), response.documentIds());
     verify(historyRepository).linkDocuments(EVENT, List.of(31L));
     verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
+  }
+
+  @Test
+  void createIncrementsFactsRecordsOnlyPublicSafeFieldsAndPublishesRefresh() {
+    CreateHistoryEventRequest request =
+        new CreateHistoryEventRequest(
+            HistoryEventType.REPAIR,
+            LocalDate.of(2026, 10, 19),
+            "홍길동 고객 키보드 수리",
+            "010-1234-5678 연락 요청",
+            "개인 수리점",
+            120000L,
+            "키보드",
+            null,
+            List.of(31L));
+    when(historyRepository.lockOwnedProduct(PRODUCT, OWNER)).thenReturn(true);
+    when(historyRepository.documentsCanBeLinked(PRODUCT, List.of(31L))).thenReturn(true);
+    when(historyRepository.insertEvent(PRODUCT, OWNER, request, null, null)).thenReturn(EVENT);
+    when(historyRepository.findFactsVersion(PRODUCT)).thenReturn(2L);
+    when(changeReviewRecorders.getIfAvailable()).thenReturn(changeReviewRecorder);
+    when(historyRepository.findEvent(PRODUCT, EVENT)).thenReturn(java.util.Optional.of(event()));
+
+    historyService.create(OWNER, PRODUCT, request);
+
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    ArgumentCaptor<tools.jackson.databind.JsonNode> snapshot =
+        ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
+    verify(changeReviewRecorder)
+        .recordCreated(
+            org.mockito.ArgumentMatchers.eq(PRODUCT),
+            org.mockito.ArgumentMatchers.eq(EVENT),
+            org.mockito.ArgumentMatchers.eq(2L),
+            snapshot.capture());
+    assertEquals("CREATED", snapshot.getValue().get("changeType").asText());
+    assertEquals("REPAIR", snapshot.getValue().get("eventType").asText());
+    assertEquals(false, snapshot.getValue().has("title"));
+    assertEquals(false, snapshot.getValue().has("content"));
+    assertEquals(false, snapshot.getValue().has("cost"));
+    assertEquals(false, snapshot.getValue().has("documentIds"));
     verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
@@ -113,6 +158,73 @@ class HistoryServiceTest {
             PRODUCT, new ProductSpecifications("M3", null, 16, 256, "SSD", "14 inch", 90, "macOS"));
     verify(historyRepository, never()).incrementFactsVersion(anyLong());
     verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
+  }
+
+  /** 사양 변경 전후 모두 숫자·제한 enum만 거래 검토에 넘기고 자유 입력은 제외한다. */
+  @Test
+  void specificationReviewSnapshotExcludesNewAndExistingFreeText() {
+    ProductSpecifications before =
+        new ProductSpecifications(
+            "PRIVATE_CPU_BEFORE",
+            "PRIVATE_GPU",
+            8,
+            256,
+            "SSD",
+            "PRIVATE_DISPLAY",
+            90,
+            "PRIVATE_OS");
+    CreateHistoryEventRequest request =
+        new CreateHistoryEventRequest(
+            HistoryEventType.SPEC_CHANGE,
+            LocalDate.of(2026, 10, 19),
+            "메모리와 CPU 변경",
+            null,
+            null,
+            null,
+            null,
+            Map.of("cpu", "PRIVATE_CPU_AFTER", "ramGb", 16),
+            List.of());
+    when(historyRepository.lockOwnedProduct(PRODUCT, OWNER)).thenReturn(true);
+    when(historyRepository.documentsCanBeLinked(PRODUCT, List.of())).thenReturn(true);
+    when(historyRepository.findSpecifications(PRODUCT)).thenReturn(before);
+    when(historyRepository.insertEvent(anyLong(), anyLong(), any(), anyString(), anyString()))
+        .thenReturn(EVENT);
+    when(historyRepository.findFactsVersion(PRODUCT)).thenReturn(2L);
+    when(changeReviewRecorders.getIfAvailable()).thenReturn(changeReviewRecorder);
+    when(historyRepository.findEvent(PRODUCT, EVENT))
+        .thenReturn(java.util.Optional.of(specEvent()));
+
+    historyService.create(OWNER, PRODUCT, request);
+
+    ArgumentCaptor<tools.jackson.databind.JsonNode> snapshot =
+        ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
+    verify(changeReviewRecorder)
+        .recordCreated(
+            org.mockito.ArgumentMatchers.eq(PRODUCT),
+            org.mockito.ArgumentMatchers.eq(EVENT),
+            org.mockito.ArgumentMatchers.eq(2L),
+            snapshot.capture());
+    var beforeSnapshot = snapshot.getValue().get("specsBefore");
+    var afterSnapshot = snapshot.getValue().get("specsAfter");
+    assertEquals(8, beforeSnapshot.get("ramGb").asInt());
+    assertEquals(16, afterSnapshot.get("ramGb").asInt());
+    assertEquals("SSD", afterSnapshot.get("storageType").asText());
+    for (String field : List.of("cpu", "gpu", "display", "os")) {
+      assertEquals(false, beforeSnapshot.has(field));
+      assertEquals(false, afterSnapshot.has(field));
+    }
+    verify(historyRepository)
+        .replaceSpecifications(
+            PRODUCT,
+            new ProductSpecifications(
+                "PRIVATE_CPU_AFTER",
+                "PRIVATE_GPU",
+                16,
+                256,
+                "SSD",
+                "PRIVATE_DISPLAY",
+                90,
+                "PRIVATE_OS"));
   }
 
   @Test
@@ -184,6 +296,7 @@ class HistoryServiceTest {
             anyString(),
             org.mockito.ArgumentMatchers.eq("수리 명세서 확인"),
             org.mockito.ArgumentMatchers.eq("HISTORY_CORRECTED"));
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test

@@ -40,6 +40,7 @@ import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
 import org.example.springtestci.history.dto.CreateHistoryEventRequest;
 import org.example.springtestci.history.dto.VoidHistoryEventRequest;
 import org.example.springtestci.history.entity.HistoryEventType;
+import org.example.springtestci.history.service.HistoryChangeReviewRecorder;
 import org.example.springtestci.history.service.HistoryService;
 import org.example.springtestci.listing.service.ListingHistoryReader;
 import org.junit.jupiter.api.AfterAll;
@@ -56,6 +57,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -69,13 +71,18 @@ class ListingHistoryIntegrationHttpTest {
   private static final AtomicReference<String> AI_INPUT = new AtomicReference<>();
   private static final AtomicInteger AI_CALLS = new AtomicInteger();
   private static final AtomicBoolean AI_FAILURE = new AtomicBoolean();
+  private static final AtomicInteger REVIEW_CALLS = new AtomicInteger();
+  private static final AtomicBoolean REVIEW_FAILURE = new AtomicBoolean();
+  private static final AtomicBoolean REVIEW_IN_TRANSACTION = new AtomicBoolean();
+  private static final AtomicReference<Long> REVIEW_VERSION = new AtomicReference<>();
+  private static final AtomicReference<JsonNode> REVIEW_SNAPSHOT = new AtomicReference<>();
   private static final AiSuggestionRateLimiter LIMITS = mock(AiSuggestionRateLimiter.class);
   private static ConfigurableApplicationContext context;
   private static JdbcTemplate jdbc;
   private static String base, schema;
   private static Path files;
 
-  /** 이력·인증·DB·갱신 리스너는 실제 구현을 쓰고 외부 AI와 Redis 실행권만 대체한다. */
+  /** 이력·인증·DB·갱신은 실제 구현을 쓰고 AI·Redis 실행권·거래 검토 포트는 시험 대역으로 대체한다. */
   @TestConfiguration(proxyBeanMethods = false)
   public static class AiFixtures {
     @Bean
@@ -92,6 +99,7 @@ class ListingHistoryIntegrationHttpTest {
           return true;
         }
 
+        /** 외부 호출 없이 AI 입력·호출 횟수를 기록하고 모델 실패를 재현한다. */
         public List<String> summarize(String input) {
           AI_INPUT.set(input);
           AI_CALLS.incrementAndGet();
@@ -100,8 +108,22 @@ class ListingHistoryIntegrationHttpTest {
         }
       };
     }
+
+    /** 실제 HistoryService가 같은 트랜잭션에서 거래 검토 포트를 호출하는지 기록한다. */
+    @Bean
+    @Primary
+    HistoryChangeReviewRecorder historyChangeReviews() {
+      return (productId, eventId, factsVersion, snapshot) -> {
+        REVIEW_CALLS.incrementAndGet();
+        REVIEW_IN_TRANSACTION.set(TransactionSynchronizationManager.isActualTransactionActive());
+        REVIEW_VERSION.set(factsVersion);
+        REVIEW_SNAPSHOT.set(snapshot);
+        if (REVIEW_FAILURE.get()) throw new IllegalStateException("Trade review fixture failure");
+      };
+    }
   }
 
+  /** 격리 DB의 실제 API를 띄우고 외부 포트를 대체해 데이터 변경과 커밋 후 접수를 검증한다. */
   @BeforeAll
   static void start() throws Exception {
     String url = System.getenv("SALE_DRAFT_TEST_DB_URL");
@@ -176,6 +198,11 @@ class ListingHistoryIntegrationHttpTest {
     AI_INPUT.set(null);
     AI_CALLS.set(0);
     AI_FAILURE.set(false);
+    REVIEW_CALLS.set(0);
+    REVIEW_FAILURE.set(false);
+    REVIEW_IN_TRANSACTION.set(false);
+    REVIEW_VERSION.set(null);
+    REVIEW_SNAPSHOT.set(null);
     org.mockito.Mockito.reset(LIMITS);
     when(LIMITS.acquire(anyLong()))
         .thenReturn(new AiSuggestionRateLimiter.Lease("history-test", "history-test"));
@@ -338,6 +365,52 @@ class ListingHistoryIntegrationHttpTest {
     assertEquals("INSPECTION", aiEvent(id).get("type").asString());
     assertEquals("READY", summaries().read(11).status().name());
     assertPrivateFieldsAbsent(AI_INPUT.get());
+  }
+
+  /** 거래 검토 기록과 AI 접수가 단일 버전을 공유하고 외부 AI는 커밋 후 한 번만 실행된다. */
+  @Test
+  void creationRecordsTradeReviewAndQueuesOneSummaryForTheSameVersion() throws Exception {
+    readySummary();
+    long id = createInspection();
+    assertEquals(1, REVIEW_CALLS.get());
+    assertTrue(REVIEW_IN_TRANSACTION.get());
+    assertEquals(8L, REVIEW_VERSION.get());
+    assertEquals(8, factsVersion());
+    assertEquals(8L, summaries().read(11).productVersion());
+    assertEquals("QUEUED", summaries().read(11).status().name());
+    assertEquals(1, summaries().pending().size());
+    assertEquals(1, AI_CALLS.get());
+    assertEquals("INSPECTION", REVIEW_SNAPSHOT.get().get("eventType").asString());
+    assertPrivateFieldsAbsent(JSON.writeValueAsString(REVIEW_SNAPSHOT.get()));
+    processPending();
+    assertEquals(2, AI_CALLS.get());
+    assertEquals("INSPECTION", aiEvent(id).get("type").asString());
+    assertEquals("READY", summaries().read(11).status().name());
+  }
+
+  /** 거래 검토 기록 실패 시 이력·버전이 롤백되고 AI 요약 갱신도 접수되지 않는다. */
+  @Test
+  void failedTradeReviewRecordingRollsBackHistoryVersionAndSummaryRefresh() throws Exception {
+    readySummary();
+    var attempt = summaries().read(11).attemptId();
+    REVIEW_FAILURE.set(true);
+    var response =
+        write(
+            "POST",
+            "/api/v1/products/101/events",
+            JSON.writeValueAsString(inspectionRequest()),
+            "1");
+    assertEquals(500, response.statusCode(), response.body());
+    assertEquals(1, REVIEW_CALLS.get());
+    assertTrue(REVIEW_IN_TRANSACTION.get());
+    assertEquals(7, factsVersion());
+    assertEquals(
+        0,
+        jdbc.queryForObject("SELECT COUNT(*) FROM product_events WHERE id>=1000", Integer.class));
+    assertEquals(attempt, summaries().read(11).attemptId());
+    assertEquals("READY", summaries().read(11).status().name());
+    assertTrue(summaries().pending().isEmpty());
+    assertEquals(1, AI_CALLS.get());
   }
 
   @Test
@@ -723,6 +796,7 @@ class ListingHistoryIntegrationHttpTest {
       cookies.getCookieStore().add(URI.create(base), access);
     }
 
+    /** 인증 응답에서 교체된 쿠키를 읽고, 다음 요청의 토큰이 사라졌다면 즉시 실패시킨다. */
     String csrfToken() {
       return cookies.getCookieStore().getCookies().stream()
           .filter(cookie -> cookie.getName().equals("XSRF-TOKEN") && !cookie.hasExpired())
@@ -740,6 +814,7 @@ class ListingHistoryIntegrationHttpTest {
       return send(method, path, body, csrfToken());
     }
 
+    /** 브라우저 쿠키를 유지하며 요청하고, CSRF 헤더의 정상·누락·불일치 조건을 구분한다. */
     HttpResponse<String> send(String method, String path, String body, String csrf)
         throws Exception {
       var request =
