@@ -22,6 +22,11 @@ server:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+    # Swagger의 쓰기 요청도 일반 화면과 같은 CSRF 쿠키·헤더를 사용한다.
+    csrf:
+      enabled: true
+      cookie-name: XSRF-TOKEN
+      header-name: X-XSRF-TOKEN
 
 app:
   ai:

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -26,11 +27,13 @@ import org.example.springtestci.history.entity.HistoryEventType;
 import org.example.springtestci.history.repository.HistoryRepository;
 import org.example.springtestci.history.repository.HistoryRepository.HistoryEventRecord;
 import org.example.springtestci.history.repository.HistoryRepository.ProductSpecifications;
+import org.example.springtestci.product.event.ProductFactsChanged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import tools.jackson.databind.json.JsonMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,12 +46,14 @@ class HistoryServiceTest {
       Clock.fixed(Instant.parse("2026-10-20T00:00:00Z"), ZoneOffset.UTC);
 
   @Mock private HistoryRepository historyRepository;
+  @Mock private ApplicationEventPublisher events;
 
   private HistoryService historyService;
 
   @BeforeEach
   void setUp() {
-    historyService = new HistoryService(historyRepository, JsonMapper.builder().build(), CLOCK);
+    historyService =
+        new HistoryService(historyRepository, JsonMapper.builder().build(), CLOCK, events);
   }
 
   @Test
@@ -74,6 +79,8 @@ class HistoryServiceTest {
     assertEquals(EVENT, response.eventId());
     assertEquals(List.of(31L), response.documentIds());
     verify(historyRepository).linkDocuments(EVENT, List.of(31L));
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -104,6 +111,8 @@ class HistoryServiceTest {
     verify(historyRepository)
         .replaceSpecifications(
             PRODUCT, new ProductSpecifications("M3", null, 16, 256, "SSD", "14 inch", 90, "macOS"));
+    verify(historyRepository, never()).incrementFactsVersion(anyLong());
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -130,6 +139,8 @@ class HistoryServiceTest {
     assertEquals(HistoryEventType.PART_REPLACEMENT, response.eventType());
     verify(historyRepository, never()).findSpecifications(anyLong());
     verify(historyRepository, never()).replaceSpecifications(anyLong(), any());
+    verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   @Test
@@ -147,6 +158,7 @@ class HistoryServiceTest {
 
     assertEquals(ErrorCode.HISTORY_EVENT_CHANGE_NOT_ALLOWED, exception.errorCode());
     verify(historyRepository, never()).voidEvent(anyLong());
+    verifyNoInteractions(events);
   }
 
   @Test
@@ -162,6 +174,7 @@ class HistoryServiceTest {
     assertEquals("키보드 상판 교체", response.title());
     verify(historyRepository).correctEvent(EVENT, request, null, null);
     verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
     verify(historyRepository)
         .insertAudit(
             org.mockito.ArgumentMatchers.eq(PRODUCT),
@@ -185,6 +198,7 @@ class HistoryServiceTest {
     assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
     verify(historyRepository, never()).findEvent(anyLong(), anyLong());
     verify(historyRepository, never()).correctEvent(anyLong(), any(), any(), any());
+    verifyNoInteractions(events);
   }
 
   @Test
@@ -244,6 +258,8 @@ class HistoryServiceTest {
     verify(historyRepository)
         .replaceSpecifications(
             PRODUCT, new ProductSpecifications("M3", null, 8, 512, "SSD", "14 inch", 90, "macOS"));
+    verify(historyRepository, never()).incrementFactsVersion(anyLong());
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
     verify(historyRepository)
         .insertAudit(
             org.mockito.ArgumentMatchers.eq(PRODUCT),
@@ -264,6 +280,7 @@ class HistoryServiceTest {
     historyService.voidEvent(OWNER, PRODUCT, EVENT, new VoidHistoryEventRequest("중복 등록"));
 
     verify(historyRepository).incrementFactsVersion(PRODUCT);
+    verify(events).publishEvent(new ProductFactsChanged(PRODUCT));
   }
 
   private static CorrectHistoryEventRequest correctionRequest() {

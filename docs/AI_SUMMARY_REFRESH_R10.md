@@ -13,7 +13,8 @@ R09의 게시 후 요약 생성에 정보 변경 후 자동 갱신을 연결한�
 |---|---|
 | 판매글 제목·설명·가격·등급·사진 수정 | `ListingManagementService.update` → `ListingContentChanged` |
 | 제품명·구매일·보증 만료일 정정 | `ProductService.update` → `ProductFactsChanged` |
-| 사양·이력 추가·정정·무효·공개 범위 변경 | `ProductFactsChanged` 수신·테스트 완료. 해당 기능의 운영 변경 지점에서 발행하는 연결은 필요 |
+| 사용자 이력·사양 추가·정정·무효 | `HistoryService`의 버전 증가·이벤트 발행을 연결. [실제 이력 통합 검증](AI_HISTORY_REFRESH_INTEGRATION.md) |
+| 문서 확정·소유권 이전·공개 범위 변경 등 별도 저장 경로 | 같은 트랜잭션의 제품 버전 증가·`ProductFactsChanged` 발행 연결 필요 |
 
 수정 트랜잭션의 커밋 뒤 `ListingSummaryRefreshListener`가 별도 트랜잭션으로 최신 버전의 작업을 접수한다. 롤백된 변경은 접수하지 않고 AI 응답을 기다리지 않는다. 접수 장애가 이미 성공한 수정 응답을 오류로 바꾸지 않는다.
 

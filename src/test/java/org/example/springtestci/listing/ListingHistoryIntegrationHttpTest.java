@@ -1,7 +1,13 @@
 package org.example.springtestci.listing;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,25 +17,46 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.example.springtestci.SpringTestCiApplication;
+import org.example.springtestci.ai.repository.ListingSummaryRepository;
+import org.example.springtestci.ai.service.AiSuggestionRateLimiter;
 import org.example.springtestci.ai.service.ListingSuggestionSource;
+import org.example.springtestci.ai.service.ListingSummaryGateway;
+import org.example.springtestci.ai.service.ListingSummaryProcessor;
+import org.example.springtestci.ai.service.ListingSummaryStore;
+import org.example.springtestci.common.error.CommonException;
+import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
+import org.example.springtestci.history.dto.CreateHistoryEventRequest;
+import org.example.springtestci.history.dto.VoidHistoryEventRequest;
+import org.example.springtestci.history.entity.HistoryEventType;
+import org.example.springtestci.history.service.HistoryService;
 import org.example.springtestci.listing.service.ListingHistoryReader;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -39,10 +66,41 @@ class ListingHistoryIntegrationHttpTest {
   private static final String PUBLICATION = "/api/v1/products/101/listing-draft/publication";
   private static final JsonMapper JSON = JsonMapper.builder().build();
   private static final HttpClient HTTP = HttpClient.newHttpClient();
+  private static final AtomicReference<String> AI_INPUT = new AtomicReference<>();
+  private static final AtomicInteger AI_CALLS = new AtomicInteger();
+  private static final AtomicBoolean AI_FAILURE = new AtomicBoolean();
+  private static final AiSuggestionRateLimiter LIMITS = mock(AiSuggestionRateLimiter.class);
   private static ConfigurableApplicationContext context;
   private static JdbcTemplate jdbc;
   private static String base, schema;
   private static Path files;
+
+  /** 이력·인증·DB·갱신 리스너는 실제 구현을 쓰고 외부 AI와 Redis 실행권만 대체한다. */
+  @TestConfiguration(proxyBeanMethods = false)
+  public static class AiFixtures {
+    @Bean
+    @Primary
+    AiSuggestionRateLimiter historySummaryLimits() {
+      return LIMITS;
+    }
+
+    @Bean
+    @Primary
+    ListingSummaryGateway historySummaryGateway() {
+      return new ListingSummaryGateway() {
+        public boolean configured() {
+          return true;
+        }
+
+        public List<String> summarize(String input) {
+          AI_INPUT.set(input);
+          AI_CALLS.incrementAndGet();
+          if (AI_FAILURE.get()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
+          return List.of("18GB 메모리와 512GB SSD를 갖춘 제품입니다.");
+        }
+      };
+    }
+  }
 
   @BeforeAll
   static void start() throws Exception {
@@ -56,7 +114,7 @@ class ListingHistoryIntegrationHttpTest {
             ? url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema
             : "jdbc:h2:mem:listing_real_history;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1";
     files = Files.createTempDirectory("listing-real-history-http-");
-    var app = new SpringApplication(SpringTestCiApplication.class);
+    var app = new SpringApplication(SpringTestCiApplication.class, AiFixtures.class);
     app.setDefaultProperties(
         Map.of("spring.main.banner-mode", "off", "logging.level.root", "WARN"));
     context =
@@ -78,7 +136,9 @@ class ListingHistoryIntegrationHttpTest {
             "--spring.jpa.hibernate.ddl-auto=validate",
             "--spring.jpa.properties.hibernate.default_schema=" + schema,
             "--app.features.listing-history.enabled=true",
-            "--app.ai.summary.enabled=false",
+            "--app.ai.summary.enabled=true",
+            "--app.ai.summary.refresh-debounce-ms=0",
+            "--app.ai.summary.initial-delay-ms=3600000",
             "--app.ai.listing.api-key=",
             "--app.jwt.secret=" + SECRET,
             "--app.storage.local-root=" + files);
@@ -113,12 +173,21 @@ class ListingHistoryIntegrationHttpTest {
 
   @BeforeEach
   void reset() {
+    AI_INPUT.set(null);
+    AI_CALLS.set(0);
+    AI_FAILURE.set(false);
+    org.mockito.Mockito.reset(LIMITS);
+    when(LIMITS.acquire(anyLong()))
+        .thenReturn(new AiSuggestionRateLimiter.Lease("history-test", "history-test"));
     jdbc.update("DELETE FROM event_documents");
     jdbc.update("DELETE FROM audit_logs");
     jdbc.update("DELETE FROM product_events");
     jdbc.update("DELETE FROM listing_images");
     jdbc.update("DELETE FROM listings");
+    jdbc.execute("ALTER TABLE product_events ALTER COLUMN id RESTART WITH 1000");
+    jdbc.execute("ALTER TABLE audit_logs ALTER COLUMN id RESTART WITH 1000");
     jdbc.update("UPDATE products SET owner_id=1,archived_at=NULL,facts_version=7 WHERE id=101");
+    jdbc.update("UPDATE laptop_details SET ram_gb=18 WHERE product_id=101");
     jdbc.update(
         "INSERT INTO listings(id,product_id,seller_id,title,price,condition_grade,description,status,published_at,source_draft_id,source_draft_version,active_slot) VALUES(11,101,1,'실제 이력 연결 검증',1200000,4,'판매 조건','ACTIVE',CURRENT_TIMESTAMP,9001,0,1)");
     event(1, 101, 2L, "PURCHASE", "2024-02-12", "VALID", null);
@@ -205,6 +274,207 @@ class ListingHistoryIntegrationHttpTest {
     assertEquals("VOID", voided.at("/items/0/status").asString());
     assertEquals(2, voided.at("/items/0/corrections").size());
     assertPrivateFieldsAbsent(voidedResponse.body());
+  }
+
+  /** 브라우저처럼 쿠키 인증·응답 쿠키 갱신을 사용해 조회 뒤 첫 쓰기와 연속 쓰기를 검증한다. */
+  @Test
+  void cookieAuthenticatedHistoryFlowAlwaysHasACsrfCookieForTheNextRequest() throws Exception {
+    var browser = new CookieBrowser();
+    data(browser.read(PUBLICATION));
+    assertFalse(browser.csrfToken().isBlank());
+
+    var created =
+        browser.write(
+            "POST", "/api/v1/products/101/events", JSON.writeValueAsString(inspectionRequest()));
+    assertEquals(201, created.statusCode(), created.body());
+    long id = JSON.readTree(created.body()).at("/data/eventId").asLong();
+    assertEquals(8, factsVersion());
+    assertFalse(browser.csrfToken().isBlank());
+
+    data(browser.read("/api/v1/products/101/events"));
+    data(browser.write("PATCH", "/api/v1/products/101/events/" + id, correctionJson(null)));
+    assertEquals(9, factsVersion());
+    assertFalse(browser.csrfToken().isBlank());
+
+    var voided =
+        browser.write(
+            "POST", "/api/v1/products/101/events/" + id + "/void", "{\"reason\":\"PRIVATE_VOID\"}");
+    assertEquals("VOID", data(voided).get("status").asString());
+    assertEquals(10, factsVersion());
+    assertFalse(browser.csrfToken().isBlank());
+    data(browser.read(PUBLICATION));
+    assertFalse(browser.csrfToken().isBlank());
+  }
+
+  @Test
+  void cookieAuthenticatedWritesStillRejectMissingOrIncorrectCsrfHeaders() throws Exception {
+    var browser = new CookieBrowser();
+    String path = "/api/v1/products/101/events";
+    String body = JSON.writeValueAsString(inspectionRequest());
+    assertEquals(403, browser.send("POST", path, body, null).statusCode());
+    assertEquals(403, browser.send("POST", path, body, "incorrect-csrf-token").statusCode());
+    assertEquals(7, factsVersion());
+    assertEquals(4, data(browser.read("/api/v1/products/101/events")).size());
+
+    var created = browser.write("POST", path, body);
+    assertEquals(201, created.statusCode(), created.body());
+    assertEquals(8, factsVersion());
+    assertFalse(browser.csrfToken().isBlank());
+  }
+
+  @Test
+  void addingAnInspectionQueuesItsCommittedVersionWithoutCallingAiInsideTheRequest()
+      throws Exception {
+    readySummary();
+    var before = summaries().read(11).attemptId();
+    long id = createInspection();
+    assertEquals(8, factsVersion());
+    assertNotEquals(before, summaries().read(11).attemptId());
+    assertEquals("QUEUED", summaries().read(11).status().name());
+    assertEquals(8L, summaries().read(11).productVersion());
+    assertNull(summaries().read(11).text());
+    assertEquals(1, AI_CALLS.get());
+    processPending();
+    assertEquals("INSPECTION", aiEvent(id).get("type").asString());
+    assertEquals("READY", summaries().read(11).status().name());
+    assertPrivateFieldsAbsent(AI_INPUT.get());
+  }
+
+  @Test
+  void correctingAndVoidingAReservedListingsHistoryRefreshesTheActualAiInput() throws Exception {
+    readySummary();
+    jdbc.update("UPDATE listings SET status='RESERVED' WHERE id=11");
+    data(write("PATCH", "/api/v1/products/101/events/2", correctionJson(null), "1"));
+    assertEquals(8, factsVersion());
+    assertEquals(8L, summaries().read(11).productVersion());
+    processPending();
+    assertTrue(aiEvent(2).get("corrected").asBoolean());
+    assertEquals("2025-05-21", aiEvent(2).get("occurredOn").asString());
+    data(write("POST", "/api/v1/products/101/events/2/void", "{\"reason\":\"PRIVATE_VOID\"}", "1"));
+    assertEquals(9, factsVersion());
+    processPending();
+    assertEquals("VOID", aiEvent(2).get("status").asString());
+    assertTrue(aiEvent(2).get("content").isNull());
+    assertEquals(9L, summaries().read(11).productVersion());
+    assertEquals("READY", summaries().read(11).status().name());
+    assertPrivateFieldsAbsent(AI_INPUT.get());
+  }
+
+  @Test
+  void specificationCreationCorrectionAndVoidEachIncrementTheVersionOnlyOnce() throws Exception {
+    readySummary();
+    var request =
+        new CreateHistoryEventRequest(
+            HistoryEventType.SPEC_CHANGE,
+            LocalDate.of(2025, 5, 20),
+            "PRIVATE_SPEC_TITLE",
+            null,
+            null,
+            null,
+            null,
+            Map.of("ramGb", 32),
+            List.of());
+    var created =
+        write("POST", "/api/v1/products/101/events", JSON.writeValueAsString(request), "1");
+    assertEquals(201, created.statusCode(), created.body());
+    long id = JSON.readTree(created.body()).at("/data/eventId").asLong();
+    assertEquals(8, factsVersion());
+    assertEquals(32, ram());
+    data(
+        write(
+            "PATCH",
+            "/api/v1/products/101/events/" + id,
+            correctionJson(Map.of("ramGb", 64)),
+            "1"));
+    assertEquals(9, factsVersion());
+    assertEquals(64, ram());
+    data(
+        write(
+            "POST",
+            "/api/v1/products/101/events/" + id + "/void",
+            "{\"reason\":\"PRIVATE_VOID\"}",
+            "1"));
+    assertEquals(10, factsVersion());
+    assertEquals(18, ram());
+    assertEquals(10L, summaries().read(11).productVersion());
+    processPending();
+    assertEquals("VOID", aiEvent(id).get("status").asString());
+    assertEquals("READY", summaries().read(11).status().name());
+  }
+
+  @Test
+  void rolledBackCreationCorrectionAndVoidDoNotInvalidateOrQueueTheStoredSummary()
+      throws Exception {
+    readySummary();
+    var service = context.getBean(HistoryService.class);
+    assertHistoryRollback(() -> service.create(1, 101, inspectionRequest()));
+    assertHistoryRollback(() -> service.correct(1, 101, 2, correctionRequest(null)));
+    assertHistoryRollback(
+        () -> service.voidEvent(1, 101, 2, new VoidHistoryEventRequest("PRIVATE_VOID")));
+    assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM product_events", Integer.class));
+    assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM audit_logs", Integer.class));
+    assertEquals(
+        "VALID", jdbc.queryForObject("SELECT status FROM product_events WHERE id=2", String.class));
+    assertEquals(1, AI_CALLS.get());
+  }
+
+  @Test
+  void anAiFailureDoesNotUndoTheSuccessfullyCommittedHistory() throws Exception {
+    readySummary();
+    AI_FAILURE.set(true);
+    long id = createInspection();
+    processPending();
+    assertEquals("FAILED", summaries().read(11).status().name());
+    assertEquals(8, factsVersion());
+    assertEquals(
+        1,
+        jdbc.queryForObject("SELECT COUNT(*) FROM product_events WHERE id=?", Integer.class, id));
+    assertTrue(ids(data(get(PUBLICATION, "1")).at("/history/items")).contains(id));
+  }
+
+  @Test
+  void anUnavailableRefreshLookupDoesNotTurnACommittedHistoryRequestIntoAnError() throws Exception {
+    readySummary();
+    var attempt = summaries().read(11).attemptId();
+    long id;
+    jdbc.execute("ALTER TABLE listings RENAME TO unavailable_history_listings");
+    try {
+      id = createInspection();
+    } finally {
+      jdbc.execute("ALTER TABLE unavailable_history_listings RENAME TO listings");
+    }
+    assertEquals(8, factsVersion());
+    assertEquals(
+        1,
+        jdbc.queryForObject("SELECT COUNT(*) FROM product_events WHERE id=?", Integer.class, id));
+    assertEquals(attempt, summaries().read(11).attemptId());
+    assertTrue(summaries().staleListings().contains(11L));
+  }
+
+  @Test
+  void aHistoryChangeDuringGenerationCannotBeOverwrittenByThePreviousJob() throws Exception {
+    readySummary();
+    long id = createInspection();
+    var oldJob = context.getBean(ListingSummaryStore.class).claim(summaries().pending().get(0));
+    assertNotNull(oldJob);
+    data(write("PATCH", "/api/v1/products/101/events/" + id, correctionJson(null), "1"));
+    var latestAttempt = summaries().read(11).attemptId();
+    context.getBean(ListingSummaryStore.class).complete(oldJob, "18GB 메모리 모델입니다.");
+    assertEquals(latestAttempt, summaries().read(11).attemptId());
+    assertEquals("QUEUED", summaries().read(11).status().name());
+    assertNull(summaries().read(11).text());
+    processPending();
+    assertEquals(9L, summaries().read(11).productVersion());
+    assertEquals("2025-05-21", aiEvent(id).get("occurredOn").asString());
+  }
+
+  @Test
+  void aProductWithoutAnOpenListingStillSavesHistoryAndVersionWithoutAiWork() throws Exception {
+    jdbc.update("UPDATE listings SET status='CANCELLED',active_slot=NULL WHERE id=11");
+    createInspection();
+    assertEquals(8, factsVersion());
+    assertTrue(summaries().pending().isEmpty());
+    assertEquals(0, AI_CALLS.get());
   }
 
   @Test
@@ -314,6 +584,94 @@ class ListingHistoryIntegrationHttpTest {
             "\"cost\"")) assertFalse(value.contains(forbidden), forbidden);
   }
 
+  private static ListingSummaryRepository summaries() {
+    return context.getBean(ListingSummaryRepository.class);
+  }
+
+  private static void readySummary() {
+    context.getBean(ListingSummaryStore.class).enqueue(11, null);
+    processPending();
+    assertEquals("READY", summaries().read(11).status().name());
+  }
+
+  private static void processPending() {
+    var pending = summaries().pending();
+    assertEquals(1, pending.size());
+    context.getBean(ListingSummaryProcessor.class).process(pending.get(0));
+  }
+
+  private static long factsVersion() {
+    return jdbc.queryForObject("SELECT facts_version FROM products WHERE id=101", Long.class);
+  }
+
+  private static int ram() {
+    return jdbc.queryForObject(
+        "SELECT ram_gb FROM laptop_details WHERE product_id=101", Integer.class);
+  }
+
+  private static CreateHistoryEventRequest inspectionRequest() {
+    return new CreateHistoryEventRequest(
+        HistoryEventType.INSPECTION,
+        LocalDate.of(2025, 5, 20),
+        "PRIVATE_TEST_TITLE",
+        "private-person@fixture.invalid",
+        null,
+        null,
+        null,
+        null,
+        List.of());
+  }
+
+  private static long createInspection() throws Exception {
+    var response =
+        write(
+            "POST",
+            "/api/v1/products/101/events",
+            JSON.writeValueAsString(inspectionRequest()),
+            "1");
+    assertEquals(201, response.statusCode(), response.body());
+    return JSON.readTree(response.body()).at("/data/eventId").asLong();
+  }
+
+  private static CorrectHistoryEventRequest correctionRequest(Map<String, Object> specs) {
+    return new CorrectHistoryEventRequest(
+        LocalDate.of(2025, 5, 21),
+        "PRIVATE_CORRECTED_TITLE",
+        null,
+        null,
+        null,
+        null,
+        specs,
+        "PRIVATE_CORRECTION_REASON");
+  }
+
+  private static String correctionJson(Map<String, Object> specs) {
+    return JSON.writeValueAsString(correctionRequest(specs));
+  }
+
+  private static JsonNode aiEvent(long eventId) {
+    for (var item : JSON.readTree(AI_INPUT.get()).at("/productAndHistory/history")) {
+      if (item.get("eventId").asLong() == eventId) return item;
+    }
+    throw new AssertionError("AI input is missing event " + eventId);
+  }
+
+  private static void assertHistoryRollback(Runnable change) {
+    var attempt = summaries().read(11).attemptId();
+    var tx = new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+    tx.executeWithoutResult(
+        status -> {
+          change.run();
+          assertEquals(8, factsVersion());
+          assertEquals(attempt, summaries().read(11).attemptId());
+          status.setRollbackOnly();
+        });
+    assertEquals(7, factsVersion());
+    assertEquals(attempt, summaries().read(11).attemptId());
+    assertEquals("READY", summaries().read(11).status().name());
+    assertTrue(summaries().pending().isEmpty());
+  }
+
   private static List<Long> ids(JsonNode items) {
     var result = new java.util.ArrayList<Long>();
     items.forEach(value -> result.add(value.get("eventId").asLong()));
@@ -348,6 +706,54 @@ class ListingHistoryIntegrationHttpTest {
             .method(method, HttpRequest.BodyPublishers.ofString(body))
             .build();
     return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+  }
+
+  /** 쿠키를 응답마다 반영하는 HTTP 클라이언트로, Swagger와 일반 화면의 인증 방식을 재현한다. */
+  private static final class CookieBrowser {
+    private final CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+    private final HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build();
+
+    CookieBrowser() throws Exception {
+      assertEquals(200, read("/swagger-ui/index.html").statusCode());
+      assertFalse(csrfToken().isBlank());
+      var access = new HttpCookie("access_token", token("1"));
+      access.setVersion(0);
+      access.setPath("/");
+      access.setHttpOnly(true);
+      cookies.getCookieStore().add(URI.create(base), access);
+    }
+
+    String csrfToken() {
+      return cookies.getCookieStore().getCookies().stream()
+          .filter(cookie -> cookie.getName().equals("XSRF-TOKEN") && !cookie.hasExpired())
+          .map(HttpCookie::getValue)
+          .filter(value -> !value.isBlank())
+          .findFirst()
+          .orElseThrow(() -> new AssertionError("The next browser request has no CSRF cookie"));
+    }
+
+    HttpResponse<String> read(String path) throws Exception {
+      return send("GET", path, null, null);
+    }
+
+    HttpResponse<String> write(String method, String path, String body) throws Exception {
+      return send(method, path, body, csrfToken());
+    }
+
+    HttpResponse<String> send(String method, String path, String body, String csrf)
+        throws Exception {
+      var request =
+          HttpRequest.newBuilder(URI.create(base + path))
+              .timeout(Duration.ofSeconds(15))
+              .method(
+                  method,
+                  body == null
+                      ? HttpRequest.BodyPublishers.noBody()
+                      : HttpRequest.BodyPublishers.ofString(body));
+      if (body != null) request.header("Content-Type", "application/json");
+      if (csrf != null) request.header("X-XSRF-TOKEN", csrf);
+      return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
   }
 
   private static String token(String user) throws Exception {
