@@ -1,12 +1,14 @@
 package org.example.springtestci.history.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
 import org.example.springtestci.history.dto.CreateHistoryEventRequest;
 import org.example.springtestci.history.entity.HistoryEventType;
 import org.example.springtestci.product.dto.CreateProductRequest;
@@ -109,6 +111,27 @@ class HistoryRepositoryTest {
   }
 
   @Test
+  void correctingPublicTextRequiresAReviewOfTheReplacementText() {
+    long productId = insertProduct(107L, "history-fingerprint-7");
+    long eventId =
+        historyRepository.insertEvent(
+            productId, 107L, historyRequest(LocalDate.of(2026, 10, 18), "검토된 점검 이력"), null, null);
+    jdbc.update("UPDATE product_events SET public_text_reviewed = TRUE WHERE id = ?", eventId);
+    var correction =
+        new CorrectHistoryEventRequest(
+            LocalDate.of(2026, 10, 19), "교체된 제목", "교체된 내용", "교체된 업체", null, null, null, "내용 오기 정정");
+
+    historyRepository.correctEvent(eventId, correction, null, null);
+
+    assertFalse(
+        jdbc.queryForObject(
+            "SELECT public_text_reviewed FROM product_events WHERE id = ?",
+            Boolean.class,
+            eventId));
+    assertEquals("교체된 제목", historyRepository.findEvent(productId, eventId).orElseThrow().title());
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void specificationSnapshotsAreStoredAsJsonObjects() throws Exception {
     long productId = insertProduct(103L, "history-fingerprint-3");
@@ -153,6 +176,28 @@ class HistoryRepositoryTest {
     assertEquals(
         List.of("같은 날짜 첫 등록", "같은 날짜 두 번째 등록", "두 번째 날짜"),
         historyRepository.findTimeline(productId).stream().map(event -> event.title()).toList());
+  }
+
+  @Test
+  void ownershipChangeHandsTheAccumulatedTimelineToTheNewOwner() {
+    long previousOwnerId = 106L;
+    long newOwnerId = 206L;
+    long productId = insertProduct(previousOwnerId, "history-fingerprint-6");
+    long eventId =
+        historyRepository.insertEvent(
+            productId,
+            previousOwnerId,
+            historyRequest(LocalDate.of(2026, 10, 18), "이전 소유자의 점검"),
+            null,
+            null);
+
+    jdbc.update("UPDATE products SET owner_id = ? WHERE id = ?", newOwnerId, productId);
+
+    assertFalse(historyRepository.existsOwnedProduct(productId, previousOwnerId));
+    assertTrue(historyRepository.existsOwnedProduct(productId, newOwnerId));
+    assertEquals(eventId, historyRepository.findTimeline(productId).get(0).eventId());
+    assertEquals(
+        previousOwnerId, historyRepository.findTimeline(productId).get(0).authorId().longValue());
   }
 
   private static CreateHistoryEventRequest historyRequest(LocalDate occurredOn, String title) {

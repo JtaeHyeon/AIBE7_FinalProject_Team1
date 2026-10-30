@@ -120,8 +120,12 @@ public class HistoryRepository {
                   """
                   INSERT INTO product_events
                       (product_id, author_id, event_type, occurred_on, title, content,
-                       service_provider, cost, replaced_part, specs_before, specs_after)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB))
+                       service_provider, cost, replaced_part, specs_before, specs_after, visibility)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB),
+                          CASE WHEN EXISTS (
+                              SELECT 1 FROM listings
+                               WHERE product_id = ? AND status IN ('ACTIVE', 'RESERVED')
+                          ) THEN 'PUBLIC' ELSE 'PRIVATE' END)
                   """,
                   new String[] {"id"});
           statement.setLong(1, productId);
@@ -136,6 +140,7 @@ public class HistoryRepository {
           statement.setString(9, trimToNull(request.replacedPart()));
           statement.setString(10, specsBefore);
           statement.setString(11, specsAfter);
+          statement.setLong(12, productId);
           return statement;
         },
         keys);
@@ -174,7 +179,8 @@ public class HistoryRepository {
         UPDATE product_events
            SET occurred_on = ?, title = ?, content = ?, service_provider = ?, cost = ?,
                replaced_part = ?, specs_before = CAST(? AS JSONB),
-               specs_after = CAST(? AS JSONB), updated_at = CURRENT_TIMESTAMP
+               specs_after = CAST(? AS JSONB), public_text_reviewed = FALSE,
+               updated_at = CURRENT_TIMESTAMP
          WHERE id = ?
         """,
         request.occurredOn(),

@@ -116,7 +116,7 @@ export function environment(handler = () => ({})) {
     return document.emit('pastport:page-shown', { id: name });
   };
   const context = vm.createContext({
-    window, document, URL, AbortController, AbortSignal, console, Intl,
+    window, document, URL, URLSearchParams, AbortController, AbortSignal, console, Intl,
     alert: message => alerts.push(message), confirm: () => true, show,
     setInterval(fn) { const id = Symbol(); intervals.set(id, fn); return id; },
     clearInterval(id) { intervals.delete(id); }

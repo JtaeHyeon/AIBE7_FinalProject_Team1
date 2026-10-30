@@ -19,6 +19,10 @@ public interface ChatService {
   /** 사용자가 판매자 또는 문의자로 참여한 방만 페이지로 조회한다. */
   ChatPageResponse<ChatRoomSummaryResponse> listMyRooms(long actorId, int page, int size);
 
+  /** 인증 참여자의 방을 판매글 ID로 제한한다. 존재하지 않거나 참여하지 않은 글은 빈 페이지다. */
+  ChatPageResponse<ChatRoomSummaryResponse> listMyRooms(
+      long actorId, Long listingId, int page, int size);
+
   /** 방 참여자에게만 메시지 내역을 반환한다. */
   ChatPageResponse<ChatMessageResponse> listMessages(long roomId, long actorId, int page, int size);
 

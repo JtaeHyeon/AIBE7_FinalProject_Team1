@@ -172,6 +172,11 @@ public class InternalTradeOwnershipRepository {
         productId);
   }
 
+  /** SOLD 전환과 같은 트랜잭션에서 정식 이력 공개 메타데이터도 비공개로 맞춘다. 원문·검토 결과는 보존한다. */
+  public void makeHistoryPrivate(long productId) {
+    jdbc.update("UPDATE product_events SET visibility='PRIVATE' WHERE product_id=?", productId);
+  }
+
   public record Product(long ownerId, long factsVersion, boolean archived) {}
 
   public record Transfer(

@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
+/** 채팅방 영속성 포트의 운영 JPA 구현이다. 트랜잭션 경계는 호출 서비스가 관리한다. */
 @Repository
 class JpaChatRoomRepository implements ChatRoomRepository {
 
@@ -29,6 +30,15 @@ class JpaChatRoomRepository implements ChatRoomRepository {
   @Override
   public Page<ChatRoom> findByParticipantId(long participantId, Pageable pageable) {
     return store.findByParticipantId(participantId, pageable).map(this::toDomain);
+  }
+
+  /** 원래 판매자·문의자 참여 관계와 판매글 ID를 DB 페이지 조회에 함께 적용한다. */
+  @Override
+  public Page<ChatRoom> findByParticipantIdAndListingId(
+      long participantId, long listingId, Pageable pageable) {
+    return store
+        .findByParticipantIdAndListingId(participantId, listingId, pageable)
+        .map(this::toDomain);
   }
 
   @Override

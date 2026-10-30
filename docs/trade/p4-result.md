@@ -59,15 +59,15 @@
 | P4-UI01 | 별도 작업 대기 | 양측 확인·상대 대기·변경 재확인·오류/재시도 화면 인수 |
 | P4-INT01 | APPROVAL_BLOCKED + DEPENDENCY_BLOCKED | 정식 ownership/history와 승인 스키마에서 완료·취소 경합, 공개 종료, 증빙 권한 통합 인수 |
 
-## P3 미작성 시험 이월
+## P3 이월 시험 구현 결과
 
 | 관리 ID | 상태 | 보존할 검증 |
 |---|---|---|
-| P3-C01 | CODE_TODO | 예약 취소 중 판매글 ACTIVE 복구 저장 실패 전체 롤백 |
-| P3-C02 | CODE_TODO | 예약 취소 중 감사 INSERT 실패 전체 롤백 |
-| P3-C03 | CODE_TODO | 예약 취소와 다른 PENDING 요청 수락 경합 |
-| P3-C04 | CODE_TODO | 새 이력 등록과 KEEP/CANCEL 경합 |
-| P3-C05 | CODE_TODO | 판매 중지와 예약 취소 경합, CANCELLED 판매글 비복구 |
+| P3-C01 | CODE_READY / NOT_RUN | 예약 취소 중 판매글 ACTIVE 복구 저장 실패 전체 롤백 |
+| P3-C02 | CODE_READY / NOT_RUN | 예약 취소 중 감사 INSERT 실패 전체 롤백 |
+| P3-C03 | CODE_READY / NOT_RUN | 예약 취소와 다른 PENDING 요청 수락 경합 |
+| P3-C04 | CODE_READY / NOT_RUN | 새 이력 등록과 KEEP/CANCEL 경합 |
+| P3-C05 | CODE_READY / NOT_RUN | 판매 중지와 예약 취소 경합, CANCELLED 판매글 비복구 |
 
 ## 준비된 P3 PostgreSQL 시험 이월
 
@@ -79,6 +79,12 @@
 - `storesJsonSnapshotOnceAndKeepsOtherReviewsUnreviewed`
 - `listingShutdownNeverReactivatesCancelledListingAndCancelsAllRequests`
 - `cancellationMetadataConstraintRejectsNullGapsAndKeepsValidCancellationStates`
+- `rollsBackCancellationWhenListingReleaseFails`
+- `rollsBackCancellationWhenAuditInsertFails`
+- `cancellationAndOtherPendingAcceptanceKeepOneValidReservation`
+- `newChangeAndKeepDecisionSerializeWithoutLosingEitherWrite`
+- `newChangeAndCancelDecisionLeaveNoPartialCancellation`
+- `listingShutdownAndCancellationAlwaysLeaveListingCancelled`
 
 ## 기존 외부 대기 유지
 

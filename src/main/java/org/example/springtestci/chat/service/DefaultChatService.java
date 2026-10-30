@@ -76,7 +76,21 @@ public class DefaultChatService implements ChatService {
 
   @Override
   public ChatPageResponse<ChatRoomSummaryResponse> listMyRooms(long actorId, int page, int size) {
-    Page<ChatRoom> rooms = roomRepository.findByParticipantId(actorId, PageRequest.of(page, size));
+    return listMyRooms(actorId, null, page, size);
+  }
+
+  /** 읽기 전용 트랜잭션에서 참여자·판매글 조건을 페이지 분할 전에 적용하고 결과 방의 요약만 일괄 조회한다. */
+  @Override
+  public ChatPageResponse<ChatRoomSummaryResponse> listMyRooms(
+      long actorId, Long listingId, int page, int size) {
+    if (listingId != null && listingId <= 0) {
+      throw new CommonException(ErrorCode.INVALID_INPUT);
+    }
+    Page<ChatRoom> rooms =
+        listingId == null
+            ? roomRepository.findByParticipantId(actorId, PageRequest.of(page, size))
+            : roomRepository.findByParticipantIdAndListingId(
+                actorId, listingId, PageRequest.of(page, size));
     List<Long> roomIds = rooms.stream().map(ChatRoom::roomId).toList();
     Map<Long, ChatMessage> latestMessages =
         messageRepository.findLatestByRoomIds(roomIds).stream()

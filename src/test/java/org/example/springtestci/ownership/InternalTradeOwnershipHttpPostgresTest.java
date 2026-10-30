@@ -128,6 +128,12 @@ class InternalTradeOwnershipHttpPostgresTest {
           super.protectDocuments(product, at);
           fail("documents");
         }
+
+        @Override
+        public void makeHistoryPrivate(long product) {
+          super.makeHistoryPrivate(product);
+          fail("history-publication");
+        }
       };
     }
 
@@ -257,7 +263,7 @@ class InternalTradeOwnershipHttpPostgresTest {
     jdbc.update(
         "INSERT INTO chat_rooms(id,listing_id,seller_id,inquirer_id) VALUES(21,11,1,2),(22,11,1,3)");
     jdbc.update(
-        "INSERT INTO product_events(id,product_id,author_id,event_type,occurred_on,title,content,status) VALUES(601,101,1,'REPAIR',DATE '2026-10-20','private repair','unreviewed content','VALID')");
+        "INSERT INTO product_events(id,product_id,author_id,event_type,occurred_on,title,content,status,visibility) VALUES(601,101,1,'REPAIR',DATE '2026-10-20','private repair','unreviewed content','VALID','PUBLIC')");
     jdbc.update(
         "INSERT INTO documents(id,product_id,uploader_id,object_key,content_type,byte_size,version,mask_confirmed_at) VALUES(501,101,1,'masked-test-copy.png','image/png',100,1,CURRENT_TIMESTAMP)");
     var draft =
@@ -434,7 +440,16 @@ class InternalTradeOwnershipHttpPostgresTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"transfer", "owner", "history", "documents", "audit", "trade-audit"})
+  @ValueSource(
+      strings = {
+        "transfer",
+        "owner",
+        "history",
+        "history-publication",
+        "documents",
+        "audit",
+        "trade-audit"
+      })
   void everyCompletionWriteFailureRollsBackAllDomainsAndAllowsRetry(String phase) throws Exception {
     reserve();
     assertEquals(200, complete(1, 7).statusCode());
@@ -637,6 +652,7 @@ class InternalTradeOwnershipHttpPostgresTest {
   }
 
   private void assertReserved(int confirmations) {
+    assertEquals(1, count("product_events", "id=601 AND visibility='PUBLIC'"));
     assertEquals("RESERVED", listingStatus());
     assertEquals(1, owner());
     assertEquals(7, version());
@@ -656,6 +672,7 @@ class InternalTradeOwnershipHttpPostgresTest {
   }
 
   private void assertCompleted() {
+    assertEquals(0, count("product_events", "product_id=101 AND visibility<>'PRIVATE'"));
     assertEquals("SOLD", listingStatus());
     assertEquals(2, owner());
     assertEquals(8, version());

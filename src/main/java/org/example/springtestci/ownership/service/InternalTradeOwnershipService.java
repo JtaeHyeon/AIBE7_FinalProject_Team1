@@ -123,6 +123,8 @@ public class InternalTradeOwnershipService
           transfer.id(),
           LocalDate.ofInstant(c.completedAt(), clock.getZone()),
           c.completedAt());
+      // 이력 담당의 정식 visibility 컬럼을 함께 종료한다. 이후 실패 시 기존 PUBLIC 상태도 복원된다.
+      repository.makeHistoryPrivate(c.productId());
       repository.protectDocuments(c.productId(), c.completedAt());
       // 필수 초안 정리는 동기 처리한다. 어느 후처리나 상위 거래 감사가 실패해도 전체를 롤백한다.
       events.publishEvent(new OwnershipTransferred(c.productId(), c.fromUserId(), c.toUserId()));

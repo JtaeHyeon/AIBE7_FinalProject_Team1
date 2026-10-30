@@ -4,11 +4,14 @@
   let data = null;
   let loading = false;
   let initialized = false;
+  let chatList = null;
   const currentId = () => new URL(window.location.href).searchParams.get('listingId');
   const find = selector => document.querySelector('#detail ' + selector);
 
   /** 조회 실패·계정 변경 시 이전 판매글의 채팅 클릭 연결을 제거한다. */
   function resetChat() {
+    chatList?.dispose(); chatList = null;
+    const section = find('[data-listing-chats]'); if (section) section.hidden = true;
     const button = find('[data-listing-chat]');
     if (!button) return;
     button.hidden = true;
@@ -18,6 +21,21 @@
 
   /** 구매자의 문의 진입을 연결한다. 호출 모듈이 요청 이후 계정·화면 변경도 검사하며, 예약 중 접근은 서버가 제한한다. */
   function bindChat(listing) {
+    resetChat();
+    if (listing.canManage) {
+      const section = find('[data-listing-chats]');
+      const root = find('[data-listing-chat-rooms]');
+      if (!section || !root || !window.PastportChatRoomList) return;
+      section.hidden = false;
+      chatList = window.PastportChatRoomList.mount(root, {
+        listingId: listing.listingId,
+        onSelect: room => {
+          if (data === listing && currentId() === String(listing.listingId) && document.querySelector('#detail.active')) window.PastportDeals?.openSummary(room);
+        }
+      });
+      chatList.load();
+      return;
+    }
     const button = find('[data-listing-chat]');
     if (!button || listing.canManage || !['ACTIVE', 'RESERVED'].includes(listing.status)) return;
     button.hidden = false;
@@ -108,9 +126,10 @@
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
   document.addEventListener('pastport:page-shown', event => {
     if (event.detail.id === 'detail') { load(); return; }
+    request?.abort(); resetChat();
     // 상세를 떠나면 주소의 판매글 번호를 지워, 새로고침 때 상세로 되돌아오지 않게 한다.
     const url = new URL(window.location.href);
-    if (url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
+    if (event.detail.id !== 'auth' && url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
   });
   document.addEventListener('pastport:auth-changed', () => {
     request?.abort(); data = null;

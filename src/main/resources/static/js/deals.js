@@ -4,7 +4,9 @@
   let currentRoom = null;
   let currentUserId = null;
   let polling = null;
-  let rooms = [];
+  let roomList = null;
+  let pendingEntry = null;
+  let opening = null;
   let roomSequence = 0;
   let roomScope = null;
   let roomsGeneration = 0;
@@ -45,7 +47,7 @@
   }
 
   /** 마지막 목록 조회의 성공·실패만 표시한다. 계정 변경 전에 시작한 응답은 화면과 사용자 ID를 바꾸지 못한다. */
-  async function loadRooms() {
+  async function loadRooms(entry = null) {
     const container = find('[data-deals-rooms]');
     if (!container || !document.querySelector('#deals.active')) return false;
     const generation = ++roomsGeneration;
@@ -53,6 +55,8 @@
     const controller = new AbortController();
     roomsController = controller;
     const isCurrent = () => generation === roomsGeneration && !controller.signal.aborted;
+    roomList?.dispose(); roomList = null;
+    closeRoom();
     try {
       const userId = await initUser(controller.signal);
       if (!isCurrent()) return false;
@@ -61,14 +65,13 @@
         container.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--muted)"><p style="margin-bottom:8px">로그인이 필요한 서비스입니다.</p><button type="button" class="sc-btn primary sm" data-page="auth">로그인하기</button></div>';
         return false;
       }
-      const data = await api('/api/v1/chat-rooms?page=0&size=50', { method: 'GET', signal: controller.signal });
-      if (!isCurrent()) return false;
-      rooms = data?.items || [];
-      if (rooms.length === 0) {
-        container.innerHTML = '<p class="sub" style="padding:40px 20px;text-align:center;color:var(--muted)">진행 중인 대화가 없습니다.<br><small style="margin-top:6px;display:inline-block">마켓에서 관심 있는 상품에 문의해 보세요!</small></p>';
-        return true;
-      }
-      renderRoomList();
+      find('[data-deals-scope]').textContent = entry ? (entry.listingTitle || '이 판매글') + ' · 채팅' : '전체 채팅';
+      find('[data-deals-all]').hidden = !entry;
+      const list = window.PastportChatRoomList.mount(container, { listingId: entry?.listingId, onSelect: selectRoom });
+      roomList = list;
+      await list.load();
+      if (!isCurrent() || roomList !== list) return false;
+      if (entry?.roomId) await selectRoom(entry);
       return true;
     } catch (e) {
       if (!isCurrent() || e.name === 'AbortError') return false;
@@ -88,10 +91,17 @@
     roomsGeneration++;
     roomsController?.abort();
     cancelOpen();
+    pendingEntry = null;
+    roomList?.dispose(); roomList = null;
     closeRoom();
-    currentUserId = null; rooms = [];
+    currentUserId = null;
     find('[data-deals-rooms]')?.replaceChildren();
     find('[data-deals-messages]')?.replaceChildren();
+    find('[data-deals-room-title]')?.replaceChildren();
+    const label = find('[data-deals-scope]'); if (label) label.textContent = '전체 채팅';
+    const all = find('[data-deals-all]'); if (all) all.hidden = true;
+    const input = find('[data-deals-input]'); if (input) input.value = '';
+    const title = find('[data-deals-info-title]'); if (title) title.textContent = '';
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
     const infoSection = find('[data-deals-info]'); if (infoSection) infoSection.style.display = 'none';
   }
@@ -107,26 +117,7 @@
 
   /** 서버가 허용한 대화 목록을 그린다. 판매글 상태와 상대방 문자열은 화면 출력용으로만 사용한다. */
   function renderRoomList() {
-    const container = find('[data-deals-rooms]');
-    if (!container) return;
-    container.replaceChildren(...rooms.map((room) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'dl-row' + (currentRoom?.roomId === room.roomId ? ' on' : '');
-      const dateStr = room.latestMessageAt ? new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date(room.latestMessageAt)) : '';
-      btn.innerHTML = `
-        <span class="laptop"></span>
-        <span>
-          <b>${escapeHtml(room.counterpartyNickname || '상대방')} <time>${dateStr}</time></b>
-          <span class="t">${escapeHtml(room.listingTitle || '판매글')}</span>
-          <span class="m">${escapeHtml(room.latestMessagePreview || '대화를 시작해 보세요')}</span>
-          <span class="tags"><span class="sc-badge ${statusClass(room.listingStatus)}">${statusLabel(room.listingStatus)}</span></span>
-        </span>
-        ${room.hasUnreadMessages ? '<i class="dl-dot" aria-label="새 메시지"></i>' : ''}
-      `;
-      btn.addEventListener('click', () => selectRoom(room));
-      return btn;
-    }));
+    roomList?.select(currentRoom?.roomId);
   }
 
   /** 선택한 방마다 조회 범위를 새로 만든다. 이전 방의 응답과 finally 처리는 새 방의 갱신을 막지 못한다. */
@@ -135,8 +126,11 @@
     roomScope?.controller.abort();
     const sequence = ++roomSequence;
     currentRoom = room;
-    const scope = { room, sequence, userId: currentUserId, controller: new AbortController() };
+    const scope = { room, sequence, userId: currentUserId, controller: new AbortController(), sending: false };
     roomScope = scope;
+    find('[data-deals-messages]')?.replaceChildren();
+    const input = find('[data-deals-input]'); if (input) input.value = '';
+    const send = find('[data-deals-send]'); if (send) send.disabled = false;
     window.PastportTradeCompletion?.clear();
     find('[data-deals-completion]')?.setAttribute('hidden', '');
     find('.dl')?.classList.add('dl-has-room');
@@ -186,11 +180,15 @@
 
       if (messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
-        api(`/api/v1/chat-rooms/${roomId}/read-position`, {
+        await api(`/api/v1/chat-rooms/${roomId}/read-position`, {
           method: 'PUT',
           signal: scope.controller.signal,
           body: JSON.stringify({ lastReadMessageId: lastMsg.messageId })
-        }).catch(() => {});
+        });
+        if (roomCurrent(scope)) {
+          scope.room.hasUnreadMessages = false;
+          roomList?.markRead(roomId);
+        }
       }
     } catch (e) {
       if (!roomCurrent(scope) || e.name === 'AbortError') return;
@@ -355,10 +353,12 @@
   async function sendMessage() {
     const input = find('[data-deals-input]');
     const scope = roomScope;
-    if (!input || !scope || !roomCurrent(scope)) return;
+    if (!input || !scope || !roomCurrent(scope) || scope.sending) return;
     const content = input.value.trim();
     if (!content) return;
     input.value = '';
+    scope.sending = true;
+    const button = find('[data-deals-send]'); if (button) button.disabled = true;
 
     try {
       await api(`/api/v1/chat-rooms/${scope.room.roomId}/messages`, {
@@ -371,6 +371,9 @@
       if (!roomCurrent(scope)) return;
       if (e.status === 401) resetDeals();
       alert('메시지 전송에 실패했습니다: ' + e.message);
+    } finally {
+      scope.sending = false;
+      if (roomCurrent(scope) && button) button.disabled = false;
     }
   }
 
@@ -422,8 +425,10 @@
 
   /** 페이지가 로드되면 대화 이동·전송 버튼을 연결한다. */
   function init() {
-    find('[data-deals-back]')?.addEventListener('click', closeRoom);
     const sendBtn = find('[data-deals-send]');
+    if (!sendBtn || sendBtn.dataset.bound) return;
+    sendBtn.dataset.bound = 'true';
+    find('[data-deals-back]')?.addEventListener('click', closeRoom);
     const input = find('[data-deals-input]');
     sendBtn?.addEventListener('click', sendMessage);
     find('[data-deals-leave]')?.addEventListener('click', leaveRoom);
@@ -446,10 +451,12 @@
   function cancelOpen() {
     openGeneration++;
     openController?.abort();
+    opening = null;
   }
 
   /** 상세에서 시작한 문의만 연다. POST와 목록 조회 후에도 같은 계정·이동 요청인지 확인한다. */
   async function openRoomForListing(listingId) {
+    if (opening) return;
     cancelOpen();
     const generation = openGeneration;
     const session = sessionGeneration;
@@ -457,45 +464,59 @@
     if (sourceId !== String(listingId) || !document.querySelector('#detail.active')) return;
     const controller = new AbortController();
     openController = controller;
+    opening = { generation };
     const isCurrent = () => generation === openGeneration && session === sessionGeneration && !controller.signal.aborted;
     try {
       const room = await api(`/api/v1/market/listings/${listingId}/chat-rooms`, { method: 'POST', signal: controller.signal });
       if (!isCurrent() || new URL(window.location.href).searchParams.get('listingId') !== sourceId || !document.querySelector('#detail.active')) return;
-      if (typeof show === 'function') show('deals');
-      const loaded = await loadRooms();
-      if (!loaded || !isCurrent() || !document.querySelector('#deals.active')) return;
-      const target = rooms.find(r => r.roomId === room.roomId);
-      if (target) selectRoom(target);
+      const data = await api(`/api/v1/chat-rooms?listingId=${listingId}&page=0&size=20`, { signal: controller.signal });
+      if (!isCurrent() || new URL(window.location.href).searchParams.get('listingId') !== sourceId || !document.querySelector('#detail.active')) return;
+      const summary = data.items.find(item => item.roomId === room.roomId);
+      if (!summary) throw new Error('대화방 정보를 확인하지 못했어요. 다시 시도해 주세요.');
+      openSummary(summary);
     } catch (e) {
       if (!isCurrent() || e.name === 'AbortError') return;
       alert('채팅방을 열 수 없습니다: ' + e.message);
+    } finally {
+      if (opening?.generation === generation) opening = null;
     }
+  }
+
+  /** 판매자의 판매글별 목록에서 고른 방을 같은 범위로 연다. 전체 채팅 진입은 이 범위를 초기화한다. */
+  function openSummary(room) {
+    cancelOpen();
+    pendingEntry = room;
+    if (typeof show === 'function') show('deals');
+  }
+
+  /** 최초 HTML 로드가 늦어도 진입 대상을 유지하고, 화면이 준비되면 한 번만 목록을 연다. */
+  function activate() {
+    if (!document.querySelector('#deals.active') || !find('[data-deals-rooms]')) return;
+    const entry = pendingEntry; pendingEntry = null;
+    init();
+    return loadRooms(entry);
   }
 
   document.addEventListener('pastport:page-loaded', (e) => {
     if (e.detail.id === 'deals') {
-      init();
-      loadRooms();
+      activate();
     }
   });
 
   document.addEventListener('pastport:page-shown', (e) => {
     if (e.detail.id === 'deals') {
-      loadRooms();
+      activate();
     } else {
-      roomsGeneration++;
-      roomsController?.abort();
-      cancelOpen();
-      closeRoom();
+      resetDeals();
     }
   });
 
   document.addEventListener('pastport:auth-changed', (event) => {
     resetDeals();
-    if (event.detail?.signedIn && document.querySelector('#deals.active')) loadRooms();
+    if (event.detail?.signedIn && document.querySelector('#deals.active')) activate();
   });
 
   window.PastportDeals = Object.freeze({
-    openRoomForListing
+    openRoomForListing, openSummary
   });
 })();

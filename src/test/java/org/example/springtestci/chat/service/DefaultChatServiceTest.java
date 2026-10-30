@@ -255,6 +255,24 @@ class DefaultChatServiceTest {
     return new ChatRoom(ROOM_ID, LISTING_ID, SELLER_ID, BUYER_ID, NOW);
   }
 
+  @Test
+  void listingFilterUsesParticipantRepositoryBeforeBuildingSummaries() {
+    PageRequest pageable = PageRequest.of(0, 20);
+    when(roomRepository.findByParticipantIdAndListingId(BUYER_ID, LISTING_ID, pageable))
+        .thenReturn(new PageImpl<>(List.of(room()), pageable, 1));
+    var response = service.listMyRooms(BUYER_ID, LISTING_ID, 0, 20);
+    assertEquals(LISTING_ID, response.items().get(0).listingId());
+    verify(roomRepository).findByParticipantIdAndListingId(BUYER_ID, LISTING_ID, pageable);
+    verify(roomRepository, never()).findByParticipantId(BUYER_ID, pageable);
+  }
+
+  @Test
+  void rejectsNonPositiveListingFilter() {
+    CommonException exception =
+        assertThrows(CommonException.class, () -> service.listMyRooms(BUYER_ID, 0L, 0, 20));
+    assertEquals(ErrorCode.INVALID_INPUT, exception.errorCode());
+  }
+
   private ChatListingSnapshot activeListing() {
     return new ChatListingSnapshot(
         LISTING_ID, SELLER_ID, 1L, SELLER_ID, ChatListingStatus.ACTIVE, "노트북");

@@ -4,7 +4,6 @@
 .nav-drop button.active{background:var(--blue-50)}
 .nav-drop b{font-weight:600;color:#4f5156}
 .nav-drop button.active b{font-weight:800;color:var(--blue)}
-.side,.mobile-menu{display:none!important}.main{margin-left:0!important}
 /* 하위 메뉴는 가로 스크롤 영역에 잘리지 않도록 JS에서 화면 좌표를 지정한다. */
 .site-header .landing-nav .nav-item>.nav-drop{display:none;position:fixed;min-width:0;width:270px;max-width:calc(100vw - 16px);overflow:auto;overscroll-behavior:contain}
 .site-header .landing-nav .nav-item[data-submenu-open]>.nav-drop{display:block}

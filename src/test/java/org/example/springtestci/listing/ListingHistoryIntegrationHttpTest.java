@@ -73,6 +73,7 @@ class ListingHistoryIntegrationHttpTest {
   private static final AtomicBoolean AI_FAILURE = new AtomicBoolean();
   private static final AtomicInteger REVIEW_CALLS = new AtomicInteger();
   private static final AtomicBoolean REVIEW_FAILURE = new AtomicBoolean();
+  private static final AtomicBoolean REFRESH_LOOKUP_FAILURE = new AtomicBoolean();
   private static final AtomicBoolean REVIEW_IN_TRANSACTION = new AtomicBoolean();
   private static final AtomicReference<Long> REVIEW_VERSION = new AtomicReference<>();
   private static final AtomicReference<JsonNode> REVIEW_SNAPSHOT = new AtomicReference<>();
@@ -105,6 +106,21 @@ class ListingHistoryIntegrationHttpTest {
           AI_CALLS.incrementAndGet();
           if (AI_FAILURE.get()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
           return List.of("18GB 메모리와 512GB SSD를 갖춘 제품입니다.");
+        }
+      };
+    }
+
+    /** 이력 저장 SQL과 분리해 커밋 이후 요약 대상 조회 장애만 재현한다. */
+    @Bean
+    @Primary
+    ListingSummaryRepository historySummaryRepository(JdbcTemplate jdbc) {
+      return new ListingSummaryRepository(jdbc) {
+        @Override
+        public List<Long> publicListingsForProduct(long productId) {
+          if (REFRESH_LOOKUP_FAILURE.get()) {
+            throw new IllegalStateException("Summary refresh lookup fixture failure");
+          }
+          return super.publicListingsForProduct(productId);
         }
       };
     }
@@ -200,6 +216,7 @@ class ListingHistoryIntegrationHttpTest {
     AI_FAILURE.set(false);
     REVIEW_CALLS.set(0);
     REVIEW_FAILURE.set(false);
+    REFRESH_LOOKUP_FAILURE.set(false);
     REVIEW_IN_TRANSACTION.set(false);
     REVIEW_VERSION.set(null);
     REVIEW_SNAPSHOT.set(null);
@@ -509,12 +526,12 @@ class ListingHistoryIntegrationHttpTest {
   void anUnavailableRefreshLookupDoesNotTurnACommittedHistoryRequestIntoAnError() throws Exception {
     readySummary();
     var attempt = summaries().read(11).attemptId();
+    REFRESH_LOOKUP_FAILURE.set(true);
     long id;
-    jdbc.execute("ALTER TABLE listings RENAME TO unavailable_history_listings");
     try {
       id = createInspection();
     } finally {
-      jdbc.execute("ALTER TABLE unavailable_history_listings RENAME TO listings");
+      REFRESH_LOOKUP_FAILURE.set(false);
     }
     assertEquals(8, factsVersion());
     assertEquals(
