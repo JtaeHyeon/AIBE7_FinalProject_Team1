@@ -14,6 +14,7 @@
   </section>
 
   <section class="dl-chat" aria-label="대화" data-deals-chat-section style="display:none">
+    <button type="button" class="sc-btn sm dl-back" data-deals-back>대화 목록</button>
     <div class="dl-top" data-deals-chat-top>
       <span class="laptop"></span>
       <div data-deals-room-title><b>대화방</b><span>상대방과의 대화</span></div>
@@ -28,7 +29,9 @@
       <span class="now" data-flow-step="inquiry">문의</span>
       <span data-flow-step="pending">구매 요청</span>
       <span data-flow-step="reserved">예약 완료</span>
+      <span data-flow-step="completed">거래 완료</span>
     </div>
+    <section class="dl-completion" data-deals-completion aria-label="거래 완료 확인" hidden></section>
     <div class="dl-msgs" data-deals-messages>
       <!-- 메시지 목록이 동적으로 들어옵니다 -->
     </div>
@@ -44,16 +47,35 @@
       <div class="dl-kv"><span>판매글</span><b data-deals-info-title>–</b></div>
       <div class="dl-kv"><span>판매 가격</span><b data-deals-info-price>–</b></div>
       <div class="dl-kv"><span>예약 상태</span><b data-deals-info-trade-status>문의 진행 중</b></div>
-      <div style="margin-top:16px;display:grid;gap:8px" data-deals-transfer-area hidden>
-        <button type="button" class="sc-btn primary block" data-deals-btn-transfer>소유권 이전 링크/QR 발급</button>
-        <p class="sub" style="margin:0;font-size:12px;color:var(--muted)">구매자에게 제품을 건넬 때 링크나 QR을 보여주세요.</p>
-      </div>
       <div class="sc-note info" style="margin-top:12px"><i>i</i><span>구매 요청을 판매자가 수락하면 다른 구매자의 추가 예약이 차단되고 안전하게 예약 상태가 됩니다.</span></div>
     </section>
   </aside>
 </div>
 
 <style>
+.dl-completion{padding:16px 20px;background:var(--paper,#fff);border-bottom:1px solid var(--line);font-size:14px;max-height:55vh;overflow:auto}
+.dl-completion[hidden]{display:none}
+.dl-completion h3{font-size:16px;margin:0 0 8px}
+.dl-completion p{margin:8px 0;line-height:1.5;overflow-wrap:anywhere}
+.dl-completion details{margin:12px 0}
+.dl-completion summary{cursor:pointer;font-weight:600}
+.dl-completion ul{padding-left:20px;margin:8px 0;line-height:1.6}
+.dl-completion-ack{display:flex;align-items:flex-start;gap:8px;margin:12px 0;line-height:1.5}
+.dl-completion-ack input{width:16px;height:16px;margin:3px 0 0;flex:none}
+.dl-completion-actions{display:flex;flex-wrap:wrap;gap:8px}
+.dl-completion-change{padding:8px 0;border-bottom:1px solid var(--line)}
+.dl-completion-error{color:#9c2929}
+.dl-completion select{display:block;width:100%;margin:8px 0;padding:8px;font:inherit;border:1px solid var(--line);background:white;color:inherit}
+.dl-completion button:disabled{opacity:1;color:#60666c;background:#eef0f2;cursor:default}
+.dl-back{display:none}
+.dl-request-btn[hidden]{display:none}
+@media(max-width:860px){
+  #deals .dl-has-room .dl-list{display:none}
+  #deals .dl:not(.dl-has-room) .dl-chat{display:none!important}
+  #deals .dl-info{border-left:0;border-top:1px solid var(--line)}
+  .dl-back{display:block;align-self:flex-start;margin:12px 16px}
+  .dl-completion{padding:14px 16px;max-height:60vh}
+}
 .dl-request-btn {
   display: inline-flex;
   align-items: center;
@@ -62,19 +84,15 @@
   font-size: 13px;
   font-weight: 600;
   color: #fff;
-  background: var(--blue, #2563eb);
+  background: var(--ink, #242a2e);
   border: none;
   border-radius: 9999px;
   cursor: pointer;
   white-space: nowrap;
   letter-spacing: -0.2px;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
-  transition: all 0.18s ease;
 }
 .dl-request-btn:hover {
-  background: #1d4ed8;
-  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.35);
-  transform: translateY(-1px);
+  background: #181d22;
 }
 .dl-request-btn svg {
   flex-shrink: 0;

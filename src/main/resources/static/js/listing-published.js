@@ -8,36 +8,60 @@
   const currentId = () => new URL(window.location.href).searchParams.get('listingId');
   const find = selector => document.querySelector('#detail ' + selector);
 
-  function clearChat() {
+  /** 조회 실패·계정 변경 시 이전 판매글의 채팅 클릭 연결을 제거한다. */
+  function resetChat() {
     chatList?.dispose(); chatList = null;
     const section = find('[data-listing-chats]'); if (section) section.hidden = true;
-    const button = find('[data-listing-chat]'); if (button) { button.hidden = true; button.onclick = null; }
+    const button = find('[data-listing-chat]');
+    if (!button) return;
+    button.hidden = true;
+    button.disabled = false;
+    button.onclick = null;
   }
 
-  function bindChat(detail) {
-    clearChat();
-    if (detail.canManage) {
-      find('[data-listing-chats]').hidden = false;
-      chatList = window.PastportChatRoomList.mount(find('[data-listing-chat-rooms]'), {
-        listingId: detail.listingId,
-        onSelect: room => window.PastportDeals.openSummary(room)
+  /** 구매자의 문의 진입을 연결한다. 호출 모듈이 요청 이후 계정·화면 변경도 검사하며, 예약 중 접근은 서버가 제한한다. */
+  function bindChat(listing) {
+    resetChat();
+    if (listing.canManage) {
+      const section = find('[data-listing-chats]');
+      const root = find('[data-listing-chat-rooms]');
+      if (!section || !root || !window.PastportChatRoomList) return;
+      section.hidden = false;
+      chatList = window.PastportChatRoomList.mount(root, {
+        listingId: listing.listingId,
+        onSelect: room => {
+          if (data === listing && currentId() === String(listing.listingId) && document.querySelector('#detail.active')) window.PastportDeals?.openSummary(room);
+        }
       });
       chatList.load();
-    } else if (detail.status === 'ACTIVE') {
-      const button = find('[data-listing-chat]'); button.hidden = false;
-      button.onclick = async () => {
-        if (button.disabled) return;
-        button.disabled = true;
-        try { await window.PastportDeals.openRoomForListing(detail.listingId); }
-        finally { button.disabled = false; }
-      };
+      return;
     }
+    const button = find('[data-listing-chat]');
+    if (!button || listing.canManage || !['ACTIVE', 'RESERVED'].includes(listing.status)) return;
+    button.hidden = false;
+    const label = listing.status === 'RESERVED' ? '기존 문의 대화 이어가기' : '판매자에게 채팅 문의하기';
+    button.textContent = label;
+    button.onclick = async () => {
+      if (button.disabled || data?.listingId !== listing.listingId || currentId() !== String(listing.listingId)) return;
+      const openRoom = window.PastportDeals?.openRoomForListing;
+      if (!openRoom) {
+        find('[data-listing-status]').textContent = '채팅 화면을 준비하지 못했어요. 새로고침 후 다시 시도해 주세요.';
+        return;
+      }
+      button.disabled = true;
+      button.textContent = '대화방을 여는 중이에요…';
+      try { await openRoom(listing.listingId); }
+      finally {
+        // 다른 글이나 계정으로 전환된 뒤 도착한 결과가 새 버튼 상태를 바꾸지 않도록 한다.
+        if (data === listing) { button.disabled = false; button.textContent = label; }
+      }
+    };
   }
 
-  // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
+  /** URL의 판매글을 조회하고 이력 다음 페이지를 합친다. 권한 오류와 이전 글의 지연 응답을 구분한다. */
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
-    clearChat();
+    resetChat();
     window.PastportProductQuestions?.clear('listings');
     window.PastportListingSummary?.reset();
     window.PastportListingManagement?.reset();
@@ -67,9 +91,9 @@
       const next = payload.data;
       if (append && data) next.history.items = [...new Map([...data.history.items, ...next.history.items].map(item => [item.eventId,item])).values()];
       data = next; window.PastportListingDetail.render(find('[data-listing-content]'), data);
+      bindChat(data);
       window.PastportProductQuestions?.mount(find('[data-listing-content]'), {scope:'listings', id:data.listingId});
       window.PastportListingManagement?.bind(data);
-      bindChat(data);
       window.PastportListingSummary?.bind(data);
       find('[data-listing-status]').textContent = '게시된 판매글이에요. 판매 중·예약 중인 글은 로그인한 회원이 확인할 수 있어요.';
       find('[data-listing-more]').hidden = !data.history.page.hasNext;
@@ -83,13 +107,14 @@
     } finally { if (!controller.signal.aborted) { loading = false; find('[data-listing-more]').disabled = false; } }
   }
 
-  // 작성용 제품 주소를 게시글 주소로 바꿔 새로고침해도 같은 상세를 다시 열 수 있게 한다.
+  /** 게시된 판매글 주소로 전환해 새로고침 시 같은 상세와 관리 여부를 복원한다. */
   function open(id, options = {}) {
     const url = new URL(window.location.href); url.searchParams.delete('draftProduct'); url.searchParams.delete('market'); url.searchParams.set('listingId', String(id));
     options.manage ? url.searchParams.set('listingManage', '1') : url.searchParams.delete('listingManage');
     window.history.replaceState(window.history.state, '', url);
     if (typeof show === 'function') show('detail');
   }
+  /** 늦게 로드된 상세 HTML에 재조회·로그인·이력 페이지 버튼을 한 번만 연결한다. */
   function init() {
     if (initialized || !find('[data-listing-content]')) return;
     initialized = true;
@@ -101,14 +126,14 @@
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
   document.addEventListener('pastport:page-shown', event => {
     if (event.detail.id === 'detail') { load(); return; }
-    request?.abort(); clearChat();
+    request?.abort(); resetChat();
     // 상세를 떠나면 주소의 판매글 번호를 지워, 새로고침 때 상세로 되돌아오지 않게 한다.
     const url = new URL(window.location.href);
     if (event.detail.id !== 'auth' && url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
   });
   document.addEventListener('pastport:auth-changed', () => {
     request?.abort(); data = null;
-    clearChat();
+    resetChat();
     window.PastportListingManagement?.reset(); window.PastportListingSummary?.reset();
     find('[data-listing-content]')?.replaceChildren();
     if (document.querySelector('#detail.active') && currentId()) load();

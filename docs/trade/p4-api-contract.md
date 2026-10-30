@@ -37,6 +37,6 @@
 
 ## 외부 완료 책임
 
-`InternalTradeCompletionPort.complete(Command)`는 동일 DB 트랜잭션에서 제품 소유자 이전, ownership 이전 상태 확정, 시스템 TRANSFER 이력, 누적 이력 PRIVATE 및 관련 승계 정책을 처리해야 한다. 운영 구현이나 no-op 대체 Bean은 이 저장소에 제공하지 않는다. P4를 활성화했는데 정식 Bean이 없으면 애플리케이션 시작이 실패한다.
+`InternalTradeCompletionPort.complete(Command)`는 동일 DB 트랜잭션에서 제품 소유자 이전, ownership 이전 상태 확정, 시스템 TRANSFER 이력, 누적 이력의 공개 종료 및 관련 승계 정책을 처리한다. 정식 `InternalTradeOwnershipService`가 P2가 켜진 환경에 등록되며 P4가 호출한다. 같은 서비스가 P2 이전 대기 생성도 제공한다. [정식 연결과 검증 결과](../INTERNAL_TRADE_OWNERSHIP_INTEGRATION.md)를 따른다.
 
 `Command`는 `productId`, `purchaseRequestId`, `listingId`, `fromUserId`, `toUserId`, `actorId`, `confirmedFactsVersion`, `completedAt`을 전달한다. 외부 구현 실패, 거래 저장 실패 또는 감사 실패는 예외를 전파해 전체 트랜잭션을 롤백해야 한다.

@@ -10,6 +10,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -116,6 +117,14 @@ class OwnershipTransferServiceTest {
     assertThatThrownBy(() -> service.createTransfer(999L, request))
         .isInstanceOf(CommonException.class)
         .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+  }
+
+  @Test
+  void externalTransferCannotBindAClientSuppliedPurchaseRequest() {
+    assertThatThrownBy(() -> service.createTransfer(1L, new CreateTransferRequest(10L, 2L, 123L)))
+        .isInstanceOf(CommonException.class)
+        .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_INPUT);
+    verifyNoInteractions(productRepository, transferRepository, tradeAuditRepository, events);
   }
 
   @Test
