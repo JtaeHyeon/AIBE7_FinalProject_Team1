@@ -5,6 +5,8 @@
   let currentUserId = null;
   let pollingTimer = null;
   let rooms = [];
+  let roomSequence = 0;
+  let pollingBusy = false;
 
   const find = (selector) => document.querySelector('#deals ' + selector);
   const findAll = (selector) => document.querySelectorAll('#deals ' + selector);
@@ -17,6 +19,7 @@
     if (!response.ok) {
       const error = new Error(payload?.message || payload?.fieldErrors?.[0]?.message || '요청 처리에 실패했습니다.');
       error.status = response.status;
+      error.code = payload?.code;
       throw error;
     }
     return payload?.data;
@@ -54,13 +57,13 @@
 
   // 글이 삭제됐거나(상태 없음) 판매 중지된 방은 구매 요청·소유권 이전을 막는다. 대화는 명세대로 계속할 수 있다.
   const isClosed = (status) => !status || status === 'CANCELLED';
-  const statusLabel = (status) => ({ ACTIVE: '판매 중', RESERVED: '예약 중', SOLD: '판매 완료' }[status] || '삭제·종료된 글');
+  const statusLabel = (status) => ({ ACTIVE: '판매 중', RESERVED: '예약 중', SOLD: '판매 완료', CANCELLED: '판매 중지' }[status] || '삭제·종료된 글');
   const statusClass = (status) => (status === 'RESERVED' ? 'warn' : status === 'ACTIVE' ? 'ok' : '');
 
   // 로그아웃·세션 만료 시 열려 있던 대화와 3초 갱신을 모두 끊고 화면을 비운다.
   function resetDeals() {
-    stopPolling();
-    currentRoom = null; currentUserId = null; rooms = [];
+    closeRoom();
+    currentUserId = null; rooms = [];
     find('[data-deals-rooms]')?.replaceChildren();
     find('[data-deals-messages]')?.replaceChildren();
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
@@ -69,9 +72,7 @@
 
   // 열려 있는 대화를 닫고 목록으로 돌아간다. 대화 기록은 지우지 않고, 방은 목록에 그대로 남는다.
   function leaveRoom() {
-    if (!currentRoom) return;
-    stopPolling();
-    currentRoom = null;
+    closeRoom();
     find('[data-deals-messages]')?.replaceChildren();
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
     const infoSection = find('[data-deals-info]'); if (infoSection) infoSection.style.display = 'none';
@@ -102,7 +103,12 @@
   }
 
   async function selectRoom(room) {
+    stopPolling();
+    const sequence = ++roomSequence;
     currentRoom = room;
+    window.PastportTradeCompletion?.clear();
+    find('[data-deals-completion]')?.setAttribute('hidden', '');
+    find('.dl')?.classList.add('dl-has-room');
     renderRoomList();
 
     const chatSection = find('[data-deals-chat-section]');
@@ -119,16 +125,14 @@
       statusEl.textContent = statusLabel(room.listingStatus);
       statusEl.className = 'sc-badge ' + statusClass(room.listingStatus);
     }
-    const closed = isClosed(room.listingStatus);
 
     find('[data-deals-info-title]').textContent = room.listingTitle || '–';
+    find('[data-deals-info-price]').textContent = '–';
+    const buyBtn = find('[data-deals-request-buy]');
+    if (buyBtn) buyBtn.hidden = true;
 
     await loadMessages(room.roomId);
-    if (closed) {
-      const buyBtn = find('[data-deals-request-buy]'); if (buyBtn) buyBtn.hidden = true;
-      const transferArea = find('[data-deals-transfer-area]'); if (transferArea) transferArea.hidden = true;
-      return;
-    }
+    if (sequence !== roomSequence || currentRoom?.roomId !== room.roomId) return;
     await checkPurchaseRequest(room);
 
     startPolling();
@@ -138,6 +142,7 @@
     try {
       const data = await api(`/api/v1/chat-rooms/${roomId}/messages?page=0&size=50`, { method: 'GET' });
       const messages = (data?.items || []).reverse();
+      if (currentRoom?.roomId !== roomId) return;
       renderMessages(messages);
 
       if (messages.length > 0) {
@@ -170,87 +175,79 @@
     container.scrollTop = container.scrollHeight;
   }
 
+  // 송수신 방향으로 역할을 구분한다. 사용자 ID를 요청 본문에서 지정하지 않는다.
   async function checkPurchaseRequest(room) {
+    if (currentRoom?.roomId !== room.roomId) return;
+    const sequence = roomSequence;
+    const userId = currentUserId;
+    const isCurrent = () => currentRoom?.roomId === room.roomId && roomSequence === sequence && currentUserId === userId;
     const buyBtn = find('[data-deals-request-buy]');
-    const infoStatus = find('[data-deals-info-trade-status]');
-    const flowSteps = findAll('[data-flow-step]');
-
-    const setStep = (step) => {
-      flowSteps.forEach(el => {
-        el.className = el.dataset.flowStep === step ? 'now' : '';
-      });
-    };
-
+    if (buyBtn) buyBtn.hidden = true;
+    // 종료된 글에서도 대화는 유지하되, 이전 방의 예약·완료 조작은 남기지 않는다.
+    if (isClosed(room.listingStatus)) {
+      window.PastportTradeCompletion?.clear();
+      find('[data-deals-messages]')?.querySelector('[data-deals-pending-card]')?.remove();
+      const status = find('[data-deals-info-trade-status]');
+      if (status) status.textContent = '종료된 거래';
+      return;
+    }
     try {
-      const requests = await api(`/api/v1/purchase-requests?roomId=${room.roomId}&page=0&size=10`, { method: 'GET' });
-      const items = requests?.items || [];
-      const pendingOrAccepted = items.find(r => r.requestStatus === 'PENDING' || r.requestStatus === 'ACCEPTED');
-
-      const transferArea = find('[data-deals-transfer-area]');
-      if (!pendingOrAccepted) {
+      const [sent, received] = await Promise.all(['SENT', 'RECEIVED'].map(direction => api(`/api/v1/purchase-requests?direction=${direction}&roomId=${room.roomId}&page=0&size=100`, { method: 'GET' })));
+      if (!isCurrent()) return;
+      const sentItems = sent?.items || [];
+      const receivedItems = received?.items || [];
+      const items = [...sentItems, ...receivedItems].sort((a, b) => b.requestId - a.requestId);
+      const req = items.find(item => item.requestStatus === 'PENDING' || item.requestStatus === 'ACCEPTED');
+      room.listingStatus = req?.listingStatus || sent?.roomContext?.listingStatus || received?.roomContext?.listingStatus || room.listingStatus;
+      let isSeller = !!req && receivedItems.some(item => item.requestId === req.requestId);
+      const status = find('[data-deals-info-trade-status]');
+      const setStep = step => findAll('[data-flow-step]').forEach(node => node.classList.toggle('now', node.dataset.flowStep === step));
+      const badge = find('[data-deals-listing-status]');
+      if (badge) { badge.textContent = statusLabel(room.listingStatus); badge.className = 'sc-badge ' + statusClass(room.listingStatus); }
+      renderRoomList();
+      if (!req) {
+        window.PastportTradeCompletion?.clear();
         setStep('inquiry');
-        if (infoStatus) infoStatus.textContent = '문의 진행 중';
-        if (transferArea) transferArea.hidden = true;
-        if (buyBtn) {
-          buyBtn.hidden = false;
-          buyBtn.onclick = () => requestBuy(room.listingId, room.roomId);
+        if (status) status.textContent = ['SOLD', 'CANCELLED'].includes(room.listingStatus) ? '종료된 거래' : '문의 진행 중';
+        if (room.listingStatus === 'ACTIVE') {
+          const detail = await api(`/api/v1/listings/${room.listingId}`, { method: 'GET' });
+          if (!isCurrent()) return;
+          isSeller = detail.canManage;
+          const price = find('[data-deals-info-price]');
+          if (price) price.textContent = detail.content?.price == null ? '–' : new Intl.NumberFormat('ko-KR').format(detail.content.price) + '원';
+          if (buyBtn) { buyBtn.hidden = isSeller; buyBtn.onclick = () => requestBuy(room.listingId, room.roomId); }
         }
-      } else if (pendingOrAccepted.requestStatus === 'PENDING') {
+      } else if (req.requestStatus === 'PENDING') {
+        window.PastportTradeCompletion?.clear();
         setStep('pending');
-        if (infoStatus) infoStatus.textContent = '구매 요청 대기 중';
-        if (transferArea) transferArea.hidden = true;
-        if (buyBtn) buyBtn.hidden = true;
-        renderPendingCard(pendingOrAccepted);
-      } else if (pendingOrAccepted.requestStatus === 'ACCEPTED') {
-        setStep('reserved');
-        if (infoStatus) infoStatus.textContent = '예약 완료 (거래 준비)';
-        if (buyBtn) buyBtn.hidden = true;
-        if (transferArea) {
-          transferArea.hidden = false;
-          const transferBtn = find('[data-deals-btn-transfer]');
-          if (transferBtn) {
-            transferBtn.onclick = () => handleIssueTransfer(room, pendingOrAccepted);
-          }
-        }
+        if (status) status.textContent = isSeller ? '구매 요청 확인 필요' : '판매자 수락 대기 중';
+        renderPendingCard(req, isSeller);
+      } else {
+        const done = req.transactionStatus === 'COMPLETED';
+        setStep(done ? 'completed' : 'reserved');
+        if (status) status.textContent = done ? '거래 완료' : '예약 완료';
+        await window.PastportTradeCompletion?.mount({
+          request: req, role: isSeller ? 'seller' : 'buyer', userId, roomId: room.roomId,
+          title: room.listingTitle || '이 제품', isCurrent,
+          onChanged: () => isCurrent() ? checkPurchaseRequest(room) : Promise.resolve()
+        });
       }
-    } catch {
-      setStep('inquiry');
+    } catch (error) {
+      if (!isCurrent()) return;
+      window.PastportTradeCompletion?.clear();
+      const status = find('[data-deals-info-trade-status]');
+      if (status) status.textContent = error.message || '거래 상태를 확인하지 못했어요.';
     }
   }
 
-  async function handleIssueTransfer(room, pendingOrAccepted) {
-    if (!confirm('구매자에게 전달할 일회성 소유권 이전 링크 및 QR을 생성하시겠습니까?')) return;
-    try {
-      // listing 상세에서 productId 조회
-      const listingRes = await api(`/api/v1/listings/${room.listingId}`);
-      const productId = listingRes.productId || listingRes.id;
-      const transferRes = await api('/api/v1/ownership/transfers', {
-        method: 'POST',
-        body: JSON.stringify({
-          productId: productId,
-          purchaseRequestId: pendingOrAccepted.requestId
-        })
-      });
-
-      const fullUrl = window.location.origin + transferRes.linkUrl;
-      const copyPrompt = prompt(
-        '일회성 소유권 이전 링크가 생성되었습니다 (24시간 유효)!\n구매자에게 이 링크를 전달해 수락하도록 안내하세요:\n\n' + fullUrl + '\n\n복사하시겠습니까? (확인 누르면 클립보드 복사 시도)',
-        fullUrl
-      );
-      if (copyPrompt !== null && navigator.clipboard) {
-        await navigator.clipboard.writeText(fullUrl);
-        alert('소유권 이전 링크가 클립보드에 복사되었습니다.');
-      }
-    } catch (e) {
-      alert('소유권 이전 링크 발급 실패: ' + e.message);
-    }
-  }
-
-  function renderPendingCard(req) {
+  function renderPendingCard(req, isSeller) {
     const container = find('[data-deals-messages]');
     if (!container) return;
+    container.querySelector('[data-deals-pending-card]')?.remove();
+    if (!isSeller) return;
     const card = document.createElement('div');
     card.className = 'dl-act';
+    card.dataset.dealsPendingCard = '';
     card.innerHTML = `
       <i>⇄</i>
       <div><b>구매 예약 요청이 접수되었습니다</b><span>수락하면 판매글이 예약 상태로 전환되고 다른 구매자의 예약이 차단됩니다.</span></div>
@@ -289,7 +286,7 @@
   async function requestBuy(listingId, roomId) {
     if (!confirm('이 판매글에 대해 구매 예약을 요청하시겠습니까?')) return;
     try {
-      await api(`/api/v1/listings/${listingId}/purchase-requests`, {
+      await api(`/api/v1/market/listings/${listingId}/purchase-requests`, {
         method: 'POST',
         body: JSON.stringify({ roomId })
       });
@@ -321,11 +318,26 @@
 
   function startPolling() {
     stopPolling();
-    pollingTimer = setInterval(() => {
-      if (currentRoom && document.querySelector('#deals.active')) {
-        loadMessages(currentRoom.roomId);
-      }
+    pollingTimer = setInterval(async () => {
+      if (!currentRoom || !document.querySelector('#deals.active') || pollingBusy) return;
+      pollingBusy = true;
+      const room = currentRoom;
+      try { await loadMessages(room.roomId); await checkPurchaseRequest(room); }
+      finally { pollingBusy = false; }
     }, 3000);
+  }
+
+  function closeRoom() {
+    stopPolling();
+    roomSequence++;
+    currentRoom = null;
+    window.PastportTradeCompletion?.clear();
+    find('.dl')?.classList.remove('dl-has-room');
+    const chat = find('[data-deals-chat-section]');
+    const info = find('[data-deals-info]');
+    if (chat) chat.style.display = 'none';
+    if (info) info.style.display = 'none';
+    renderRoomList();
   }
 
   function stopPolling() {
@@ -344,6 +356,7 @@
   }
 
   function init() {
+    find('[data-deals-back]')?.addEventListener('click', closeRoom);
     const sendBtn = find('[data-deals-send]');
     const input = find('[data-deals-input]');
     sendBtn?.addEventListener('click', sendMessage);
@@ -382,14 +395,17 @@
     }
   });
 
-  document.addEventListener('pastport:auth-changed', (e) => { if (!e.detail?.signedIn) resetDeals(); });
-
   document.addEventListener('pastport:page-shown', (e) => {
     if (e.detail.id === 'deals') {
       loadRooms();
     } else {
-      stopPolling();
+      closeRoom();
     }
+  });
+
+  document.addEventListener('pastport:auth-changed', (event) => {
+    resetDeals();
+    if (event.detail?.signedIn && document.querySelector('#deals.active')) loadRooms();
   });
 
   window.PastportDeals = Object.freeze({

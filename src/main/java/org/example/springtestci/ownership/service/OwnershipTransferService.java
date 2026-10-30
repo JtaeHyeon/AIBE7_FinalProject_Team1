@@ -57,6 +57,8 @@ public class OwnershipTransferService {
   /** 현재 소유자의 제품을 먼저 잠그고 판매 중·예약 중이 아닌 제품에만 외부 이전 요청을 만든다. */
   @Transactional
   public CreateTransferResponse createTransfer(long actorId, CreateTransferRequest req) {
+    // 내부 거래 연결 ID는 거래 서비스만 정한다. 외부 링크 요청으로 다른 구매 요청을 점유할 수 없다.
+    if (req.purchaseRequestId() != null) throw new CommonException(ErrorCode.INVALID_INPUT);
     Long ownerId =
         productRepository
             .findOwnerId(req.productId())
@@ -131,6 +133,9 @@ public class OwnershipTransferService {
             .findByTokenHash(tokenHash)
             .orElseThrow(() -> new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND));
 
+    if (transfer.getTransferType() != TransferType.DIRECT)
+      throw new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND);
+
     Instant now = Instant.now();
     boolean isExpired = transfer.isExpired(now);
     boolean isPending = transfer.getStatus() == TransferStatus.PENDING;
@@ -170,6 +175,8 @@ public class OwnershipTransferService {
             .orElseThrow(() -> new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND));
 
     Instant now = Instant.now();
+    if (transfer.getTransferType() != TransferType.DIRECT)
+      throw new CommonException(ErrorCode.OWNERSHIP_TRANSFER_BLOCKED);
     if (transfer.getStatus() != TransferStatus.PENDING || transfer.isExpired(now)) {
       throw new CommonException(ErrorCode.OWNERSHIP_EXPIRED);
     }
@@ -225,6 +232,10 @@ public class OwnershipTransferService {
     if (!Objects.equals(transfer.getFromUserId(), actorId)) {
       throw new CommonException(ErrorCode.ACCESS_DENIED);
     }
+
+    // 내부 예약은 P3/P4에서 거래·판매글과 함께 취소·완료해야 한다.
+    if (transfer.getTransferType() != TransferType.DIRECT)
+      throw new CommonException(ErrorCode.OWNERSHIP_TRANSFER_BLOCKED);
 
     if (transfer.getStatus() != TransferStatus.PENDING) {
       throw new CommonException(ErrorCode.INVALID_INPUT);

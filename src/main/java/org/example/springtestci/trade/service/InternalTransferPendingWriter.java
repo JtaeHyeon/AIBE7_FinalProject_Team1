@@ -3,7 +3,8 @@ package org.example.springtestci.trade.service;
 /**
  * P2 예약 수락 시 INTERNAL/PENDING 소유권 이전 준비 건을 만드는 외부 포트다.
  *
- * <p>이 저장소에는 운영 구현이 없고, 정식 ownership 모듈이 같은 DataSource와 트랜잭션을 사용하는 구현을 공급해야 한다.
+ * <p>정식 ownership 모듈의 InternalTradeOwnershipService가 같은 DataSource·트랜잭션으로 구현한다. 기능 플래그가 꺼져 있으면 등록하지
+ * 않는다.
  */
 public interface InternalTransferPendingWriter {
 
