@@ -321,7 +321,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     if (accepted) {
@@ -331,7 +331,7 @@ class TradeP3PostgresIntegrationTest {
           .isEqualTo("ACCEPTED");
       assertThat(
               value(
-                  "select status from ownership_transfers where purchase_request_id = ?",
+                  "select status from trade_fixture_transfers where purchase_request_id = ?",
                   pendingRequest))
           .isEqualTo("PENDING");
     } else {
@@ -340,7 +340,7 @@ class TradeP3PostgresIntegrationTest {
           .isEqualTo("PENDING");
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from ownership_transfers where purchase_request_id = ?",
+                  "select count(*) from trade_fixture_transfers where purchase_request_id = ?",
                   Long.class,
                   pendingRequest))
           .isZero();
@@ -851,7 +851,7 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?",
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
                 fixture.requestId()))
         .isEqualTo("CANCELLED");
     assertThat(
@@ -1412,7 +1412,8 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("RESERVED");
     assertThat(
             value(
-                "select status from ownership_transfers where purchase_request_id = ?", requestId))
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
+                requestId))
         .isEqualTo("PENDING");
     assertThat(
             jdbc.queryForObject(
