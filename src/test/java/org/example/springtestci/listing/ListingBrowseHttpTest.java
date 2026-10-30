@@ -334,6 +334,14 @@ class ListingBrowseHttpTest {
   }
 
   @Test
+  void keywordMatchesManufacturerIgnoringCaseAndTreatsWildcardsAsLiterals() throws Exception {
+    assertEquals(List.of(11L), ids(data(get("/api/v1/listings?keyword=APPLE", null))));
+    assertEquals(List.of(12L), ids(data(get("/api/v1/listings?keyword=lenov", null))));
+    assertTrue(ids(data(get("/api/v1/listings?keyword=%25", null))).isEmpty());
+    assertTrue(ids(data(get("/api/v1/listings?keyword=no-such-product", null))).isEmpty());
+  }
+
+  @Test
   void pagingAndSortsHaveStableIdTieBreakersAndRetainFilteredTotals() throws Exception {
     jdbc.update(
         "UPDATE listings SET published_at=? WHERE id IN (11,12,13)",

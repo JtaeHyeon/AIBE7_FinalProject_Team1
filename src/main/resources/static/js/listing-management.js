@@ -81,7 +81,7 @@
     request?.abort(); const controller = new AbortController(); request = controller;
     const token = ++generation, id = current; busy = true;
     find('[data-listing-editor]').hidden = false; find('[data-listing-content]').hidden = true;
-    find('[data-listing-more]').hidden = true; controls(); message('편집 정보를 불러오는 중이에요…');
+    find('[data-listing-more]').hidden = true; find('[data-listing-delete-button]').hidden = true; controls(); message('편집 정보를 불러오는 중이에요…');
     try {
       const data = await api('/api/v1/listings/' + id + '/management', { signal:controller.signal });
       if (token !== generation || controller.signal.aborted) return;
@@ -128,21 +128,27 @@
     } catch (error) { if (token === generation) failure(error); }
     finally { if (token === generation) { busy = false; controls(); } }
   }
+  // 삭제는 판매 중지 API로 처리한다. 공개가 종료돼 목록에서 사라지지만 제품·거래 기록은 보존된다.
   async function deleteListing() {
     if (!current || busy) return;
-    if (!confirm('이 판매글을 완전히 삭제할까요? 삭제 후에는 복구할 수 없습니다.')) return;
-    const token = generation, id = current; busy = true; controls(); message('판매글을 삭제하는 중이에요…');
+    if (!confirm('이 판매글을 삭제할까요? 목록에서 사라지고 연결된 구매 요청·예약 거래도 취소되며, 복구할 수 없어요.')) return;
+    const token = generation, id = current; busy = true;
+    const status = find('[data-listing-status]');
     try {
-      await api('/api/v1/listings/' + id, { method: 'DELETE' });
+      const data = await api('/api/v1/listings/' + id + '/management');
+      if (!data.canCancel) throw new Error('이미 종료된 판매글은 삭제할 수 없어요.');
+      await api('/api/v1/listings/' + id + '/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({version:data.contentVersion,reason:'판매자가 판매글을 삭제했어요.'}) });
+      if (token !== generation) return;
       alert('판매글이 삭제되었습니다.');
       if (typeof show === 'function') show('market');
-    } catch (error) { if (token === generation) failure(error); }
-    finally { if (token === generation) { busy = false; controls(); } }
+    } catch (error) { if (token === generation) status.textContent = error.message; }
+    finally { if (token === generation) busy = false; }
   }
   function reset() {
     generation++; request?.abort(); current = null; saved = null; selected = []; busy = false; stale = false;
     if (!find('[data-listing-editor]')) return;
     find('[data-listing-editor]').hidden = true; find('[data-listing-manage]').hidden = true;
+    find('[data-listing-delete-button]').hidden = true;
     find('[data-listing-content]').hidden = false;
     find('[data-listing-cancel-dialog]').close();
     find('[data-listing-edit-form]').reset(); find('[data-listing-cancel-form]').reset();
@@ -151,6 +157,7 @@
   function bind(data) {
     init(); current = String(data.listingId);
     find('[data-listing-manage]').hidden = !data.canManage;
+    find('[data-listing-delete-button]').hidden = !data.canManage;
   }
   function init() {
     if (initialized || !find('[data-listing-editor]')) return; initialized = true;

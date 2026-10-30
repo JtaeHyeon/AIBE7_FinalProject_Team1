@@ -70,7 +70,12 @@
     if (currentId()) open(currentId(), { manage:new URL(window.location.href).searchParams.get('listingManage') === '1' });
   }
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
-  document.addEventListener('pastport:page-shown', event => { if (event.detail.id === 'detail') load(); });
+  document.addEventListener('pastport:page-shown', event => {
+    if (event.detail.id === 'detail') { load(); return; }
+    // 상세를 떠나면 주소의 판매글 번호를 지워, 새로고침 때 상세로 되돌아오지 않게 한다.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
+  });
   document.addEventListener('pastport:auth-changed', () => {
     request?.abort(); data = null;
     window.PastportListingManagement?.reset(); window.PastportListingSummary?.reset();

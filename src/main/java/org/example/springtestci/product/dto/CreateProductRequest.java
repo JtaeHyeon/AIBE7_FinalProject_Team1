@@ -17,7 +17,34 @@ public record CreateProductRequest(
     LocalDate warrantyExpiresAt,
     @Size(max = 500) String warrantyTerms,
     @NotBlank @Size(min = 4, max = 64) String serialNumber,
-    @Valid Specifications specifications) {
+    @Valid Specifications specifications,
+    @Pattern(regexp = ProductCategory.PATTERN, message = "지원하지 않는 제품 분류입니다.") String category) {
+
+  public CreateProductRequest {
+    category = category == null || category.isBlank() ? ProductCategory.DEFAULT : category;
+  }
+
+  /** 분류를 생략하면 노트북으로 등록한다. */
+  public CreateProductRequest(
+      String title,
+      String manufacturer,
+      String modelName,
+      LocalDate purchaseDate,
+      LocalDate warrantyExpiresAt,
+      String warrantyTerms,
+      String serialNumber,
+      Specifications specifications) {
+    this(
+        title,
+        manufacturer,
+        modelName,
+        purchaseDate,
+        warrantyExpiresAt,
+        warrantyTerms,
+        serialNumber,
+        specifications,
+        null);
+  }
 
   public record Specifications(
       @Size(max = 100) String cpu,

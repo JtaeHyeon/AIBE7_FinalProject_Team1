@@ -87,7 +87,7 @@ const auth = (() => {
     user = data?.user ?? null;
     renderHeader();
     renderMyPage();
-    document.dispatchEvent(new CustomEvent('pastport:auth-changed', { detail: { signedIn: Boolean(user) } }));
+    document.dispatchEvent(new CustomEvent('pastport:auth-changed', { detail: { signedIn: Boolean(user), userId: user?.id ?? null } }));
   };
 
   /** 세션 상태를 지우고 로그아웃된 모습으로 화면에 반영한다. */

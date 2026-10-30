@@ -62,19 +62,20 @@ public class ProductRepository {
                   INSERT INTO products (category, manufacturer, manufacturer_normalized,
                       model_name, purchase_date, serial_number_fingerprint, title,
                       warranty_expires_at, warranty_terms, owner_id, serial_number_ciphertext)
-                  VALUES ('LAPTOP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                   """,
                   new String[] {"id"});
-          statement.setString(1, request.manufacturer().trim());
-          statement.setString(2, manufacturerNormalized);
-          statement.setString(3, request.modelName().trim());
-          statement.setObject(4, request.purchaseDate());
-          statement.setString(5, fingerprint);
-          statement.setString(6, request.title().trim());
-          statement.setObject(7, request.warrantyExpiresAt());
-          statement.setString(8, request.warrantyTerms());
-          statement.setLong(9, ownerId);
-          statement.setString(10, ciphertext);
+          statement.setString(1, request.category());
+          statement.setString(2, request.manufacturer().trim());
+          statement.setString(3, manufacturerNormalized);
+          statement.setString(4, request.modelName().trim());
+          statement.setObject(5, request.purchaseDate());
+          statement.setString(6, fingerprint);
+          statement.setString(7, request.title().trim());
+          statement.setObject(8, request.warrantyExpiresAt());
+          statement.setString(9, request.warrantyTerms());
+          statement.setLong(10, ownerId);
+          statement.setString(11, ciphertext);
           return statement;
         },
         keys);
@@ -268,6 +269,13 @@ public class ProductRepository {
             productId,
             imageId)
         > 0;
+  }
+
+  /** 제품·이력·감사 기록은 보존하고 보관 처리해 목록과 판매 대상에서 제외한다. */
+  public void archive(long productId) {
+    jdbc.update(
+        "UPDATE products SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND archived_at IS NULL",
+        productId);
   }
 
   public long insertImage(long productId, String storageKey, String contentType, long byteSize) {

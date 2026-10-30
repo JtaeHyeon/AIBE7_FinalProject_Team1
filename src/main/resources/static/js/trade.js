@@ -1,6 +1,6 @@
 document.querySelector('#trade').innerHTML=`
   <div class="handover-screen">
-    <div class="handover-bar"><b>기록상회</b><span>도움말</span></div>
+    <div class="handover-bar"><b>Pastport</b><span>도움말</span></div>
     <div class="handover-body">
       <div class="handover-title"><h1>소유권 이전</h1><p>제품의 이력은 이어가고, 이전 소유자의 개인정보는 안전하게 분리합니다.</p></div>
       <div class="handover-grid">

@@ -52,6 +52,32 @@
     }
   }
 
+  // 글이 삭제됐거나(상태 없음) 판매 중지된 방은 구매 요청·소유권 이전을 막는다. 대화는 명세대로 계속할 수 있다.
+  const isClosed = (status) => !status || status === 'CANCELLED';
+  const statusLabel = (status) => ({ ACTIVE: '판매 중', RESERVED: '예약 중', SOLD: '판매 완료' }[status] || '삭제·종료된 글');
+  const statusClass = (status) => (status === 'RESERVED' ? 'warn' : status === 'ACTIVE' ? 'ok' : '');
+
+  // 로그아웃·세션 만료 시 열려 있던 대화와 3초 갱신을 모두 끊고 화면을 비운다.
+  function resetDeals() {
+    stopPolling();
+    currentRoom = null; currentUserId = null; rooms = [];
+    find('[data-deals-rooms]')?.replaceChildren();
+    find('[data-deals-messages]')?.replaceChildren();
+    const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
+    const infoSection = find('[data-deals-info]'); if (infoSection) infoSection.style.display = 'none';
+  }
+
+  // 열려 있는 대화를 닫고 목록으로 돌아간다. 대화 기록은 지우지 않고, 방은 목록에 그대로 남는다.
+  function leaveRoom() {
+    if (!currentRoom) return;
+    stopPolling();
+    currentRoom = null;
+    find('[data-deals-messages]')?.replaceChildren();
+    const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
+    const infoSection = find('[data-deals-info]'); if (infoSection) infoSection.style.display = 'none';
+    renderRoomList();
+  }
+
   function renderRoomList() {
     const container = find('[data-deals-rooms]');
     if (!container) return;
@@ -66,7 +92,7 @@
           <b>${escapeHtml(room.counterpartyNickname || '상대방')} <time>${dateStr}</time></b>
           <span class="t">${escapeHtml(room.listingTitle || '판매글')}</span>
           <span class="m">${escapeHtml(room.latestMessagePreview || '대화를 시작해 보세요')}</span>
-          <span class="tags"><span class="sc-badge ${room.listingStatus === 'RESERVED' ? 'warn' : 'ok'}">${room.listingStatus === 'RESERVED' ? '예약 중' : '판매 중'}</span></span>
+          <span class="tags"><span class="sc-badge ${statusClass(room.listingStatus)}">${statusLabel(room.listingStatus)}</span></span>
         </span>
         ${room.hasUnreadMessages ? '<i class="dl-dot" aria-label="새 메시지"></i>' : ''}
       `;
@@ -90,13 +116,19 @@
     }
     const statusEl = find('[data-deals-listing-status]');
     if (statusEl) {
-      statusEl.textContent = room.listingStatus === 'RESERVED' ? '예약 중' : '판매 중';
-      statusEl.className = 'sc-badge ' + (room.listingStatus === 'RESERVED' ? 'warn' : 'ok');
+      statusEl.textContent = statusLabel(room.listingStatus);
+      statusEl.className = 'sc-badge ' + statusClass(room.listingStatus);
     }
+    const closed = isClosed(room.listingStatus);
 
     find('[data-deals-info-title]').textContent = room.listingTitle || '–';
 
     await loadMessages(room.roomId);
+    if (closed) {
+      const buyBtn = find('[data-deals-request-buy]'); if (buyBtn) buyBtn.hidden = true;
+      const transferArea = find('[data-deals-transfer-area]'); if (transferArea) transferArea.hidden = true;
+      return;
+    }
     await checkPurchaseRequest(room);
 
     startPolling();
@@ -116,6 +148,7 @@
         }).catch(() => {});
       }
     } catch (e) {
+      if (e.status === 401) { resetDeals(); return; }
       console.error('메시지 로드 실패:', e);
     }
   }
@@ -281,6 +314,7 @@
       });
       await loadMessages(currentRoom.roomId);
     } catch (e) {
+      if (e.status === 401) resetDeals();
       alert('메시지 전송에 실패했습니다: ' + e.message);
     }
   }
@@ -313,6 +347,7 @@
     const sendBtn = find('[data-deals-send]');
     const input = find('[data-deals-input]');
     sendBtn?.addEventListener('click', sendMessage);
+    find('[data-deals-leave]')?.addEventListener('click', leaveRoom);
     input?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -346,6 +381,8 @@
       loadRooms();
     }
   });
+
+  document.addEventListener('pastport:auth-changed', (e) => { if (!e.detail?.signedIn) resetDeals(); });
 
   document.addEventListener('pastport:page-shown', (e) => {
     if (e.detail.id === 'deals') {

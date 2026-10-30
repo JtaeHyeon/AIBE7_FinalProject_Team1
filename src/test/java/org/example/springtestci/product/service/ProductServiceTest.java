@@ -203,6 +203,27 @@ class ProductServiceTest {
   }
 
   @Test
+  void deleteArchivesOwnedProductWithoutOpenListing() {
+    when(productRepository.lockOwned(PRODUCT, OWNER)).thenReturn(true);
+
+    service.delete(OWNER, PRODUCT);
+
+    verify(productRepository).archive(PRODUCT);
+  }
+
+  @Test
+  void deleteIsRejectedForOtherOwnerOrOpenListing() {
+    when(productRepository.lockOwned(PRODUCT, 999L)).thenReturn(false);
+    assertThrows(CommonException.class, () -> service.delete(999L, PRODUCT));
+
+    when(productRepository.lockOwned(PRODUCT, OWNER)).thenReturn(true);
+    when(productRepository.hasOpenListing(PRODUCT)).thenReturn(true);
+    assertThrows(CommonException.class, () -> service.delete(OWNER, PRODUCT));
+
+    verify(productRepository, never()).archive(anyLong());
+  }
+
+  @Test
   void imageReadRequiresOwnershipAndReturnsNoSniffCompatibleContent() throws IOException {
     when(productRepository.findOwned(PRODUCT, OWNER)).thenReturn(Optional.of(product()));
     when(productRepository.findImage(PRODUCT, 1L)).thenReturn(Optional.of(image(1L, true)));

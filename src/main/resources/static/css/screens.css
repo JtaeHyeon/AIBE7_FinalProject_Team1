@@ -367,3 +367,5 @@
   .au.split .au-form{padding:28px 22px 24px}
 }
 @media(prefers-reduced-motion:reduce){.au.split .sc-field input,.lg-join button{transition:none}}
+
+#documents [data-docs-status].is-error{color:#b42318}

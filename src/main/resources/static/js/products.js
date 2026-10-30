@@ -148,7 +148,7 @@
           : '<div class="product-gallery-empty"><div class="laptop" aria-hidden="true"></div></div>'}</div>
           ${images.length > 1 ? `<div class="product-thumbnails" aria-label="제품 이미지 선택">${images.map((image, index) => `<button type="button" data-product-thumbnail data-image-index="${index}" aria-label="${index + 1}번째 이미지" aria-pressed="${image.imageId === firstImage.imageId}"><img data-protected-image="${escapeHtml(image.url)}" alt=""></button>`).join('')}</div>` : ''}</div>
         <section class="product-detail-card">
-          <div class="product-detail-top"><span class="eyebrow">PRODUCT PASSPORT · 내 제품</span><button class="button" type="button" data-product-edit-open>정보 수정</button></div>
+          <div class="product-detail-top"><span class="eyebrow">PRODUCT PASSPORT · 내 제품</span><span><button class="button" type="button" data-product-edit-open>정보 수정</button> <button class="button" type="button" data-product-delete style="color:#e53e3e;border-color:#e53e3e">제품 삭제</button></span></div>
           <h1>${escapeHtml(product.title)}</h1><p class="product-model">${escapeHtml(product.manufacturer)} · ${escapeHtml(product.modelName)}</p>
           <div class="product-facts">
             <div class="product-fact"><span>구매일</span><b>${date(product.purchaseDate)}</b></div>
@@ -235,7 +235,7 @@
     reason: form.elements.reason.value.trim(),
   });
   const formPayload = (form) => ({
-    title: form.elements.title.value.trim(), manufacturer: form.elements.manufacturer.value.trim(),
+    category: form.elements.category.value, title: form.elements.title.value.trim(), manufacturer: form.elements.manufacturer.value.trim(),
     modelName: form.elements.modelName.value.trim(), purchaseDate: form.elements.purchaseDate.value || null,
     warrantyExpiresAt: form.elements.warrantyExpiresAt.value || null,
     warrantyTerms: valueOrNull(form.elements.warrantyTerms.value), serialNumber: form.elements.serialNumber.value.trim(),
@@ -332,6 +332,17 @@
       const form = document.querySelector('[data-product-edit-form]');
       if (form) { form.hidden = false; form.querySelector('input')?.focus(); form.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     }
+    if (event.target.closest?.('[data-product-delete]')) {
+      if (!window.confirm('이 제품을 삭제할까요? 내 제품 목록에서 사라지며 복구할 수 없어요.')) return;
+      try {
+        await api(`${API}/${state.selectedId}`, { method: 'DELETE' });
+        state.products = state.products.filter((item) => item.productId !== state.selectedId);
+        state.selectedId = null; state.current = null;
+        toast('제품을 삭제했습니다.');
+        navigate('home');
+      } catch (error) { toast(error.message, 'error'); }
+      return;
+    }
     if (event.target.closest?.('[data-product-edit-cancel]')) {
       const form = document.querySelector('[data-product-edit-form]');
       if (form) { form.hidden = true; showFormMessage(form, ''); }
@@ -371,6 +382,22 @@
       document.querySelectorAll('[data-product-thumbnail]').forEach((item) => item.setAttribute('aria-pressed', String(item === thumbnail)));
     }
   }, true);
+  // 선택한 카테고리의 대표 제조사를 자동완성으로 제안한다. 표기를 통일해 마켓 필터에 잘 걸리게 한다.
+  const fillMakerSuggestions = (form, category) => {
+    const list = form?.querySelector('#product-manufacturers');
+    if (list) list.replaceChildren(...(window.PastportCategories?.makers(category) || []).map((name) => new Option(name, name)));
+  };
+  document.addEventListener('pastport:page-loaded', (event) => {
+    if (event.detail?.id === 'register') fillMakerSuggestions(document.querySelector('#register form'), 'LAPTOP');
+  });
+  // 노트북이 아닌 제품은 노트북 사양 입력란을 숨긴다.
+  document.addEventListener('change', (event) => {
+    if (!event.target.matches?.('[data-product-category]')) return;
+    const form = event.target.closest('form');
+    const specs = form?.querySelector('[data-product-specs]');
+    if (specs) specs.hidden = event.target.value !== 'LAPTOP';
+    fillMakerSuggestions(form, event.target.value);
+  });
   document.addEventListener('input', (event) => {
     if (event.target.matches?.('[data-product-search]')) renderProducts();
   });

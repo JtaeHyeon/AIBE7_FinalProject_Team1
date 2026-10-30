@@ -40,6 +40,8 @@ public enum ErrorCode {
       "거래·이전 취소와 이력 비공개 연동이 준비되지 않았습니다. 판매글은 변경되지 않습니다."),
   PRODUCT_IMAGE_IN_USE(
       HttpStatus.CONFLICT, "PRODUCT_005", "판매 중이거나 예약 중인 판매글의 사진은 먼저 판매글에서 제외해 주세요."),
+  PRODUCT_DELETE_BLOCKED(
+      HttpStatus.CONFLICT, "PRODUCT_006", "판매 중이거나 예약 중인 판매글이 있어 제품을 삭제할 수 없습니다. 먼저 판매글을 삭제해 주세요."),
   AI_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "AI 제안을 사용할 수 없습니다. 잠시 후 재시도하거나 직접 작성해 주세요."),
   AI_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI_002", "AI 응답 시간이 초과되었습니다. 재시도하거나 직접 작성해 주세요."),

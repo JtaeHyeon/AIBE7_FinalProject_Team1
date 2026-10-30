@@ -1,17 +1,27 @@
 <div class="mk-head">
-  <div><h1>중고 노트북 <small data-market-total>목록 조회 중</small></h1>
+  <div><h1>중고 거래 <small data-market-total>목록 조회 중</small></h1>
     <p>판매 중인 제품을 제조사·가격·사양 조건으로 찾아보세요.</p></div>
   <div class="mk-head-actions"><button type="button" class="button" data-page="my-listings">내 판매글 관리</button><button type="button" class="button primary" data-page="sell">판매하기</button></div>
 </div>
-<div class="mk-cats" role="group" aria-label="제조사 빠른 선택">
-  <button type="button" class="chip-btn active" data-market-manufacturer="" aria-pressed="true">전체</button>
-  <button type="button" class="chip-btn" data-market-manufacturer="Apple" aria-pressed="false">Apple</button>
-  <button type="button" class="chip-btn" data-market-manufacturer="Samsung" aria-pressed="false">Samsung</button>
-  <button type="button" class="chip-btn" data-market-manufacturer="LG" aria-pressed="false">LG</button>
-  <button type="button" class="chip-btn" data-market-manufacturer="Lenovo" aria-pressed="false">Lenovo</button>
+<div class="mk-search" role="search">
+  <input form="market-form" name="keyword" maxlength="100" placeholder="제품명·제조사·모델명으로 검색해 보세요" aria-label="검색어" autocomplete="off">
+  <button type="submit" form="market-form" aria-label="검색">⌕</button>
 </div>
+<div class="mk-cats" role="group" aria-label="카테고리 선택">
+  <button type="button" class="chip-btn active" data-market-category="" aria-pressed="true">전체 카테고리</button>
+  <button type="button" class="chip-btn" data-market-category="LAPTOP" aria-pressed="false">노트북</button>
+  <button type="button" class="chip-btn" data-market-category="MOBILE" aria-pressed="false">스마트폰·태블릿</button>
+  <button type="button" class="chip-btn" data-market-category="DISPLAY" aria-pressed="false">TV·모니터</button>
+  <button type="button" class="chip-btn" data-market-category="LARGE_APPLIANCE" aria-pressed="false">냉장고·세탁기</button>
+  <button type="button" class="chip-btn" data-market-category="CLEANING_AIR" aria-pressed="false">청소기·공기청정기</button>
+  <button type="button" class="chip-btn" data-market-category="CLIMATE" aria-pressed="false">에어컨·난방</button>
+  <button type="button" class="chip-btn" data-market-category="KITCHEN" aria-pressed="false">주방가전</button>
+  <button type="button" class="chip-btn" data-market-category="AUDIO_GAME" aria-pressed="false">오디오·게임기</button>
+</div>
+<div class="mk-cats" role="group" aria-label="제조사 빠른 선택" data-market-makers></div>
 <div class="mk-layout">
-  <form class="mk-filter" data-market-form aria-label="판매글 필터" novalidate>
+  <form class="mk-filter" id="market-form" data-market-form aria-label="판매글 필터" novalidate>
+  <input type="hidden" name="category">
     <p class="sub mk-filter-help">조건은 함께 적용돼요. 등록된 사양이 없는 제품은 해당 사양 조건에서 제외돼요.</p>
     <section><h3>제조사</h3>
       <label class="mk-field"><span>제조사명</span><input name="manufacturer" maxlength="100" list="market-manufacturers" placeholder="전체 제조사"></label>
@@ -21,7 +31,7 @@
       <input name="minPrice" inputmode="numeric" placeholder="최소 가격" aria-label="최소 가격" maxlength="15"><span>~</span>
       <input name="maxPrice" inputmode="numeric" placeholder="최대 가격" aria-label="최대 가격" maxlength="15">
     </div></section>
-    <details class="mk-spec-fields"><summary>제품 사양으로 찾기</summary><div class="mk-spec-grid">
+    <details class="mk-spec-fields"><summary>노트북 사양으로 찾기</summary><div class="mk-spec-grid">
       <label class="mk-field"><span>CPU 포함 문구</span><input name="cpu" maxlength="100" placeholder="예: M3, Core Ultra"></label>
       <label class="mk-field"><span>GPU 포함 문구</span><input name="gpu" maxlength="100" placeholder="예: RTX"></label>
       <label class="mk-field"><span>최소 메모리 (GB)</span><input name="minRamGb" type="number" min="1" step="1" placeholder="제한 없음"></label>
