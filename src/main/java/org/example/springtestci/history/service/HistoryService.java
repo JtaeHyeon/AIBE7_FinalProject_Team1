@@ -91,7 +91,6 @@ public class HistoryService {
     historyRepository.linkDocuments(eventId, documentIds);
     // 사양 교체 경로는 저장소가 버전을 올리므로 일반 이력에서만 별도로 증가시킨다.
     if (after != null) historyRepository.replaceSpecifications(productId, after);
-    return getOwnedEvent(ownerId, productId, eventId, documentIds);
     else historyRepository.incrementFactsVersion(productId);
     long factsVersion = historyRepository.findFactsVersion(productId);
     HistoryChangeReviewRecorder recorder = changeReviewRecorders.getIfAvailable();
@@ -102,7 +101,7 @@ public class HistoryService {
           factsVersion,
           createdSnapshot(request, specsBeforeJson, specsAfterJson));
     }
-    var response = getOwnedEvent(productId, eventId, documentIds);
+    var response = getOwnedEvent(ownerId, productId, eventId, documentIds);
     events.publishEvent(new ProductFactsChanged(productId));
     return response;
   }
@@ -161,13 +160,9 @@ public class HistoryService {
         json(after),
         request.reason(),
         "HISTORY_CORRECTED");
-    return toResponse(
-        ownerId,
-        after,
-        historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
-        historyRepository.findLatestChanges(productId).get(eventId));
     var response =
         toResponse(
+            ownerId,
             after,
             historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
             historyRepository.findLatestChanges(productId).get(eventId));
@@ -190,13 +185,9 @@ public class HistoryService {
     HistoryEventRecord after = historyRepository.findEvent(productId, eventId).orElseThrow();
     historyRepository.insertAudit(
         productId, ownerId, eventId, json(before), json(after), request.reason(), "HISTORY_VOIDED");
-    return toResponse(
-        ownerId,
-        after,
-        historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
-        historyRepository.findLatestChanges(productId).get(eventId));
     var response =
         toResponse(
+            ownerId,
             after,
             historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
             historyRepository.findLatestChanges(productId).get(eventId));

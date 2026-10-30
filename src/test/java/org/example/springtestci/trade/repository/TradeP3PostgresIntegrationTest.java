@@ -1453,32 +1453,6 @@ class TradeP3PostgresIntegrationTest {
     }
   }
 
-  private void runConcurrently(Runnable first, Runnable second) throws Exception {
-    CountDownLatch start = new CountDownLatch(1);
-    var executor = Executors.newFixedThreadPool(2);
-    try {
-      var firstResult =
-          executor.submit(
-              () -> {
-                start.await(10, TimeUnit.SECONDS);
-                first.run();
-                return null;
-              });
-      var secondResult =
-          executor.submit(
-              () -> {
-                start.await(10, TimeUnit.SECONDS);
-                second.run();
-                return null;
-              });
-      start.countDown();
-      firstResult.get(20, TimeUnit.SECONDS);
-      secondResult.get(20, TimeUnit.SECONDS);
-    } finally {
-      executor.shutdownNow();
-    }
-  }
-
   private void insertUser(long id, String email, String nickname) {
     jdbc.update(
         "insert into users (id, email, password_hash, nickname, role, created_at, updated_at) values (?, ?, 'hash', ?, 'USER', ?, ?)",
