@@ -187,6 +187,24 @@ public class ProductRepository {
         .findFirst();
   }
 
+  /** 이전 수락·취소도 게시와 같은 제품→이전 요청 순서로 잠근다. 현재 트랜잭션에서만 호출한다. */
+  public boolean lockForTransfer(long productId) {
+    return !jdbc.queryForList(
+            "SELECT id FROM products WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+            Long.class,
+            productId)
+        .isEmpty();
+  }
+
+  /** 제품 잠금 아래 외부 이전 발급과 판매글 게시가 서로 먼저 생성된 상태를 확인하도록 한다. */
+  public boolean hasOpenListing(long productId) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM listings WHERE product_id = ? AND status IN ('ACTIVE', 'RESERVED'))",
+            Boolean.class,
+            productId));
+  }
+
   public Optional<String> findTitle(long productId) {
     return jdbc
         .queryForList(

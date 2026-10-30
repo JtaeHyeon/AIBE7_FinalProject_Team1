@@ -126,7 +126,7 @@ POST는 생성 전용이고 기존 저장본의 수정은 PUT으로 보낸다. P
 
 현재 거래·소유권 이전·이력 공개 도메인의 구현체가 없으므로 다음 두 계약은 운영 연결이 남아 있다.
 
-- `ListingPublishConstraints.inspect(productId)`: 현재 트랜잭션의 제품 잠금 안에서 거래 진행 여부와 이전 요청 진행 여부를 모두 확인한다. 정보가 없으면 ready=false를 반환한다.
+- `ListingPublishConstraints.inspect(productId)`: 현재 트랜잭션의 제품 잠금 안에서 거래 진행 여부와 이전 요청 진행 여부를 모두 확인한다. 일반 환경은 실제 JDBC 원천을 조회하며 정보가 없으면 ready=false를 반환한다. [게시 조건 연동](LISTING_PUBLISH_CONSTRAINTS.md)을 따른다.
 - `ListingHistoryPublisher.publish(productId, listingId, sellerId)`: 같은 DB·현재 트랜잭션에서 이전 소유자의 기록까지 포함한 누적 이력 공개를 처리한다. 별도 트랜잭션·비동기·외부 HTTP로 분리하지 않으며 실패 시 예외로 게시도 롤백한다. 이력 추가·정정도 같은 제품 잠금을 사용해야 한다.
 
 구현체가 없거나 준비되지 않았으면 **일반 프로필에서는 503 SALE_004로 게시를 차단하고 초안을 유지한다.** 이력 조회가 UNAVAILABLE인 경우도 빈 이력으로 게시하지 않는다.

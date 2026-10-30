@@ -95,6 +95,8 @@ public enum ErrorCode {
   OWNERSHIP_EXPIRED(HttpStatus.GONE, "OWN_002", "만료되었거나 유효하지 않은 소유권 이전 요청입니다."),
   OWNERSHIP_ALREADY_PENDING(HttpStatus.CONFLICT, "OWN_003", "이미 진행 중인 소유권 이전 요청이 있습니다."),
   OWNERSHIP_SELF_ACCEPT(HttpStatus.BAD_REQUEST, "OWN_004", "자신의 제품 소유권은 직접 수락할 수 없습니다."),
+  OWNERSHIP_TRANSFER_BLOCKED(
+      HttpStatus.CONFLICT, "OWN_005", "판매 중이거나 예약 중인 제품은 소유권 이전을 요청할 수 없습니다."),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON_999", "서버 오류가 발생했습니다.");
 
   private final HttpStatus status;

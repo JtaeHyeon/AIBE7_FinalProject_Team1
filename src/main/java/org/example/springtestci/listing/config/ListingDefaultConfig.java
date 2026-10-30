@@ -1,10 +1,12 @@
 package org.example.springtestci.listing.config;
 
+import java.time.Clock;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.example.springtestci.listing.repository.JdbcListingPublishConstraints;
 import org.example.springtestci.listing.service.ListingHistoryPrivatizer;
 import org.example.springtestci.listing.service.ListingHistoryPublisher;
 import org.example.springtestci.listing.service.ListingPublishConstraints;
@@ -20,15 +22,16 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 로컬/운영 실행 환경에서 이력·거래 연동 모듈 없이도 판매글 작성·게시·취소가 가능하도록 기본 빈을 제공한다. */
+/** 일반 환경의 실제 게시 검사와 아직 연결되지 않은 이력·거래 포트의 기본 빈을 제공한다. */
 @Configuration(proxyBeanMethods = false)
 @Profile("!test")
 public class ListingDefaultConfig {
 
   @Bean
+  @Profile("!sale-draft-demo")
   @ConditionalOnMissingBean(ListingPublishConstraints.class)
-  ListingPublishConstraints defaultListingPublishConstraints() {
-    return productId -> new ListingPublishConstraints.Snapshot(true, false, false);
+  ListingPublishConstraints defaultListingPublishConstraints(JdbcTemplate jdbc, Clock clock) {
+    return new JdbcListingPublishConstraints(jdbc, clock);
   }
 
   @Bean

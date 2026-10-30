@@ -7,6 +7,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.time.Instant;
@@ -59,6 +61,7 @@ class OwnershipTransferServiceTest {
     long productId = 10L;
     long ownerId = 1L;
     given(productRepository.findOwnerId(productId)).willReturn(Optional.of(ownerId));
+    given(productRepository.lockOwned(productId, ownerId)).willReturn(true);
     given(transferRepository.findByProductIdAndStatus(productId, TransferStatus.PENDING))
         .willReturn(Optional.empty());
     given(transferRepository.saveAndFlush(any(OwnershipTransfer.class)))
@@ -113,11 +116,37 @@ class OwnershipTransferServiceTest {
   }
 
   @Test
+  void createTransfer_openListingIsBlockedBeforeAnyTransferIsWritten() {
+    given(productRepository.findOwnerId(10L)).willReturn(Optional.of(1L));
+    given(productRepository.lockOwned(10L, 1L)).willReturn(true);
+    given(productRepository.hasOpenListing(10L)).willReturn(true);
+
+    assertThatThrownBy(() -> service.createTransfer(1L, new CreateTransferRequest(10L, null, null)))
+        .isInstanceOf(CommonException.class)
+        .hasFieldOrPropertyWithValue("errorCode", ErrorCode.OWNERSHIP_TRANSFER_BLOCKED);
+    var order = inOrder(productRepository);
+    order.verify(productRepository).lockOwned(10L, 1L);
+    order.verify(productRepository).hasOpenListing(10L);
+    verify(transferRepository, never()).saveAndFlush(any());
+  }
+
+  @Test
+  void createTransfer_rechecksOwnershipWhenAcquiringTheProductLock() {
+    given(productRepository.findOwnerId(10L)).willReturn(Optional.of(1L));
+    given(productRepository.lockOwned(10L, 1L)).willReturn(false);
+    assertThatThrownBy(() -> service.createTransfer(1L, new CreateTransferRequest(10L, null, null)))
+        .isInstanceOf(CommonException.class)
+        .hasFieldOrPropertyWithValue("errorCode", ErrorCode.RESOURCE_NOT_FOUND);
+    verify(transferRepository, never()).saveAndFlush(any());
+  }
+
+  @Test
   @DisplayName("이미 대기 중인 소유권 이전 요청이 있으면 중복 생성이 거부된다")
   void createTransfer_duplicatePending() {
     long productId = 10L;
     long ownerId = 1L;
     given(productRepository.findOwnerId(productId)).willReturn(Optional.of(ownerId));
+    given(productRepository.lockOwned(productId, ownerId)).willReturn(true);
     OwnershipTransfer pending =
         OwnershipTransfer.create(
             productId,
@@ -143,6 +172,7 @@ class OwnershipTransferServiceTest {
     long productId = 10L;
     long ownerId = 1L;
     given(productRepository.findOwnerId(productId)).willReturn(Optional.of(ownerId));
+    given(productRepository.lockOwned(productId, ownerId)).willReturn(true);
     OwnershipTransfer stale =
         OwnershipTransfer.create(
             productId,
@@ -168,6 +198,7 @@ class OwnershipTransferServiceTest {
     long productId = 10L;
     long ownerId = 1L;
     given(productRepository.findOwnerId(productId)).willReturn(Optional.of(ownerId));
+    given(productRepository.lockOwned(productId, ownerId)).willReturn(true);
     given(transferRepository.findByProductIdAndStatus(productId, TransferStatus.PENDING))
         .willReturn(Optional.empty());
     given(transferRepository.saveAndFlush(any(OwnershipTransfer.class)))
@@ -218,6 +249,8 @@ class OwnershipTransferServiceTest {
             TransferType.DIRECT,
             null,
             Instant.now().plus(1, ChronoUnit.DAYS));
+    given(transferRepository.findProductIdByTokenHash(tokenHash)).willReturn(Optional.of(10L));
+    given(productRepository.lockForTransfer(10L)).willReturn(true);
     given(transferRepository.findByTokenHashForUpdate(tokenHash)).willReturn(Optional.of(transfer));
     given(productRepository.findOwnerId(10L)).willReturn(Optional.of(99L));
 
@@ -274,6 +307,8 @@ class OwnershipTransferServiceTest {
             Instant.now().plus(1, ChronoUnit.DAYS));
     ReflectionTestUtils.setField(transfer, "id", 200L);
 
+    given(transferRepository.findProductIdByTokenHash(tokenHash)).willReturn(Optional.of(10L));
+    given(productRepository.lockForTransfer(10L)).willReturn(true);
     given(transferRepository.findByTokenHashForUpdate(tokenHash)).willReturn(Optional.of(transfer));
     given(productRepository.findOwnerId(productId)).willReturn(Optional.of(fromUserId));
 
@@ -314,6 +349,8 @@ class OwnershipTransferServiceTest {
             null,
             Instant.now().plus(1, ChronoUnit.DAYS));
 
+    given(transferRepository.findProductIdByTokenHash(tokenHash)).willReturn(Optional.of(10L));
+    given(productRepository.lockForTransfer(10L)).willReturn(true);
     given(transferRepository.findByTokenHashForUpdate(tokenHash)).willReturn(Optional.of(transfer));
 
     assertThatThrownBy(
@@ -338,6 +375,8 @@ class OwnershipTransferServiceTest {
             null,
             Instant.now().minus(1, ChronoUnit.HOURS)); // 이미 만료
 
+    given(transferRepository.findProductIdByTokenHash(tokenHash)).willReturn(Optional.of(10L));
+    given(productRepository.lockForTransfer(10L)).willReturn(true);
     given(transferRepository.findByTokenHashForUpdate(tokenHash)).willReturn(Optional.of(transfer));
 
     assertThatThrownBy(() -> service.acceptTransfer(2L, new AcceptTransferRequest(rawToken)))
@@ -363,6 +402,9 @@ class OwnershipTransferServiceTest {
             Instant.now().plus(1, ChronoUnit.DAYS));
     ReflectionTestUtils.setField(transfer, "id", transferId);
 
+    given(transferRepository.findProductIdByTransferId(transferId))
+        .willReturn(Optional.of(productId));
+    given(productRepository.lockForTransfer(productId)).willReturn(true);
     given(transferRepository.findByIdForUpdate(transferId)).willReturn(Optional.of(transfer));
 
     service.cancelTransfer(ownerId, transferId);

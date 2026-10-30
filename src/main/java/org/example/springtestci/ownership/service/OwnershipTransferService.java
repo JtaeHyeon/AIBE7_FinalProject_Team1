@@ -49,6 +49,7 @@ public class OwnershipTransferService {
     this.tradeAuditRepository = tradeAuditRepository;
   }
 
+  /** 현재 소유자의 제품을 먼저 잠그고 판매 중·예약 중이 아닌 제품에만 외부 이전 요청을 만든다. */
   @Transactional
   public CreateTransferResponse createTransfer(long actorId, CreateTransferRequest req) {
     Long ownerId =
@@ -58,6 +59,14 @@ public class OwnershipTransferService {
 
     if (!Objects.equals(ownerId, actorId)) {
       throw new CommonException(ErrorCode.ACCESS_DENIED);
+    }
+
+    // 게시와 같은 제품 잠금을 유지해야 두 요청이 상태 검사를 동시에 통과하지 않는다.
+    if (!productRepository.lockOwned(req.productId(), actorId)) {
+      throw new CommonException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+    if (productRepository.hasOpenListing(req.productId())) {
+      throw new CommonException(ErrorCode.OWNERSHIP_TRANSFER_BLOCKED);
     }
 
     // 만료된 대기 요청이 새 이전 요청을 영영 막지 않도록 먼저 만료 처리한다.
@@ -141,9 +150,15 @@ public class OwnershipTransferService {
         canAccept);
   }
 
+  /** 제품→이전 요청 순으로 잠근 뒤 수신자·유효 기간·현재 소유권을 다시 확인하고 함께 확정한다. */
   @Transactional
   public AcceptTransferResponse acceptTransfer(long actorId, AcceptTransferRequest req) {
     String tokenHash = hashToken(req.token());
+    long productId =
+        transferRepository
+            .findProductIdByTokenHash(tokenHash)
+            .orElseThrow(() -> new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND));
+    lockTransferProduct(productId);
     OwnershipTransfer transfer =
         transferRepository
             .findByTokenHashForUpdate(tokenHash)
@@ -185,8 +200,14 @@ public class OwnershipTransferService {
         transfer.getId(), transfer.getProductId(), actorId, transfer.getCompletedAt());
   }
 
+  /** 제품→이전 요청 잠금 아래 발급자의 PENDING 요청만 취소한다. 감사 기록도 같은 트랜잭션이다. */
   @Transactional
   public void cancelTransfer(long actorId, Long transferId) {
+    long productId =
+        transferRepository
+            .findProductIdByTransferId(transferId)
+            .orElseThrow(() -> new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND));
+    lockTransferProduct(productId);
     OwnershipTransfer transfer =
         transferRepository
             .findByIdForUpdate(transferId)
@@ -211,6 +232,12 @@ public class OwnershipTransferService {
         "status=PENDING",
         "status=CANCELLED",
         "소유권 이전 취소");
+  }
+
+  private void lockTransferProduct(long productId) {
+    if (!productRepository.lockForTransfer(productId)) {
+      throw new CommonException(ErrorCode.OWNERSHIP_NOT_FOUND);
+    }
   }
 
   public static String hashToken(String rawToken) {
