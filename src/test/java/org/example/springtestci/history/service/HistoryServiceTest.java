@@ -21,6 +21,7 @@ import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
 import org.example.springtestci.history.dto.CreateHistoryEventRequest;
+import org.example.springtestci.history.dto.HistoryEventSource;
 import org.example.springtestci.history.dto.VoidHistoryEventRequest;
 import org.example.springtestci.history.entity.HistoryEventStatus;
 import org.example.springtestci.history.entity.HistoryEventType;
@@ -353,6 +354,27 @@ class HistoryServiceTest {
 
     assertEquals(ErrorCode.RESOURCE_NOT_FOUND, exception.errorCode());
     verify(historyRepository, never()).findTimeline(anyLong());
+  }
+
+  @Test
+  void newOwnerCanReadAccumulatedHistoryButOnlyTheirOwnRecordsAreEditable() {
+    HistoryEventRecord previousOwnerEvent = eventWithAuthor(99L);
+    HistoryEventRecord currentOwnerEvent = eventWithAuthor(OWNER);
+    when(historyRepository.existsOwnedProduct(PRODUCT, OWNER)).thenReturn(true);
+    when(historyRepository.findDocumentIds(PRODUCT)).thenReturn(Map.of());
+    when(historyRepository.findLatestChanges(PRODUCT)).thenReturn(Map.of());
+    when(historyRepository.findTimeline(PRODUCT))
+        .thenReturn(List.of(previousOwnerEvent, transferEvent(), currentOwnerEvent));
+
+    var timeline = historyService.timeline(OWNER, PRODUCT);
+
+    assertEquals(3, timeline.size());
+    assertEquals(HistoryEventSource.PREVIOUS_OWNER, timeline.get(0).source());
+    assertEquals(HistoryEventSource.SYSTEM, timeline.get(1).source());
+    assertEquals(HistoryEventSource.CURRENT_OWNER, timeline.get(2).source());
+    assertEquals(false, timeline.get(0).editable());
+    assertEquals(false, timeline.get(1).editable());
+    assertEquals(true, timeline.get(2).editable());
   }
 
   @Test

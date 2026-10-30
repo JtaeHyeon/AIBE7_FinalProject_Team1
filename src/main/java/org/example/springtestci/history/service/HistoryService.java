@@ -11,6 +11,7 @@ import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
 import org.example.springtestci.history.dto.CreateHistoryEventRequest;
 import org.example.springtestci.history.dto.HistoryEventResponse;
+import org.example.springtestci.history.dto.HistoryEventSource;
 import org.example.springtestci.history.dto.VoidHistoryEventRequest;
 import org.example.springtestci.history.entity.HistoryEventStatus;
 import org.example.springtestci.history.entity.HistoryEventType;
@@ -100,7 +101,7 @@ public class HistoryService {
           factsVersion,
           createdSnapshot(request, specsBeforeJson, specsAfterJson));
     }
-    var response = getOwnedEvent(productId, eventId, documentIds);
+    var response = getOwnedEvent(ownerId, productId, eventId, documentIds);
     events.publishEvent(new ProductFactsChanged(productId));
     return response;
   }
@@ -116,6 +117,7 @@ public class HistoryService {
         .map(
             event ->
                 toResponse(
+                    ownerId,
                     event,
                     documents.getOrDefault(event.eventId(), List.of()),
                     changes.get(event.eventId())))
@@ -160,6 +162,7 @@ public class HistoryService {
         "HISTORY_CORRECTED");
     var response =
         toResponse(
+            ownerId,
             after,
             historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
             historyRepository.findLatestChanges(productId).get(eventId));
@@ -184,6 +187,7 @@ public class HistoryService {
         productId, ownerId, eventId, json(before), json(after), request.reason(), "HISTORY_VOIDED");
     var response =
         toResponse(
+            ownerId,
             after,
             historyRepository.findDocumentIds(productId).getOrDefault(eventId, List.of()),
             historyRepository.findLatestChanges(productId).get(eventId));
@@ -309,17 +313,27 @@ public class HistoryService {
     return List.copyOf(documentIds);
   }
 
-  private HistoryEventResponse getOwnedEvent(long productId, long eventId, List<Long> documentIds) {
+  private HistoryEventResponse getOwnedEvent(
+      long ownerId, long productId, long eventId, List<Long> documentIds) {
     return toResponse(
-        historyRepository.findEvent(productId, eventId).orElseThrow(), documentIds, null);
+        ownerId, historyRepository.findEvent(productId, eventId).orElseThrow(), documentIds, null);
   }
 
   private HistoryEventResponse toResponse(
-      HistoryEventRecord event, List<Long> documentIds, HistoryChangeRecord change) {
+      long ownerId, HistoryEventRecord event, List<Long> documentIds, HistoryChangeRecord change) {
+    HistoryEventSource source =
+        event.eventType() == HistoryEventType.TRANSFER
+            ? HistoryEventSource.SYSTEM
+            : java.util.Objects.equals(event.authorId(), ownerId)
+                ? HistoryEventSource.CURRENT_OWNER
+                : HistoryEventSource.PREVIOUS_OWNER;
+    boolean editable =
+        event.status() == HistoryEventStatus.VALID
+            && event.eventType() != HistoryEventType.TRANSFER
+            && java.util.Objects.equals(event.authorId(), ownerId);
     return new HistoryEventResponse(
         event.eventId(),
         event.productId(),
-        event.authorId(),
         event.eventType(),
         event.occurredOn(),
         event.title(),
@@ -330,6 +344,8 @@ public class HistoryService {
         parseMap(event.specsBefore()),
         parseMap(event.specsAfter()),
         event.status(),
+        source,
+        editable,
         documentIds,
         change == null ? null : change.action(),
         change == null ? null : change.reason(),

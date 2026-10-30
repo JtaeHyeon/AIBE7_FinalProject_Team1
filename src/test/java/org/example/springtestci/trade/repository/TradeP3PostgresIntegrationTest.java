@@ -227,6 +227,127 @@ class TradeP3PostgresIntegrationTest {
   }
 
   @Test
+  void rollsBackCancellationWhenListingReleaseFails() {
+    Fixture fixture = insertReservedFixture();
+    jdbc.execute(
+        "create function fail_p3_listing_release() returns trigger language plpgsql as $$ begin if old.status = 'RESERVED' and new.status = 'ACTIVE' then raise exception 'injected listing release failure'; end if; return new; end $$");
+    jdbc.execute(
+        "create trigger fail_p3_listing_release before update on listings for each row execute function fail_p3_listing_release()");
+
+    try {
+      assertThatThrownBy(
+              () ->
+                  transactions.executeWithoutResult(
+                      ignored ->
+                          cancellations.cancel(
+                              fixture.requestId(),
+                              BUYER_ID,
+                              TradeCancellationReason.CONDITION_MISMATCH)))
+          .hasMessageContaining("injected listing release failure");
+    } finally {
+      jdbc.execute("drop trigger fail_p3_listing_release on listings");
+      jdbc.execute("drop function fail_p3_listing_release()");
+    }
+
+    assertCancellationRolledBack(fixture.requestId());
+  }
+
+  @Test
+  void rollsBackCancellationWhenAuditInsertFails() {
+    Fixture fixture = insertReservedFixture();
+    jdbc.execute(
+        "create function fail_p3_cancellation_audit() returns trigger language plpgsql as $$ begin if new.action = 'TRADE_RESERVATION_CANCELLED' then raise exception 'injected cancellation audit failure'; end if; return new; end $$");
+    jdbc.execute(
+        "create trigger fail_p3_cancellation_audit before insert on audit_logs for each row execute function fail_p3_cancellation_audit()");
+
+    try {
+      assertThatThrownBy(
+              () ->
+                  transactions.executeWithoutResult(
+                      ignored ->
+                          cancellations.cancel(
+                              fixture.requestId(),
+                              SELLER_ID,
+                              TradeCancellationReason.MUTUAL_AGREEMENT)))
+          .hasMessageContaining("injected cancellation audit failure");
+    } finally {
+      jdbc.execute("drop trigger fail_p3_cancellation_audit on audit_logs");
+      jdbc.execute("drop function fail_p3_cancellation_audit()");
+    }
+
+    assertCancellationRolledBack(fixture.requestId());
+  }
+
+  @Test
+  void cancellationAndOtherPendingAcceptanceKeepOneValidReservation() throws Exception {
+    Fixture fixture = insertReservedFixture();
+    long otherRoom = insertRoom(OTHER_BUYER_ID);
+    long pendingRequest =
+        jdbc.queryForObject(
+            "insert into purchase_requests (room_id, listing_id, request_status) values (?, ?, 'PENDING') returning id",
+            Long.class,
+            otherRoom,
+            LISTING_ID);
+    CountDownLatch start = new CountDownLatch(1);
+    var executor = Executors.newFixedThreadPool(2);
+    boolean accepted;
+    try {
+      var cancellation =
+          executor.submit(
+              () -> {
+                start.await(10, TimeUnit.SECONDS);
+                return transactions.execute(
+                    ignored ->
+                        cancellations.cancel(
+                            fixture.requestId(),
+                            BUYER_ID,
+                            TradeCancellationReason.SELF_CIRCUMSTANCES));
+              });
+      var acceptance =
+          executor.submit(
+              () -> {
+                start.await(10, TimeUnit.SECONDS);
+                return acceptOrConflict(pendingRequest);
+              });
+      start.countDown();
+      cancellation.get(20, TimeUnit.SECONDS);
+      accepted = acceptance.get(20, TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+    }
+
+    assertThat(
+            value("select request_status from purchase_requests where id = ?", fixture.requestId()))
+        .isEqualTo("CANCELLED");
+    assertThat(
+            value(
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
+                fixture.requestId()))
+        .isEqualTo("CANCELLED");
+    if (accepted) {
+      assertThat(value("select status from listings where id = ?", LISTING_ID))
+          .isEqualTo("RESERVED");
+      assertThat(value("select request_status from purchase_requests where id = ?", pendingRequest))
+          .isEqualTo("ACCEPTED");
+      assertThat(
+              value(
+                  "select status from trade_fixture_transfers where purchase_request_id = ?",
+                  pendingRequest))
+          .isEqualTo("PENDING");
+    } else {
+      assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("ACTIVE");
+      assertThat(value("select request_status from purchase_requests where id = ?", pendingRequest))
+          .isEqualTo("PENDING");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from trade_fixture_transfers where purchase_request_id = ?",
+                  Long.class,
+                  pendingRequest))
+          .isZero();
+    }
+  }
+
+  @Test
   void simultaneousCancellationKeepsFirstMetadataAndSingleAudit() throws Exception {
     Fixture fixture = insertReservedFixture();
     CountDownLatch start = new CountDownLatch(1);
@@ -552,6 +673,110 @@ class TradeP3PostgresIntegrationTest {
   }
 
   @Test
+  void newChangeAndKeepDecisionSerializeWithoutLosingEitherWrite() throws Exception {
+    Fixture fixture = insertReservedFixture();
+    insertProductEvent(101L);
+    insertProductEvent(102L);
+    transactions.execute(
+        ignored ->
+            changes.recordChange(
+                PRODUCT_ID,
+                fixture.requestId(),
+                101L,
+                2L,
+                JsonMapper.builder().build().readTree("{\"title\":\"first\"}")));
+
+    runConcurrently(
+        () ->
+            transactions.execute(
+                ignored ->
+                    changes.recordChange(
+                        PRODUCT_ID,
+                        fixture.requestId(),
+                        102L,
+                        3L,
+                        JsonMapper.builder().build().readTree("{\"title\":\"second\"}"))),
+        () ->
+            transactions.execute(
+                ignored ->
+                    changes.review(
+                        fixture.requestId(), 101L, BUYER_ID, ChangeReviewDecision.KEEP, null)));
+
+    assertThat(
+            value(
+                "select decision from transaction_change_reviews where purchase_request_id = ? and event_id = 101",
+                fixture.requestId()))
+        .isEqualTo("KEEP");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ? and event_id = 102 and decision is null",
+                Long.class,
+                fixture.requestId()))
+        .isEqualTo(1L);
+    assertThat(reviews.countUnreviewed(fixture.requestId())).isEqualTo(1L);
+  }
+
+  @Test
+  void newChangeAndCancelDecisionLeaveNoPartialCancellation() throws Exception {
+    Fixture fixture = insertReservedFixture();
+    insertProductEvent(101L);
+    insertProductEvent(102L);
+    transactions.execute(
+        ignored ->
+            changes.recordChange(
+                PRODUCT_ID,
+                fixture.requestId(),
+                101L,
+                2L,
+                JsonMapper.builder().build().readTree("{\"title\":\"first\"}")));
+    CountDownLatch start = new CountDownLatch(1);
+    var executor = Executors.newFixedThreadPool(2);
+    boolean newChangeCommitted;
+    try {
+      var newChange =
+          executor.submit(
+              () -> {
+                start.await(10, TimeUnit.SECONDS);
+                return recordChangeOrConflict(fixture.requestId(), 102L);
+              });
+      var cancellation =
+          executor.submit(
+              () -> {
+                start.await(10, TimeUnit.SECONDS);
+                return transactions.execute(
+                    ignored ->
+                        changes.review(
+                            fixture.requestId(),
+                            101L,
+                            BUYER_ID,
+                            ChangeReviewDecision.CANCEL,
+                            TradeCancellationReason.CONDITION_MISMATCH));
+              });
+      start.countDown();
+      newChangeCommitted = newChange.get(20, TimeUnit.SECONDS);
+      cancellation.get(20, TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+    }
+
+    assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("ACTIVE");
+    assertThat(
+            value("select request_status from purchase_requests where id = ?", fixture.requestId()))
+        .isEqualTo("CANCELLED");
+    assertThat(
+            value(
+                "select decision from transaction_change_reviews where purchase_request_id = ? and event_id = 101",
+                fixture.requestId()))
+        .isEqualTo("CANCEL");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from transaction_change_reviews where purchase_request_id = ? and event_id = 102",
+                Long.class,
+                fixture.requestId()))
+        .isEqualTo(newChangeCommitted ? 1L : 0L);
+  }
+
+  @Test
   void listingShutdownNeverReactivatesCancelledListingAndCancelsAllRequests() {
     Fixture fixture = insertReservedFixture();
     long otherRoom = insertRoom(OTHER_BUYER_ID);
@@ -583,6 +808,58 @@ class TradeP3PostgresIntegrationTest {
         .isEqualTo("CANCELLED");
     assertThat(value("select request_status from purchase_requests where id = ?", pendingRequest))
         .isEqualTo("CANCELLED");
+  }
+
+  @Test
+  void listingShutdownAndCancellationAlwaysLeaveListingCancelled() throws Exception {
+    Fixture fixture = insertReservedFixture();
+
+    runConcurrently(
+        () ->
+            transactions.executeWithoutResult(
+                ignored -> {
+                  var listing =
+                      listings
+                          .findByIdForUpdate(LISTING_ID)
+                          .orElseThrow(() -> new AssertionError("listing fixture missing"));
+                  int updated =
+                      jdbc.update(
+                          "update listings set status = 'CANCELLED', active_slot = null where id = ? and status = ?",
+                          LISTING_ID,
+                          listing.status().name());
+                  assertThat(updated).isEqualTo(1);
+                  listingCanceller.cancel(
+                      new ListingTradeCanceller.Command(
+                          PRODUCT_ID,
+                          LISTING_ID,
+                          SELLER_ID,
+                          ListingStatus.valueOf(listing.status().name()),
+                          "MUTUAL_AGREEMENT"));
+                }),
+        () ->
+            transactions.execute(
+                ignored ->
+                    cancellations.cancel(
+                        fixture.requestId(),
+                        BUYER_ID,
+                        TradeCancellationReason.SELF_CIRCUMSTANCES)));
+
+    assertThat(value("select status from listings where id = ?", LISTING_ID))
+        .isEqualTo("CANCELLED");
+    assertThat(
+            value("select request_status from purchase_requests where id = ?", fixture.requestId()))
+        .isEqualTo("CANCELLED");
+    assertThat(
+            value(
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
+                fixture.requestId()))
+        .isEqualTo("CANCELLED");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from audit_logs where action = 'TRADE_RESERVATION_CANCELLED' and target_id = ?",
+                Long.class,
+                fixture.requestId()))
+        .isEqualTo(1L);
   }
 
   @Test
@@ -1125,6 +1402,56 @@ class TradeP3PostgresIntegrationTest {
         SELLER_ID,
         "{\"ram\":\"16GB\"}",
         "{\"ram\":\"32GB\"}");
+  }
+
+  private void assertCancellationRolledBack(long requestId) {
+    assertThat(value("select status from listings where id = ?", LISTING_ID)).isEqualTo("RESERVED");
+    assertThat(value("select request_status from purchase_requests where id = ?", requestId))
+        .isEqualTo("ACCEPTED");
+    assertThat(value("select transaction_status from purchase_requests where id = ?", requestId))
+        .isEqualTo("RESERVED");
+    assertThat(
+            value(
+                "select status from trade_fixture_transfers where purchase_request_id = ?",
+                requestId))
+        .isEqualTo("PENDING");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from audit_logs where action = 'TRADE_RESERVATION_CANCELLED' and target_id = ?",
+                Long.class,
+                requestId))
+        .isZero();
+  }
+
+  private boolean acceptOrConflict(long requestId) {
+    try {
+      transactions.execute(ignored -> purchaseRequests.accept(requestId, SELLER_ID));
+      return true;
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT) {
+        throw exception;
+      }
+      return false;
+    }
+  }
+
+  private boolean recordChangeOrConflict(long requestId, long eventId) {
+    try {
+      transactions.execute(
+          ignored ->
+              changes.recordChange(
+                  PRODUCT_ID,
+                  requestId,
+                  eventId,
+                  3L,
+                  JsonMapper.builder().build().readTree("{\"title\":\"concurrent\"}")));
+      return true;
+    } catch (CommonException exception) {
+      if (exception.errorCode() != ErrorCode.TRADE_CONFLICT) {
+        throw exception;
+      }
+      return false;
+    }
   }
 
   private void insertUser(long id, String email, String nickname) {
