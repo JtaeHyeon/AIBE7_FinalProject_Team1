@@ -10,6 +10,7 @@
   // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
+    window.PastportProductQuestions?.clear('listings');
     window.PastportListingSummary?.reset();
     window.PastportListingManagement?.reset();
     find('[data-listing-login]').hidden = true;
@@ -38,6 +39,7 @@
       const next = payload.data;
       if (append && data) next.history.items = [...new Map([...data.history.items, ...next.history.items].map(item => [item.eventId,item])).values()];
       data = next; window.PastportListingDetail.render(find('[data-listing-content]'), data);
+      window.PastportProductQuestions?.mount(find('[data-listing-content]'), {scope:'listings', id:data.listingId});
       window.PastportListingManagement?.bind(data);
       window.PastportListingSummary?.bind(data);
       find('[data-listing-status]').textContent = '게시된 판매글이에요. 판매 중·예약 중인 글은 로그인한 회원이 확인할 수 있어요.';
