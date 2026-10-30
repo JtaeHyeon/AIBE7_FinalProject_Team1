@@ -7,6 +7,7 @@
   const currentId = () => new URL(window.location.href).searchParams.get('listingId');
   const find = selector => document.querySelector('#detail ' + selector);
 
+  /** 조회 실패·계정 변경 시 이전 판매글의 채팅 클릭 연결을 제거한다. */
   function resetChat() {
     const button = find('[data-listing-chat]');
     if (!button) return;
@@ -15,7 +16,7 @@
     button.onclick = null;
   }
 
-  // 공개 상세에서 구매자의 문의 진입을 연결한다. 예약 중에는 서버가 기존 대화의 참여자만 허용한다.
+  /** 구매자의 문의 진입을 연결한다. 호출 모듈이 요청 이후 계정·화면 변경도 검사하며, 예약 중 접근은 서버가 제한한다. */
   function bindChat(listing) {
     const button = find('[data-listing-chat]');
     if (!button || listing.canManage || !['ACTIVE', 'RESERVED'].includes(listing.status)) return;
@@ -39,7 +40,7 @@
     };
   }
 
-  // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
+  /** URL의 판매글을 조회하고 이력 다음 페이지를 합친다. 권한 오류와 이전 글의 지연 응답을 구분한다. */
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
     resetChat();
@@ -88,13 +89,14 @@
     } finally { if (!controller.signal.aborted) { loading = false; find('[data-listing-more]').disabled = false; } }
   }
 
-  // 작성용 제품 주소를 게시글 주소로 바꿔 새로고침해도 같은 상세를 다시 열 수 있게 한다.
+  /** 게시된 판매글 주소로 전환해 새로고침 시 같은 상세와 관리 여부를 복원한다. */
   function open(id, options = {}) {
     const url = new URL(window.location.href); url.searchParams.delete('draftProduct'); url.searchParams.delete('market'); url.searchParams.set('listingId', String(id));
     options.manage ? url.searchParams.set('listingManage', '1') : url.searchParams.delete('listingManage');
     window.history.replaceState(window.history.state, '', url);
     if (typeof show === 'function') show('detail');
   }
+  /** 늦게 로드된 상세 HTML에 재조회·로그인·이력 페이지 버튼을 한 번만 연결한다. */
   function init() {
     if (initialized || !find('[data-listing-content]')) return;
     initialized = true;

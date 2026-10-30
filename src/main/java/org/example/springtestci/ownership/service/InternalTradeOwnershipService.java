@@ -143,10 +143,12 @@ public class InternalTradeOwnershipService
     }
   }
 
+  /** 내부 거래 식별자는 양수여야 하며 보내는 사용자와 받는 사용자가 같을 수 없다. */
   private static boolean validParties(long product, long request, long from, long to) {
     return product > 0 && request > 0 && from > 0 && to > 0 && from != to;
   }
 
+  /** 구매 요청에 연결된 이전이 같은 제품·양측 사용자의 INTERNAL 이전인지 검사한다. */
   private static boolean matches(Transfer t, long product, long from, long to) {
     return t.productId() == product
         && t.fromUserId() == from
@@ -154,6 +156,7 @@ public class InternalTradeOwnershipService
         && "INTERNAL".equals(t.type());
   }
 
+  /** 외부에서 사용할 원문 토큰 없이 기존 필수 해시 컬럼을 채울 난수 해시를 만든다. */
   private static String internalHash() {
     byte[] bytes = new byte[32];
     RANDOM.nextBytes(bytes);

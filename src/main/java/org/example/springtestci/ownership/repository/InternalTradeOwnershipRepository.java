@@ -154,6 +154,7 @@ public class InternalTradeOwnershipRepository {
         Timestamp.from(at));
   }
 
+  /** 완료 재요청 시 같은 이전의 유효한 시스템 이력이 정확히 한 건인지 확인한다. */
   public boolean hasTransferEvent(long productId, long transferId) {
     return jdbc.queryForObject(
             "SELECT count(*) FROM product_events WHERE product_id=? AND transfer_request_id=? AND event_type='TRANSFER' AND author_id IS NULL AND status='VALID'",

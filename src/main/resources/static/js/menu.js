@@ -17,6 +17,7 @@
     })
   );
 
+  /** 전체 메뉴와 개별 하위 메뉴가 동시에 펼쳐지지 않도록 한다. */
   const setOpen = (open) => {
     if (open) closeDropdown();
     mega.hidden = !open;
@@ -26,15 +27,19 @@
 
   let activeGroup = null;
   let openedByHover = false;
+  /** 숨길 하위 메뉴 안에 키보드 포커스가 있으면 먼저 상위 버튼으로 돌려준다. */
   const closeDropdown = () => {
     if (!activeGroup) return;
-    activeGroup.removeAttribute('data-submenu-open');
-    activeGroup.querySelector(':scope > button').setAttribute('aria-expanded', 'false');
+    const group = activeGroup;
     activeGroup = null;
     openedByHover = false;
+    const trigger = group.querySelector(':scope > button');
+    if (group.querySelector('.nav-drop').contains(document.activeElement)) trigger.focus({ preventScroll: true });
+    group.removeAttribute('data-submenu-open');
+    trigger.setAttribute('aria-expanded', 'false');
   };
 
-  // 가로 스크롤하는 모바일 메뉴 밖으로 펼쳐, 하위 메뉴가 잘리지 않도록 화면에 고정한다.
+  /** 가로 스크롤 밖에 메뉴를 고정한다. 아래 공간이 부족하면 위로 열고, 낮은 화면에서도 스크롤 공간을 확보한다. */
   const openDropdown = (item, hover = false) => {
     closeDropdown();
     setOpen(false);
@@ -43,10 +48,21 @@
     const anchor = trigger.getBoundingClientRect();
     const viewportWidth = document.documentElement.clientWidth;
     const viewportHeight = document.documentElement.clientHeight;
-    const top = Math.min(anchor.bottom, viewportHeight - 8);
-    dropdown.style.top = `${top}px`;
-    dropdown.style.maxHeight = `${Math.max(0, viewportHeight - top - 8)}px`;
+    const edge = Math.min(8, viewportHeight / 4);
+    const viewportSpace = Math.max(1, viewportHeight - edge * 2);
+    dropdown.style.maxHeight = 'none';
     item.setAttribute('data-submenu-open', '');
+    const naturalHeight = dropdown.scrollHeight + 2;
+    const below = Math.max(0, viewportHeight - edge - anchor.bottom);
+    const above = Math.max(0, Math.min(viewportHeight - edge, anchor.top) - edge);
+    const minimum = Math.min(100, naturalHeight, viewportSpace);
+    const opensAbove = below < minimum && above > below;
+    let available = Math.min(viewportSpace, opensAbove ? above : below);
+    let top = opensAbove ? anchor.top - Math.min(naturalHeight, available) : anchor.bottom;
+    if (available < minimum) { available = viewportSpace; top = edge; }
+    top = Math.max(edge, Math.min(top, viewportHeight - edge - Math.min(naturalHeight, available)));
+    dropdown.style.top = `${top}px`;
+    dropdown.style.maxHeight = `${available}px`;
     dropdown.style.left = `${Math.max(8, Math.min(anchor.left, viewportWidth - dropdown.getBoundingClientRect().width - 8))}px`;
     trigger.setAttribute('aria-expanded', 'true');
     activeGroup = item;

@@ -5,6 +5,7 @@
   const root = () => document.querySelector('[data-deals-completion]');
   const labels = { PURCHASE: '구매', INSPECTION: '점검', REPAIR: '수리', PART_REPLACEMENT: '부품 교체', SPEC_CHANGE: '사양 변경', TRANSFER: '소유권 이전' };
 
+  /** 현재 로그인 사용자의 완료·변경 확인 API를 호출하고 서버 오류를 화면용 메시지로 변환한다. */
   async function api(path, options = {}) {
     const response = await (window.PastportApi?.fetch || window.fetch.bind(window))(path, {
       credentials: 'same-origin', cache: 'no-store', ...options,
@@ -19,6 +20,7 @@
     return payload?.data;
   }
 
+  /** 이력·제품 문자열을 HTML로 해석하지 않는 화면 요소를 만든다. */
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text != null) node.textContent = text;
@@ -26,7 +28,9 @@
     return node;
   }
 
+  /** 같은 계정·방·구매 요청에 연결된 활성 화면인지 검사한다. */
   function current(state) { return active === state && state.options.isCurrent() && root(); }
+  /** 완료·취소·재조회 조작에 사용할 버튼을 만든다. */
   function button(text, action, primary = false) {
     const node = element('button', text, 'sc-btn sm' + (primary ? ' primary' : ''));
     node.type = 'button';
@@ -34,6 +38,7 @@
     return node;
   }
 
+  /** 대화 이동 시 조회를 취소하고 이전 거래의 확인 입력을 제거한다. */
   function clear() {
     active?.controller.abort();
     active = null;
@@ -41,6 +46,7 @@
     if (container) { container.replaceChildren(); container.hidden = true; }
   }
 
+  /** 현재 거래에만 화면 영역을 열고 내용을 다시 그릴 준비를 한다. */
   function base(state) {
     const container = root();
     if (!container || !current(state)) return null;
@@ -49,6 +55,7 @@
     return container;
   }
 
+  /** 서버가 완료로 확정한 거래의 결과와 구매자의 제품 이동 버튼을 표시한다. */
   function completed(state) {
     const container = base(state);
     if (!container) return;
@@ -57,7 +64,7 @@
     if (state.options.role === 'buyer') container.append(button('내 제품 보기', () => { if (typeof show === 'function') show('home'); }));
   }
 
-  // 제품·이력은 P4가 제공한 공개 DTO만 표시한다. 관리용 제품·증빙 API는 호출하지 않는다.
+  /** P4가 제공한 공개 제품·이력 DTO를 확인용으로 표시한다. 관리용 증빙 API는 사용하지 않는다. */
   function evidence(state) {
     const context = state.context;
     const detail = element('details');
@@ -82,8 +89,9 @@
     return detail;
   }
 
+  /** 확인·예약 취소를 한 번씩 전송한다. 완료 권한·버전과 트랜잭션 확정은 서버가 검사한다. */
   async function action(state, path, body) {
-    if (!current(state) || state.busy) return;
+    if (!current(state) || state.busy || state.completed) return;
     state.busy = true;
     root().querySelectorAll('button,input,select').forEach(node => { node.disabled = true; });
     state.message = '';
@@ -100,6 +108,7 @@
     }
   }
 
+  /** 구매자가 확인할 예약 중 변경과 페이지 이동을 표시한다. 판매자는 조회만 할 수 있다. */
   function renderChanges(state, container) {
     const changes = state.changes;
     if (!changes || !state.context.unreviewedChangeCount) return;
@@ -130,6 +139,7 @@
     container.append(section);
   }
 
+  /** 같은 조회 결과에서는 입력·포커스를 유지하고, 현재 버전의 확인·취소 UI를 표시한다. */
   function render(state) {
     const renderKey = JSON.stringify([state.context, state.changes, state.message]);
     if (state.renderKey === renderKey && root()?.childElementCount) return;
@@ -181,19 +191,23 @@
     container.append(cancel);
   }
 
+  /** 마지막 재조회 결과만 반영한다. 성공 시 과거 조회 오류를 지우고 버전 변경 안내는 새로 설정한다. */
   async function load(state) {
-    if (!current(state) || state.busy) return;
+    if (!current(state) || state.busy || state.completed) return;
     const loadId = ++state.loadId;
     try {
       const context = await api(`/api/v1/trades/${state.requestId}/completion-context?page=0&size=20`, { signal: state.controller.signal });
       if (!current(state) || loadId !== state.loadId) return;
+      const changes = context.unreviewedChangeCount ? await api(`/api/v1/trades/${state.requestId}/change-reviews?page=${state.reviewPage}&size=20`, { signal: state.controller.signal }) : null;
+      if (!current(state) || loadId !== state.loadId) return;
+      state.message = '';
       if (state.context?.factsVersion !== context.factsVersion) {
         if (state.context) state.message = '제품 정보가 변경됐어요. 최신 내용을 다시 확인해 주세요.';
         state.acknowledgedVersion = null;
       }
       state.context = context;
-      state.changes = context.unreviewedChangeCount ? await api(`/api/v1/trades/${state.requestId}/change-reviews?page=${state.reviewPage}&size=20`, { signal: state.controller.signal }) : null;
-      if (current(state) && loadId === state.loadId) render(state);
+      state.changes = changes;
+      render(state);
     } catch (error) {
       if (!current(state) || loadId !== state.loadId || error.name === 'AbortError') return;
       state.context = null;
@@ -203,6 +217,7 @@
     }
   }
 
+  /** 계정·방·요청이 바뀌면 상태를 교체한다. 완료 전 조회가 완료 화면을 덮지 못하게 무효화한다. */
   async function mount(options) {
     const key = `${options.userId}:${options.roomId}:${options.request.requestId}:${options.role}`;
     if (active?.key !== key) {
@@ -210,7 +225,12 @@
       active = { key, options, requestId: options.request.requestId, controller: new AbortController(), context: null, acknowledgedVersion: null, reviewPage: 0, busy: false, loadId: 0, message: '' };
       render(active);
     } else active.options = options;
-    if (options.request.transactionStatus === 'COMPLETED') { completed(active); return; }
+    if (options.request.transactionStatus === 'COMPLETED' || active.completed) {
+      active.completed = true;
+      active.loadId++;
+      completed(active);
+      return;
+    }
     await load(active);
   }
 

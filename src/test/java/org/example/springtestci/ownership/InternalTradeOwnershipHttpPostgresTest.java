@@ -42,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** 정식 P2/P3/P4·ownership·history·document·판매·AI 경계를 실제 PostgreSQL/HTTP로 검증한다. */
+/** 정식 P2/P3/P4·ownership·history·document·판매·AI 경계를 PostgreSQL과 Bearer 인증 HTTP로 검증한다. */
 @EnabledIfEnvironmentVariable(
     named = "SALE_DRAFT_TEST_DB_URL",
     matches = "jdbc:postgresql:.*sale_ai_test.*")
@@ -55,6 +55,7 @@ class InternalTradeOwnershipHttpPostgresTest {
   private static final AtomicReference<Runnable> QUESTION_GATE = new AtomicReference<>();
   private static ConfigurableApplicationContext context;
   private static JdbcTemplate jdbc;
+  private static DriverManagerDataSource schemaSource;
   private static String base, schema;
   private long requestId, otherId, draftId;
 
@@ -163,6 +164,7 @@ class InternalTradeOwnershipHttpPostgresTest {
     }
   }
 
+  /** 스키마 소유 연결을 컨텍스트와 별도로 보관해, 마이그레이션·기동 실패 때도 정리할 수 있다. */
   @BeforeAll
   static void start() {
     String url = System.getenv("SALE_DRAFT_TEST_DB_URL");
@@ -170,21 +172,21 @@ class InternalTradeOwnershipHttpPostgresTest {
       throw new IllegalStateException("Dedicated test DB required");
     schema = "internal_ownership_" + Long.toUnsignedString(System.nanoTime());
     url += (url.contains("?") ? "&" : "?") + "currentSchema=" + schema;
-    var source =
+    schemaSource =
         new DriverManagerDataSource(
             url,
             System.getenv("SALE_DRAFT_TEST_DB_USER"),
             System.getenv("SALE_DRAFT_TEST_DB_PASSWORD"));
     // 정식 history를 먼저 만든 뒤 기존 pending P2/P3를 적용한다. 버전 번호와 원본 SQL은 수정하지 않는다.
     Flyway.configure()
-        .dataSource(source)
+        .dataSource(schemaSource)
         .schemas(schema)
         .defaultSchema(schema)
         .locations("classpath:db/migration")
         .load()
         .migrate();
     Flyway.configure()
-        .dataSource(source)
+        .dataSource(schemaSource)
         .schemas(schema)
         .defaultSchema(schema)
         .locations(
@@ -231,14 +233,15 @@ class InternalTradeOwnershipHttpPostgresTest {
     base = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
   }
 
+  /** 컨텍스트 생성 전 실패도 정리한다. 시험에서 생성한 고유 스키마만 제거한다. */
   @AfterAll
   static void stop() {
-    if (context != null) {
-      try {
-        jdbc.execute("DROP SCHEMA " + schema + " CASCADE");
-      } finally {
-        context.close();
+    try {
+      if (schemaSource != null && schema != null) {
+        new JdbcTemplate(schemaSource).execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
       }
+    } finally {
+      if (context != null) context.close();
     }
   }
 
@@ -365,9 +368,9 @@ class InternalTradeOwnershipHttpPostgresTest {
               .statusCode());
       assertEquals(404, send("GET", "/api/v1/listings/11/ai-summary", user, null).statusCode());
     }
-    assertEquals(200, send("GET", "/api/v1/products/101/events", 2, null).statusCode());
+    assertContainsId(send("GET", "/api/v1/products/101/events", 2, null), "eventId", 601);
     assertEquals(404, send("GET", "/api/v1/products/101/events", 1, null).statusCode());
-    assertEquals(200, send("GET", "/api/v1/products/101/documents", 2, null).statusCode());
+    assertContainsId(send("GET", "/api/v1/products/101/documents", 2, null), "id", 501);
     assertTrue(send("GET", "/api/v1/products/101/documents", 1, null).statusCode() >= 400);
     assertTrue(send("DELETE", "/api/v1/documents/501", 2, null).statusCode() >= 400);
     assertEquals(
@@ -740,6 +743,17 @@ class InternalTradeOwnershipHttpPostgresTest {
 
   private static String listingStatus() {
     return text("SELECT status FROM listings WHERE id=11");
+  }
+
+  /** 조회 허용뿐 아니라 이전 소유자의 특정 이력·증빙이 실제 응답으로 승계됐는지 확인한다. */
+  private static void assertContainsId(
+      HttpResponse<String> response, String field, long expectedId) {
+    assertEquals(200, response.statusCode(), response.body());
+    JsonNode items = data(response);
+    assertTrue(items.isArray(), response.body());
+    Set<Long> ids = new HashSet<>();
+    items.forEach(item -> ids.add(item.path(field).asLong()));
+    assertTrue(ids.contains(expectedId), response.body());
   }
 
   private static JsonNode data(HttpResponse<String> r) {
