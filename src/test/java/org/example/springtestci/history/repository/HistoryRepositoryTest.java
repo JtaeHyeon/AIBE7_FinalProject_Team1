@@ -1,6 +1,7 @@
 package org.example.springtestci.history.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -153,6 +154,28 @@ class HistoryRepositoryTest {
     assertEquals(
         List.of("같은 날짜 첫 등록", "같은 날짜 두 번째 등록", "두 번째 날짜"),
         historyRepository.findTimeline(productId).stream().map(event -> event.title()).toList());
+  }
+
+  @Test
+  void ownershipChangeHandsTheAccumulatedTimelineToTheNewOwner() {
+    long previousOwnerId = 106L;
+    long newOwnerId = 206L;
+    long productId = insertProduct(previousOwnerId, "history-fingerprint-6");
+    long eventId =
+        historyRepository.insertEvent(
+            productId,
+            previousOwnerId,
+            historyRequest(LocalDate.of(2026, 10, 18), "이전 소유자의 점검"),
+            null,
+            null);
+
+    jdbc.update("UPDATE products SET owner_id = ? WHERE id = ?", newOwnerId, productId);
+
+    assertFalse(historyRepository.existsOwnedProduct(productId, previousOwnerId));
+    assertTrue(historyRepository.existsOwnedProduct(productId, newOwnerId));
+    assertEquals(eventId, historyRepository.findTimeline(productId).get(0).eventId());
+    assertEquals(
+        previousOwnerId, historyRepository.findTimeline(productId).get(0).authorId().longValue());
   }
 
   private static CreateHistoryEventRequest historyRequest(LocalDate occurredOn, String title) {

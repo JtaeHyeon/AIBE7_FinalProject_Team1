@@ -10,7 +10,6 @@ import org.example.springtestci.history.entity.HistoryEventType;
 public record HistoryEventResponse(
     long eventId,
     long productId,
-    Long authorId,
     HistoryEventType eventType,
     LocalDate occurredOn,
     String title,
@@ -21,6 +20,8 @@ public record HistoryEventResponse(
     Map<String, Object> specsBefore,
     Map<String, Object> specsAfter,
     HistoryEventStatus status,
+    HistoryEventSource source,
+    boolean editable,
     List<Long> documentIds,
     String changeAction,
     String changeReason,

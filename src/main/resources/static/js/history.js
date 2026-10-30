@@ -14,6 +14,11 @@
     cpu: 'CPU', gpu: 'GPU', ramGb: 'RAM', storageGb: '저장 용량', storageType: '저장 방식',
     display: '디스플레이', batteryHealthPercent: '배터리 상태', os: '운영체제',
   };
+  const sourceLabels = {
+    CURRENT_OWNER: '내 기록',
+    PREVIOUS_OWNER: '이전 소유자 기록',
+    SYSTEM: '자동 기록',
+  };
   const editableTypes = ['PURCHASE', 'INSPECTION', 'REPAIR', 'PART_REPLACEMENT', 'SPEC_CHANGE'];
   const state = { productId: null, events: [], filter: 'ALL', editingId: null, requestVersion: 0 };
 
@@ -48,7 +53,7 @@
 
   const shell = () => `
     <div class="history-heading">
-      <div><span class="eyebrow">PRODUCT HISTORY</span><h2>제품 이력</h2><p>점검, 수리, 부품 교체 기록을 시간순으로 관리하세요.</p></div>
+      <div><span class="eyebrow">PRODUCT HISTORY</span><h2>누적 타임라인</h2><p>소유자가 바뀌어도 이 제품의 핵심 이력은 계속 이어집니다.</p></div>
       <button class="button primary" type="button" data-history-create>＋ 이력 등록</button>
     </div>
     <div class="history-summary" aria-label="이력 요약">
@@ -123,11 +128,11 @@
   };
   const card = (event) => {
     const voided = event.status === 'VOID';
-    const canChange = !voided && event.eventType !== 'TRANSFER' && event.authorId != null;
+    const canChange = event.editable === true;
     return `<article class="history-event ${voided ? 'is-void' : ''}" data-history-event-id="${event.eventId}">
       <div class="history-marker" data-type="${event.eventType}" aria-hidden="true">${typeIcons[event.eventType] || '●'}</div>
       <div class="history-event-body">
-        <div class="history-event-top"><div><time datetime="${escapeHtml(event.occurredOn)}">${formatDate(event.occurredOn)}</time><span class="history-type">${typeLabels[event.eventType] || event.eventType}</span>${voided ? '<span class="history-void-badge">무효</span>' : ''}</div>${canChange ? `<div class="history-actions"><button type="button" data-history-edit="${event.eventId}">정정</button><button type="button" data-history-void="${event.eventId}">무효화</button></div>` : ''}</div>
+        <div class="history-event-top"><div><time datetime="${escapeHtml(event.occurredOn)}">${formatDate(event.occurredOn)}</time><span class="history-type">${typeLabels[event.eventType] || event.eventType}</span><span class="history-source" data-source="${escapeHtml(event.source || 'SYSTEM')}">${sourceLabels[event.source] || sourceLabels.SYSTEM}</span>${voided ? '<span class="history-void-badge">무효</span>' : ''}</div>${canChange ? `<div class="history-actions"><button type="button" data-history-edit="${event.eventId}">정정</button><button type="button" data-history-void="${event.eventId}">무효화</button></div>` : ''}</div>
         <h3>${escapeHtml(event.title)}</h3>
         ${event.content ? `<p>${escapeHtml(event.content)}</p>` : ''}
         ${details(event)}
@@ -149,7 +154,8 @@
     const events = filteredEvents();
     container.querySelector('[data-history-count]').textContent = state.events.length;
     container.querySelector('[data-history-maintenance]').textContent = state.events.filter((item) => ['REPAIR', 'PART_REPLACEMENT'].includes(item.eventType) && item.status !== 'VOID').length;
-    container.querySelector('[data-history-recent]').textContent = state.events[0] ? formatDate(state.events[0].occurredOn) : '–';
+    const latest = state.events.reduce((current, event) => !current || event.occurredOn > current.occurredOn ? event : current, null);
+    container.querySelector('[data-history-recent]').textContent = latest ? formatDate(latest.occurredOn) : '–';
     if (!events.length) {
       list.replaceChildren();
       status.hidden = false;
