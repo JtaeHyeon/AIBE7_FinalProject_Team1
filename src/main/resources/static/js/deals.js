@@ -74,6 +74,11 @@
     currentRoom = null; currentUserId = null;
     find('[data-deals-rooms]')?.replaceChildren();
     find('[data-deals-messages]')?.replaceChildren();
+    find('[data-deals-room-title]')?.replaceChildren();
+    const scope = find('[data-deals-scope]'); if (scope) scope.textContent = '전체 채팅';
+    const all = find('[data-deals-all]'); if (all) all.hidden = true;
+    const input = find('[data-deals-input]'); if (input) input.value = '';
+    const infoTitle = find('[data-deals-info-title]'); if (infoTitle) infoTitle.textContent = '';
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
     const infoSection = find('[data-deals-info]'); if (infoSection) infoSection.style.display = 'none';
   }
@@ -99,11 +104,6 @@
     const ticket = ++roomGeneration;
     currentRoom = room;
     find('[data-deals-messages]')?.replaceChildren();
-    find('[data-deals-room-title]')?.replaceChildren();
-    const scope = find('[data-deals-scope]'); if (scope) scope.textContent = '전체 채팅';
-    const all = find('[data-deals-all]'); if (all) all.hidden = true;
-    const input = find('[data-deals-input]'); if (input) input.value = '';
-    const infoTitle = find('[data-deals-info-title]'); if (infoTitle) infoTitle.textContent = '';
     const input = find('[data-deals-input]'); if (input) input.value = '';
     find('[data-deals-request-buy]').hidden = true;
     find('[data-deals-transfer-area]').hidden = true;
