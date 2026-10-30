@@ -4,7 +4,12 @@
   let currentRoom = null;
   let currentUserId = null;
   let pollingTimer = null;
-  let rooms = [];
+  let roomList = null;
+  let generation = 0;
+  let roomGeneration = 0;
+  let pendingEntry = null;
+  let opening = false;
+  let sending = false;
 
   const find = (selector) => document.querySelector('#deals ' + selector);
   const findAll = (selector) => document.querySelectorAll('#deals ' + selector);
@@ -22,32 +27,36 @@
     return payload?.data;
   }
 
-  async function initUser() {
+  async function initUser(ticket) {
     try {
       const user = await api('/api/auth/me', { method: 'GET' });
-      currentUserId = user?.id || null;
+      if (ticket === generation) currentUserId = user?.id || null;
     } catch {
-      currentUserId = null;
+      if (ticket === generation) currentUserId = null;
     }
   }
 
-  async function loadRooms() {
+  async function loadRooms(entry = null) {
+    resetDeals();
+    const ticket = generation;
     const container = find('[data-deals-rooms]');
     if (!container) return;
     try {
-      await initUser();
+      await initUser(ticket);
+      if (ticket !== generation) return;
       if (!currentUserId) {
         container.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--muted)"><p style="margin-bottom:8px">로그인이 필요한 서비스입니다.</p><button type="button" class="sc-btn primary sm" data-page="auth">로그인하기</button></div>';
         return;
       }
-      const data = await api('/api/v1/chat-rooms?page=0&size=50', { method: 'GET' });
-      rooms = data?.items || [];
-      if (rooms.length === 0) {
-        container.innerHTML = '<p class="sub" style="padding:40px 20px;text-align:center;color:var(--muted)">진행 중인 대화가 없습니다.<br><small style="margin-top:6px;display:inline-block">마켓에서 관심 있는 상품에 문의해 보세요!</small></p>';
-        return;
-      }
-      renderRoomList();
+      find('[data-deals-scope]').textContent = entry ? (entry.listingTitle || '이 판매글') + ' · 채팅' : '전체 채팅';
+      find('[data-deals-all]').hidden = !entry;
+      roomList = window.PastportChatRoomList.mount(container, {
+        listingId: entry?.listingId, onSelect: selectRoom
+      });
+      await roomList.load();
+      if (ticket === generation && entry?.roomId) await selectRoom(entry);
     } catch (e) {
+      if (ticket !== generation) return;
       container.innerHTML = '<p class="sub" style="padding:20px;text-align:center;color:var(--muted)">대화방 목록을 불러오지 못했습니다.</p>';
     }
   }
@@ -59,8 +68,10 @@
 
   // 로그아웃·세션 만료 시 열려 있던 대화와 3초 갱신을 모두 끊고 화면을 비운다.
   function resetDeals() {
+    generation++; roomGeneration++;
+    roomList?.dispose(); roomList = null;
     stopPolling();
-    currentRoom = null; currentUserId = null; rooms = [];
+    currentRoom = null; currentUserId = null;
     find('[data-deals-rooms]')?.replaceChildren();
     find('[data-deals-messages]')?.replaceChildren();
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
@@ -71,6 +82,7 @@
   function leaveRoom() {
     if (!currentRoom) return;
     stopPolling();
+    roomGeneration++;
     currentRoom = null;
     find('[data-deals-messages]')?.replaceChildren();
     const chatSection = find('[data-deals-chat-section]'); if (chatSection) chatSection.style.display = 'none';
@@ -79,30 +91,22 @@
   }
 
   function renderRoomList() {
-    const container = find('[data-deals-rooms]');
-    if (!container) return;
-    container.replaceChildren(...rooms.map((room) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'dl-row' + (currentRoom?.roomId === room.roomId ? ' on' : '');
-      const dateStr = room.latestMessageAt ? new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(new Date(room.latestMessageAt)) : '';
-      btn.innerHTML = `
-        <span class="laptop"></span>
-        <span>
-          <b>${escapeHtml(room.counterpartyNickname || '상대방')} <time>${dateStr}</time></b>
-          <span class="t">${escapeHtml(room.listingTitle || '판매글')}</span>
-          <span class="m">${escapeHtml(room.latestMessagePreview || '대화를 시작해 보세요')}</span>
-          <span class="tags"><span class="sc-badge ${statusClass(room.listingStatus)}">${statusLabel(room.listingStatus)}</span></span>
-        </span>
-        ${room.hasUnreadMessages ? '<i class="dl-dot" aria-label="새 메시지"></i>' : ''}
-      `;
-      btn.addEventListener('click', () => selectRoom(room));
-      return btn;
-    }));
+    roomList?.select(currentRoom?.roomId);
   }
 
   async function selectRoom(room) {
+    stopPolling();
+    const ticket = ++roomGeneration;
     currentRoom = room;
+    find('[data-deals-messages]')?.replaceChildren();
+    find('[data-deals-room-title]')?.replaceChildren();
+    const scope = find('[data-deals-scope]'); if (scope) scope.textContent = '전체 채팅';
+    const all = find('[data-deals-all]'); if (all) all.hidden = true;
+    const input = find('[data-deals-input]'); if (input) input.value = '';
+    const infoTitle = find('[data-deals-info-title]'); if (infoTitle) infoTitle.textContent = '';
+    const input = find('[data-deals-input]'); if (input) input.value = '';
+    find('[data-deals-request-buy]').hidden = true;
+    find('[data-deals-transfer-area]').hidden = true;
     renderRoomList();
 
     const chatSection = find('[data-deals-chat-section]');
@@ -124,30 +128,37 @@
     find('[data-deals-info-title]').textContent = room.listingTitle || '–';
 
     await loadMessages(room.roomId);
+    if (ticket !== roomGeneration) return;
+    startPolling();
     if (closed) {
       const buyBtn = find('[data-deals-request-buy]'); if (buyBtn) buyBtn.hidden = true;
       const transferArea = find('[data-deals-transfer-area]'); if (transferArea) transferArea.hidden = true;
       return;
     }
-    await checkPurchaseRequest(room);
-
-    startPolling();
+    await checkPurchaseRequest(room, ticket);
   }
 
   async function loadMessages(roomId) {
+    const ticket = roomGeneration;
     try {
       const data = await api(`/api/v1/chat-rooms/${roomId}/messages?page=0&size=50`, { method: 'GET' });
+      if (ticket !== roomGeneration || currentRoom?.roomId !== roomId) return;
       const messages = (data?.items || []).reverse();
       renderMessages(messages);
 
       if (messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
-        api(`/api/v1/chat-rooms/${roomId}/read-position`, {
+        await api(`/api/v1/chat-rooms/${roomId}/read-position`, {
           method: 'PUT',
           body: JSON.stringify({ lastReadMessageId: lastMsg.messageId })
-        }).catch(() => {});
+        });
+        if (ticket === roomGeneration && currentRoom?.roomId === roomId) {
+          currentRoom.hasUnreadMessages = false;
+          roomList?.markRead(roomId);
+        }
       }
     } catch (e) {
+      if (ticket !== roomGeneration) return;
       if (e.status === 401) { resetDeals(); return; }
       console.error('메시지 로드 실패:', e);
     }
@@ -170,7 +181,7 @@
     container.scrollTop = container.scrollHeight;
   }
 
-  async function checkPurchaseRequest(room) {
+  async function checkPurchaseRequest(room, ticket = roomGeneration) {
     const buyBtn = find('[data-deals-request-buy]');
     const infoStatus = find('[data-deals-info-trade-status]');
     const flowSteps = findAll('[data-flow-step]');
@@ -183,6 +194,7 @@
 
     try {
       const requests = await api(`/api/v1/purchase-requests?roomId=${room.roomId}&page=0&size=10`, { method: 'GET' });
+      if (ticket !== roomGeneration) return;
       const items = requests?.items || [];
       const pendingOrAccepted = items.find(r => r.requestStatus === 'PENDING' || r.requestStatus === 'ACCEPTED');
 
@@ -214,6 +226,7 @@
         }
       }
     } catch {
+      if (ticket !== roomGeneration) return;
       setStep('inquiry');
     }
   }
@@ -302,20 +315,26 @@
 
   async function sendMessage() {
     const input = find('[data-deals-input]');
-    if (!input || !currentRoom) return;
+    if (!input || !currentRoom || sending) return;
+    const room = currentRoom, ticket = roomGeneration;
     const content = input.value.trim();
     if (!content) return;
     input.value = '';
+    sending = true;
+    const button = find('[data-deals-send]'); button.disabled = true;
 
     try {
-      await api(`/api/v1/chat-rooms/${currentRoom.roomId}/messages`, {
+      await api(`/api/v1/chat-rooms/${room.roomId}/messages`, {
         method: 'POST',
         body: JSON.stringify({ content })
       });
-      await loadMessages(currentRoom.roomId);
+      if (ticket === roomGeneration) await loadMessages(room.roomId);
     } catch (e) {
+      if (ticket !== roomGeneration) return;
       if (e.status === 401) resetDeals();
       alert('메시지 전송에 실패했습니다: ' + e.message);
+    } finally {
+      sending = false; button.disabled = false;
     }
   }
 
@@ -345,6 +364,8 @@
 
   function init() {
     const sendBtn = find('[data-deals-send]');
+    if (!sendBtn || sendBtn.dataset.bound) return;
+    sendBtn.dataset.bound = 'true';
     const input = find('[data-deals-input]');
     sendBtn?.addEventListener('click', sendMessage);
     find('[data-deals-leave]')?.addEventListener('click', leaveRoom);
@@ -355,44 +376,70 @@
       }
     });
 
-    findAll('[data-deals-tab]').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        findAll('[data-deals-tab]').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-      });
-    });
   }
 
   async function openRoomForListing(listingId) {
+    if (opening) return;
+    opening = true;
+    const ticket = generation;
     try {
       const room = await api(`/api/v1/market/listings/${listingId}/chat-rooms`, { method: 'POST' });
-      if (typeof show === 'function') show('deals');
-      await loadRooms();
-      const target = rooms.find(r => r.roomId === room.roomId);
-      if (target) selectRoom(target);
+      if (ticket !== generation) return;
+      const data = await api(`/api/v1/chat-rooms?listingId=${listingId}&page=0&size=20`);
+      if (ticket !== generation) return;
+      const summary = data.items.find(item => item.roomId === room.roomId) || room;
+      openSummary(summary);
     } catch (e) {
+      if (ticket !== generation) return;
       alert('채팅방을 열 수 없습니다: ' + e.message);
+    } finally {
+      opening = false;
     }
+  }
+
+  function openSummary(room) {
+    pendingEntry = room;
+    if (typeof show === 'function') show('deals');
+  }
+
+  async function activate() {
+    const entry = pendingEntry; pendingEntry = null;
+    resetDeals();
+    if (!find('[data-deals-rooms]')) {
+      const ticket = generation;
+      await new Promise(resolve => {
+        const loaded = event => {
+          if (event.detail.id !== 'deals') return;
+          document.removeEventListener('pastport:page-loaded', loaded); resolve();
+        };
+        document.addEventListener('pastport:page-loaded', loaded);
+      });
+      if (ticket !== generation || !document.querySelector('#deals.active')) return;
+    }
+    init();
+    await loadRooms(entry);
   }
 
   document.addEventListener('pastport:page-loaded', (e) => {
     if (e.detail.id === 'deals') {
       init();
-      loadRooms();
     }
   });
 
-  document.addEventListener('pastport:auth-changed', (e) => { if (!e.detail?.signedIn) resetDeals(); });
+  document.addEventListener('pastport:auth-changed', () => {
+    resetDeals();
+    if (document.querySelector('#deals.active')) activate();
+  });
 
   document.addEventListener('pastport:page-shown', (e) => {
     if (e.detail.id === 'deals') {
-      loadRooms();
+      activate();
     } else {
-      stopPolling();
+      resetDeals();
     }
   });
 
   window.PastportDeals = Object.freeze({
-    openRoomForListing
+    openRoomForListing, openSummary
   });
 })();

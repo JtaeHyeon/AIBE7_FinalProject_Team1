@@ -4,4 +4,3 @@
 .nav-drop button.active{background:var(--blue-50)}
 .nav-drop b{font-weight:600;color:#4f5156}
 .nav-drop button.active b{font-weight:800;color:var(--blue)}
-.side,.mobile-menu{display:none!important}.main{margin-left:0!important}

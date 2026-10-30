@@ -215,6 +215,7 @@
 .dt-chat-foot{padding:0 18px 12px;font-size:11px;color:var(--muted)}
 
 /* 5. 내 거래 / 채팅 */
+#deals [hidden]{display:none!important}
 .dl{display:grid;grid-template-columns:320px minmax(0,1fr) 300px;height:calc(100vh - var(--hh) - 150px);min-height:620px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 2px 4px rgba(22,23,29,.04)}
 .dl-list{display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0}
 .dl-tabs{display:flex;gap:6px;padding:14px;border-bottom:1px solid var(--line)}

@@ -55,13 +55,17 @@ public class ChatController {
     return ApiResponse.success(chatService.openRoom(listingId, actorId(authentication)));
   }
 
-  /** 인증 사용자가 참여한 방을 페이지 입력과 함께 조회한다. */
+  /** 인증 참여자의 방만 조회한다. 선택적인 판매글 ID는 서비스의 읽기 전용 조회와 건수에 함께 적용한다. */
   @GetMapping("/chat-rooms")
   public ApiResponse<ChatPageResponse<ChatRoomSummaryResponse>> listMyRooms(
       Authentication authentication,
+      @RequestParam(required = false) @Positive Long listingId,
       @RequestParam(defaultValue = DEFAULT_PAGE) @Min(0) int page,
       @RequestParam(defaultValue = DEFAULT_PAGE_SIZE) @Min(1) @Max(MAX_PAGE_SIZE) int size) {
-    return ApiResponse.success(chatService.listMyRooms(actorId(authentication), page, size));
+    return ApiResponse.success(
+        listingId == null
+            ? chatService.listMyRooms(actorId(authentication), page, size)
+            : chatService.listMyRooms(actorId(authentication), listingId, page, size));
   }
 
   /** 경로의 채팅방 ID에 대해 참여자 검증이 적용된 메시지 페이지를 반환한다. */

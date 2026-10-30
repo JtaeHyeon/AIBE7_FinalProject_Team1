@@ -143,4 +143,44 @@ class ChatRepositoryIntegrationTest {
   private List<Long> messageIds(List<ChatMessage> messages) {
     return messages.stream().map(ChatMessage::messageId).toList();
   }
+
+  @Test
+  void filtersBothParticipantBranchesBeforePagingAndCountingBeyondFiftyRooms() {
+    for (long inquirer = 100; inquirer < 155; inquirer++) {
+      roomRepository.create(700L, 10L, inquirer);
+    }
+    roomRepository.create(701L, 10L, 20L);
+    roomRepository.create(700L, 30L, 10L);
+    roomRepository.create(700L, 30L, 40L);
+    entityManager.flush();
+    jdbcTemplate.update("update chat_rooms set created_at = TIMESTAMP '2026-10-01 00:00:00'");
+    entityManager.clear();
+
+    var first = roomRepository.findByParticipantIdAndListingId(10L, 700L, PageRequest.of(0, 20));
+    var third = roomRepository.findByParticipantIdAndListingId(10L, 700L, PageRequest.of(2, 20));
+    assertEquals(56, first.getTotalElements());
+    assertEquals(3, first.getTotalPages());
+    assertEquals(16, third.getNumberOfElements());
+    assertTrue(first.hasNext());
+    assertFalse(third.hasNext());
+    assertTrue(first.stream().allMatch(room -> room.listingId() == 700L));
+    List<Long> identifiers = first.stream().map(ChatRoom::roomId).toList();
+    assertEquals(
+        identifiers.stream().sorted(java.util.Comparator.reverseOrder()).toList(), identifiers);
+    assertEquals(
+        1,
+        roomRepository
+            .findByParticipantIdAndListingId(100L, 700L, PageRequest.of(0, 20))
+            .getTotalElements());
+    assertEquals(
+        0,
+        roomRepository
+            .findByParticipantIdAndListingId(999L, 700L, PageRequest.of(0, 20))
+            .getTotalElements());
+    assertEquals(
+        0,
+        roomRepository
+            .findByParticipantIdAndListingId(10L, 999L, PageRequest.of(0, 20))
+            .getTotalElements());
+  }
 }

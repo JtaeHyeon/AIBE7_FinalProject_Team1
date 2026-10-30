@@ -28,6 +28,10 @@ Controller
 
 `openRoom()`은 판매글 ID와 인증 문의자 ID를 사용한다. `sendMessage()`는 메시지를 먼저 저장하고 `ChatMessageDelivery.publishAfterCommit()`으로 커밋 이후 발행을 예약한다. `updateMyReadPosition()`은 메시지가 요청한 방에 속하는지 확인한 뒤 읽음 위치를 갱신한다.
 
+`GET /api/v1/chat-rooms`의 선택적 양수 `listingId`는 원래 판매자·문의자 참여 조건과 함께 DB 페이지 조회와 count에 적용한다. 제품의 현재 소유권으로 과거 방을 승계하지 않으며, 참여 방이 없는 판매글은 존재 여부와 관계없이 빈 페이지다. 조회 트랜잭션은 읽기 전용이며 목록 미리보기는 읽음 위치를 변경하지 않는다.
+
+사이드바·상단·마이페이지의 `deals` 진입은 전체 목록의 첫 페이지로 돌아간다. 본인 상세·관리 화면에는 실제 상세 `listingId`의 목록을 직접 표시한다. 두 목록은 `chat-room-list.js`의 행·20개 단위 더 보기를 공유하고, 선택한 요약과 roomId를 `deals.js`에 전달한다. 구매 문의는 기존 생성/재사용 API 응답을 해당 판매글의 본인 목록으로 보완한다. 페이지 HTML 로딩 후 대화를 열며, 화면·방·계정 전환 시 요청 세대를 검증하고 기존 타이머를 종료한다. 종료된 판매글의 공개 상세 정책과 기존 방의 메시지 권한은 유지한다.
+
 ### 실시간 흐름
 
 1. `chat/realtime/ChatRealtimeConfig.java`가 `/ws-stomp`와 `/sub` 브로커를 구성한다.

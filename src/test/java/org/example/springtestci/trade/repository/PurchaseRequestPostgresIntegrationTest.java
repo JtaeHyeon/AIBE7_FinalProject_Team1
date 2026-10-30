@@ -805,6 +805,13 @@ class PurchaseRequestPostgresIntegrationTest {
       throw new UnsupportedOperationException();
     }
 
+    /** 거래 시험용 대역은 목록 조회를 제공하지 않으며 필터를 무시하는 빈 성공을 반환하지 않는다. */
+    @Override
+    public Page<ChatRoom> findByParticipantIdAndListingId(
+        long participantId, long listingId, Pageable pageable) {
+      throw new UnsupportedOperationException();
+    }
+
     @Override
     public ChatRoom create(long listingId, long sellerId, long inquirerId) {
       throw new UnsupportedOperationException();
