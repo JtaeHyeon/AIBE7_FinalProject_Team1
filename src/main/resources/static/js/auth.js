@@ -1,15 +1,7 @@
 // 로그인·회원가입 화면 연동. 화면 HTML은 pages.js가 나중에 채워 넣으므로 document에 이벤트를 위임한다.
 // Access/Refresh Token은 모두 HttpOnly 쿠키라 JS에서 접근할 수 없다. 쓰기 요청은 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 보내 CSRF를 검사받는다.
 const auth = (() => {
-  const EMAIL_KEY = 'savedEmail';
   let user = null;
-
-  /** 저장소를 쓸 수 없는 환경에서도 예외 없이 동작하는 localStorage 래퍼. */
-  const safeStorage = {
-    get: (key) => { try { return localStorage.getItem(key); } catch { return null; } },
-    set: (key, value) => { try { localStorage.setItem(key, value); } catch { /* 저장소를 못 쓰는 환경 */ } },
-    remove: (key) => { try { localStorage.removeItem(key); } catch { /* 저장소를 못 쓰는 환경 */ } },
-  };
 
   /** 쓰기 요청이면 XSRF-TOKEN 쿠키 값을 X-XSRF-TOKEN 헤더로 만들어 돌려준다. */
   const csrfHeaders = (method) => {
@@ -95,6 +87,7 @@ const auth = (() => {
     user = data?.user ?? null;
     renderHeader();
     renderMyPage();
+    document.dispatchEvent(new CustomEvent('pastport:auth-changed', { detail: { signedIn: Boolean(user), userId: user?.id ?? null } }));
   };
 
   /** 세션 상태를 지우고 로그아웃된 모습으로 화면에 반영한다. */
@@ -129,23 +122,22 @@ const auth = (() => {
     const password = form.elements.password.value;
     if (!email || !password) return message(form, '이메일과 비밀번호를 입력해 주세요.');
     const resend = form.querySelector('[data-email-resend]');
-    resend.hidden = true;
+    if (resend) resend.hidden = true;
     setBusy(form, true);
     try {
       const data = await request('/api/auth/login', { body: { email, password } });
-      if (form.elements.saveEmail.checked) safeStorage.set(EMAIL_KEY, email);
-      else safeStorage.remove(EMAIL_KEY);
       form.elements.password.value = '';
       message(form, '');
       setSession(data);
       const listingId = new URL(window.location.href).searchParams.get('listingId');
       if (/^[1-9]\d*$/.test(listingId || '') && window.PastportPublishedListing) window.PastportPublishedListing.open(listingId);
+      else if (new URL(window.location.href).searchParams.get('myListings') === '1') goto('my-listings');
       else goto('landing');
     } catch (error) {
       form.elements.password.value = '';
       message(form, error.message);
       // 이메일 인증 전이면 인증 메일을 다시 받을 수 있게 한다.
-      resend.hidden = error.code !== 'AUTH_008';
+      if (resend) resend.hidden = error.code !== 'AUTH_008';
     } finally {
       setBusy(form, false);
     }
@@ -197,14 +189,14 @@ const auth = (() => {
     }
     setBusy(form, true);
     try {
-      await request('/api/auth/signup', { body: { email, password, nickname } });
+      const signup = await request('/api/auth/signup', { body: { email, password, nickname } });
       form.reset();
       showPasswordMatch(form);
       message(form, '');
       const loginForm = document.querySelector('[data-auth-form="login"]');
       if (loginForm) {
         loginForm.elements.email.value = email;
-        message(loginForm, '가입이 완료됐어요. 메일로 보낸 인증 링크를 누른 뒤 로그인해 주세요. 30분 안에 인증하지 않으면 가입이 취소돼요.', 'info');
+        message(loginForm, `가입이 완료됐어요. 메일로 보낸 인증 링크를 누른 뒤 로그인해 주세요. ${signup?.verificationTtlMinutes ?? 30}분 안에 인증하지 않으면 가입이 취소돼요.`, 'info');
       }
       goto('auth');
     } catch (error) {
@@ -250,8 +242,6 @@ const auth = (() => {
     input.closest('form').querySelectorAll('[data-agree-required]').forEach((box) => { box.checked = input.checked; });
   });
 
-
-
   document.addEventListener('click', async (event) => {
     if (!event.target.closest?.('[data-email-resend]')) return;
     const form = event.target.closest('form');
@@ -281,19 +271,6 @@ const auth = (() => {
     const slot = ['auth', 'signup'].includes(id) && document.querySelector(`#${id} [data-auth-art]`);
     if (slot) slot.outerHTML = await artHtml.catch(() => '');
   });
-
-  // 로그인 화면이 로드되면 저장된 이메일을 채운다.
-  const restoreEmail = new MutationObserver(() => {
-    const form = document.querySelector('[data-auth-form="login"]');
-    if (!form) return;
-    const saved = safeStorage.get(EMAIL_KEY);
-    if (saved && !form.elements.email.value) {
-      form.elements.email.value = saved;
-      form.elements.saveEmail.checked = true;
-    }
-    restoreEmail.disconnect();
-  });
-  restoreEmail.observe(document.body, { childList: true, subtree: true });
 
   // 새로고침 후 HttpOnly refresh 쿠키가 남아 있으면 세션을 복구한다.
   refresh().catch(() => {});

@@ -12,7 +12,7 @@ public class ListingDraftQueryRepository {
   private static final String OWNED_DRAFTS =
       """
       FROM listing_drafts d JOIN products p ON p.id = d.product_id
-      WHERE d.author_id = ? AND p.owner_id = ? AND p.archived_at IS NULL AND p.category = 'LAPTOP'
+      WHERE d.author_id = ? AND p.owner_id = ? AND p.archived_at IS NULL
       """;
   private final JdbcTemplate jdbc;
 

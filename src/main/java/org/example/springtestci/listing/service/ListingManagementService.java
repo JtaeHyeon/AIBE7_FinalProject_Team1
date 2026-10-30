@@ -96,13 +96,28 @@ public class ListingManagementService {
     String before = facts(listing);
     var command =
         new ListingTradeCanceller.Command(
-            listing.getProductId(), listingId, userId, listing.getStatus(), request.reason());
+            listing.getProductId(),
+            listingId,
+            userId,
+            listing.getStatus(),
+            request.reason(),
+            request.tradeReason());
     listing.cancel();
     listings.flush();
     trade.cancel(command);
     if (!listings.existsByProductIdAndStatusIn(
-        listing.getProductId(), List.of(ListingStatus.ACTIVE, ListingStatus.RESERVED)))
+        listing.getProductId(), List.of(ListingStatus.ACTIVE, ListingStatus.RESERVED))) {
       history.makePrivate(listing.getProductId(), listingId, userId);
+      // 마지막 열린 판매글이 닫혀 이력이 비공개로 바뀐 경우만 SEC-08 처리 기록을 남긴다.
+      audit.changed(
+          listing.getProductId(),
+          userId,
+          listingId,
+          "HISTORY_VISIBILITY_CHANGED",
+          "{\"visibility\":\"PUBLIC\"}",
+          "{\"visibility\":\"PRIVATE\"}",
+          request.reason());
+    }
     audit.changed(
         listing.getProductId(),
         userId,

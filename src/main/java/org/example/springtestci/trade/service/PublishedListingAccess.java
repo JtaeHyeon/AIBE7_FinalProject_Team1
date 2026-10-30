@@ -12,6 +12,9 @@ public interface PublishedListingAccess {
   /** 제품을 먼저 잠근 뒤 판매글을 잠가 모든 거래 쓰기의 잠금 순서를 통일한다. */
   Optional<PublishedListing> findByIdForUpdate(long listingId);
 
+  /** 호출자가 먼저 잠근 제품의 RESERVED 판매글을 잠근다. */
+  Optional<PublishedListing> findReservedByProductIdForUpdate(long productId);
+
   Map<Long, PublishedListingStatus> findStatuses(Collection<Long> listingIds);
 
   /** ACTIVE 판매글 하나를 RESERVED로 조건부 전환한다. */

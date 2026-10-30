@@ -1,9 +1,13 @@
 package org.example.springtestci.listing.repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
+import org.example.springtestci.ai.entity.ListingSummaryState;
 import org.example.springtestci.listing.dto.ListingSearchRequest;
 import org.example.springtestci.listing.dto.ListingSummaryResponse;
 import org.example.springtestci.product.service.SerialNumberProtector;
@@ -25,7 +29,7 @@ public class ListingQueryRepository {
   private static final String AVAILABLE =
       """
       WHERE l.status = 'ACTIVE' AND l.seller_id = p.owner_id
-        AND p.archived_at IS NULL AND p.category = 'LAPTOP'
+        AND p.archived_at IS NULL
       """;
   private final JdbcTemplate jdbc;
 
@@ -35,6 +39,10 @@ public class ListingQueryRepository {
 
   /** 공개 조건·필터를 적용한 뒤 페이지를 나누며, 본문·사진 컬렉션을 별도로 읽지 않는다. */
   public Page<ListingSummaryResponse> findActive(ListingSearchRequest filter) {
+    return findActive(filter, false);
+  }
+
+  public Page<ListingSummaryResponse> findActive(ListingSearchRequest filter, boolean member) {
     var where = new StringBuilder(AVAILABLE);
     var values = new ArrayList<Object>();
     if (filter.manufacturer() != null)
@@ -43,6 +51,15 @@ public class ListingQueryRepository {
           values,
           "p.manufacturer_normalized = ?",
           SerialNumberProtector.normalizeManufacturer(filter.manufacturer()));
+    if (filter.category() != null) condition(where, values, "p.category = ?", filter.category());
+    // 검색어는 판매글 제목·제조사·모델명 중 하나라도 포함하면 맞는 것으로 본다.
+    if (filter.keyword() != null) {
+      String like = contains(filter.keyword());
+      where.append(
+          " AND (LOWER(l.title) LIKE ? ESCAPE '!' OR LOWER(p.manufacturer) LIKE ? ESCAPE '!'"
+              + " OR LOWER(p.model_name) LIKE ? ESCAPE '!')");
+      values.addAll(List.of(like, like, like));
+    }
     if (filter.minPrice() != null) condition(where, values, "l.price >= ?", filter.minPrice());
     if (filter.maxPrice() != null) condition(where, values, "l.price <= ?", filter.maxPrice());
     if (filter.cpu() != null)
@@ -79,6 +96,9 @@ public class ListingQueryRepository {
                d.ram_gb, d.storage_gb, d.storage_type, d.os_name,
                pi.id AS thumbnail_image_id
         """
+                + (member
+                    ? ", l.summary_status,l.summary_text,l.summary_format_version,l.summary_error_code,l.summary_source_product_version,l.summary_source_listing_version,p.facts_version AS ai_current_product_version,l.content_version AS ai_current_listing_version "
+                    : "")
                 + FROM
                 + """
         LEFT JOIN listing_images li ON li.listing_id = l.id AND li.sort_order = 0 AND li.is_primary = TRUE
@@ -105,9 +125,36 @@ public class ListingQueryRepository {
                         row.getString("storage_type"), row.getString("os_name")),
                     row.getObject("thumbnail_image_id") == null
                         ? null
-                        : "/api/v1/listings/" + row.getLong("id") + "/thumbnail"),
+                        : "/api/v1/listings/" + row.getLong("id") + "/thumbnail",
+                    member
+                        ? aiSummary(row)
+                        : new ListingSummaryResponse.AiSummary("LOGIN_REQUIRED", null, false)),
             pageValues.toArray());
     return new PageImpl<>(items, pageable, total);
+  }
+
+  // 기존 페이지 SQL에 저장된 문구를 포함해 읽으므로 카드별 이력 조회나 AI 요청이 발생하지 않는다.
+  private ListingSummaryResponse.AiSummary aiSummary(ResultSet row) throws SQLException {
+    String status = row.getString("summary_status");
+    if (status == null) return new ListingSummaryResponse.AiSummary("NOT_REQUESTED", null, false);
+    boolean stale =
+        !Objects.equals(
+                row.getObject("summary_source_product_version", Long.class),
+                row.getLong("ai_current_product_version"))
+            || !Objects.equals(
+                row.getObject("summary_source_listing_version", Long.class),
+                row.getLong("ai_current_listing_version"));
+    if (stale) return new ListingSummaryResponse.AiSummary("STALE", null, false);
+    boolean cardFormat =
+        row.getInt("summary_format_version") == ListingSummaryState.CARD_FORMAT_VERSION;
+    if (status.equals("READY") && !cardFormat)
+      return new ListingSummaryResponse.AiSummary("NOT_REQUESTED", null, false);
+    String text =
+        cardFormat && !"AI_005".equals(row.getString("summary_error_code"))
+            ? row.getString("summary_text")
+            : null;
+    return new ListingSummaryResponse.AiSummary(
+        status, text, text != null && !status.equals("READY"));
   }
 
   public Optional<Long> findPrimaryImageId(long listingId, long productId) {

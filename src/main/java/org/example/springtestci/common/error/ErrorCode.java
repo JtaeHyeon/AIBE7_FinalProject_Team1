@@ -13,6 +13,7 @@ public enum ErrorCode {
   EMAIL_NOT_VERIFIED(HttpStatus.BAD_REQUEST, "AUTH_008", "이메일 인증을 완료해 주세요."),
   TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH_010", "잠시 후 다시 시도해 주세요."),
   LOGIN_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "AUTH_012", "로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요."),
+  REQUEST_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "COMMON_003", "요청이 너무 많아요. 잠시 후 다시 시도해 주세요."),
   EMAIL_SEND_FAILED(
       HttpStatus.SERVICE_UNAVAILABLE, "AUTH_011", "인증 메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요."),
   RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMON_002", "요청한 리소스를 찾을 수 없습니다."),
@@ -39,6 +40,8 @@ public enum ErrorCode {
       "거래·이전 취소와 이력 비공개 연동이 준비되지 않았습니다. 판매글은 변경되지 않습니다."),
   PRODUCT_IMAGE_IN_USE(
       HttpStatus.CONFLICT, "PRODUCT_005", "판매 중이거나 예약 중인 판매글의 사진은 먼저 판매글에서 제외해 주세요."),
+  PRODUCT_DELETE_BLOCKED(
+      HttpStatus.CONFLICT, "PRODUCT_006", "판매 중이거나 예약 중인 판매글이 있어 제품을 삭제할 수 없습니다. 먼저 판매글을 삭제해 주세요."),
   AI_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "AI_001", "AI 제안을 사용할 수 없습니다. 잠시 후 재시도하거나 직접 작성해 주세요."),
   AI_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "AI_002", "AI 응답 시간이 초과되었습니다. 재시도하거나 직접 작성해 주세요."),
@@ -69,6 +72,12 @@ public enum ErrorCode {
       HttpStatus.CONFLICT, "DOC_007", "개인정보 재마스킹이 필요한 증빙은 교체하기 전까지 열람할 수 없습니다."),
   DOCUMENT_STORAGE_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "DOC_008", "파일 저장소를 아직 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+  DOCUMENT_EXTRACTION_ACTIVE(
+      HttpStatus.CONFLICT, "DOC_009", "이미 진행 중이거나 완료된 AI 추출이 있습니다. 반려하거나 실패한 뒤에 다시 요청할 수 있습니다."),
+  DOCUMENT_AI_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "DOC_010", "AI 추출 기능을 아직 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+  DOCUMENT_HISTORY_UNAVAILABLE(
+      HttpStatus.SERVICE_UNAVAILABLE, "DOC_011", "이력 기능을 아직 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
   PRODUCT_DUPLICATE_SERIAL(
       HttpStatus.CONFLICT, "PRODUCT_001", "이미 등록된 제품입니다. 현재소유자에게 소유권 이전을 요청하세요."),
   INVALID_PRODUCT_IMAGE(
@@ -84,6 +93,12 @@ public enum ErrorCode {
   TRADE_CONFLICT(HttpStatus.CONFLICT, "TRADE_001", "구매 요청을 현재 상태에서 처리할 수 없습니다."),
   TRADE_DEPENDENCY_UNAVAILABLE(
       HttpStatus.SERVICE_UNAVAILABLE, "TRADE_002", "거래 연동 기능을 일시적으로 사용할 수 없습니다."),
+  OWNERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "OWN_001", "소유권 이전 요청을 찾을 수 없습니다."),
+  OWNERSHIP_EXPIRED(HttpStatus.GONE, "OWN_002", "만료되었거나 유효하지 않은 소유권 이전 요청입니다."),
+  OWNERSHIP_ALREADY_PENDING(HttpStatus.CONFLICT, "OWN_003", "이미 진행 중인 소유권 이전 요청이 있습니다."),
+  OWNERSHIP_SELF_ACCEPT(HttpStatus.BAD_REQUEST, "OWN_004", "자신의 제품 소유권은 직접 수락할 수 없습니다."),
+  OWNERSHIP_TRANSFER_BLOCKED(
+      HttpStatus.CONFLICT, "OWN_005", "판매 중이거나 예약 중인 제품은 소유권 이전을 요청할 수 없습니다."),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "COMMON_999", "서버 오류가 발생했습니다.");
 
   private final HttpStatus status;

@@ -28,8 +28,10 @@ import org.springframework.security.oauth2.server.resource.web.authentication.Be
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.session.SessionManagementFilter;
 
 @Configuration
 @EnableConfigurationProperties(JwtProperties.class)
@@ -46,11 +48,24 @@ public class SecurityConfig {
                     // JS가 쿠키에서 읽은 값을 그대로 헤더로 보내므로 마스킹하지 않는 핸들러를 쓴다.
                     // Authorization 헤더가 있는 요청(API 클라이언트, Swagger)은 Spring이 기본으로 CSRF 검사에서 뺀다.
                     .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
-        .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+        // 인증 성공 시 기존 CSRF 쿠키가 지워지므로, 인증 후 새 토큰을 읽어 다음 요청용 쿠키를 발급한다.
+        .addFilterAfter(new CsrfCookieFilter(), SessionManagementFilter.class)
         // 쿠키 요청이 CSRF 검사를 받은 뒤에 쿠키를 Authorization 헤더로 바꿔 넘긴다.
         .addFilterBefore(new CookieBearerTokenFilter(), BearerTokenAuthenticationFilter.class)
         // CSRF 검사에 실패하면 인증 문제(401)가 아니라 요청 거부(403)로 응답한다.
         .exceptionHandling(handling -> handling.accessDeniedHandler(new AccessDeniedHandlerImpl()))
+        .headers(
+            headers ->
+                headers
+                    // HTTPS 요청 응답에만 붙는다. 로컬 HTTP에서는 무시된다.
+                    .httpStrictTransportSecurity(
+                        hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31_536_000))
+                    .referrerPolicy(
+                        referrer ->
+                            referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.SAME_ORIGIN))
+                    .addHeaderWriter(
+                        new StaticHeadersWriter(
+                            "Permissions-Policy", "geolocation=(), microphone=()")))
         .cors(Customizer.withDefaults())
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -75,8 +90,18 @@ public class SecurityConfig {
                         "/swagger-ui/**",
                         "/swagger-ui.html")
                     .permitAll()
+                    // 화면 이름 경로와 없는 경로: API가 아닌 GET은 인증 대상이 아니다. 없는 경로가 401이 아니라 404로 응답한다.
                     .requestMatchers(
-                        HttpMethod.GET, "/api/v1/listings", "/api/v1/listings/*/thumbnail")
+                        request ->
+                            "GET".equals(request.getMethod())
+                                && !request.getRequestURI().startsWith("/api/"))
+                    .permitAll()
+                    .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/listings",
+                        "/api/v1/listings/*/thumbnail",
+                        "/api/v1/ownership/transfers/verify",
+                        "/api/v1/products/*/events")
                     .permitAll()
                     .requestMatchers(
                         HttpMethod.POST,
@@ -84,7 +109,9 @@ public class SecurityConfig {
                         "/api/auth/signup",
                         "/api/auth/login",
                         "/api/auth/refresh",
-                        "/api/auth/logout")
+                        "/api/auth/logout",
+                        "/api/v1/ai/ask",
+                        "/api/v1/ai/estimate-price")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

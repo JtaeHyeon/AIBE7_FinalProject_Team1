@@ -1,5 +1,6 @@
 HELP.md
 .gradle
+.gradle-user-home/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -52,3 +53,7 @@ out/
 /docs/PRODUCT_REQUEST_FLOW_PRESENTATION_GUIDE.md
 /docs/product-query-update-learning-notes.md
 /docs/product-serial-registration-notes.md
+/TROUBLESHOOTING.md
+
+# 운영 로그
+logs/

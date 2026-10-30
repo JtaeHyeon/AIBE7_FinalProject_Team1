@@ -62,19 +62,20 @@ public class ProductRepository {
                   INSERT INTO products (category, manufacturer, manufacturer_normalized,
                       model_name, purchase_date, serial_number_fingerprint, title,
                       warranty_expires_at, warranty_terms, owner_id, serial_number_ciphertext)
-                  VALUES ('LAPTOP', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                   """,
                   new String[] {"id"});
-          statement.setString(1, request.manufacturer().trim());
-          statement.setString(2, manufacturerNormalized);
-          statement.setString(3, request.modelName().trim());
-          statement.setObject(4, request.purchaseDate());
-          statement.setString(5, fingerprint);
-          statement.setString(6, request.title().trim());
-          statement.setObject(7, request.warrantyExpiresAt());
-          statement.setString(8, request.warrantyTerms());
-          statement.setLong(9, ownerId);
-          statement.setString(10, ciphertext);
+          statement.setString(1, request.category());
+          statement.setString(2, request.manufacturer().trim());
+          statement.setString(3, manufacturerNormalized);
+          statement.setString(4, request.modelName().trim());
+          statement.setObject(5, request.purchaseDate());
+          statement.setString(6, fingerprint);
+          statement.setString(7, request.title().trim());
+          statement.setObject(8, request.warrantyExpiresAt());
+          statement.setString(9, request.warrantyTerms());
+          statement.setLong(10, ownerId);
+          statement.setString(11, ciphertext);
           return statement;
         },
         keys);
@@ -177,6 +178,51 @@ public class ProductRepository {
         .isEmpty();
   }
 
+  public Optional<Long> findOwnerId(long productId) {
+    return jdbc
+        .queryForList(
+            "SELECT owner_id FROM products WHERE id = ? AND archived_at IS NULL",
+            Long.class,
+            productId)
+        .stream()
+        .findFirst();
+  }
+
+  /** 이전 수락·취소도 게시와 같은 제품→이전 요청 순서로 잠근다. 현재 트랜잭션에서만 호출한다. */
+  public boolean lockForTransfer(long productId) {
+    return !jdbc.queryForList(
+            "SELECT id FROM products WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+            Long.class,
+            productId)
+        .isEmpty();
+  }
+
+  /** 제품 잠금 아래 외부 이전 발급과 판매글 게시가 서로 먼저 생성된 상태를 확인하도록 한다. */
+  public boolean hasOpenListing(long productId) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM listings WHERE product_id = ? AND status IN ('ACTIVE', 'RESERVED'))",
+            Boolean.class,
+            productId));
+  }
+
+  public Optional<String> findTitle(long productId) {
+    return jdbc
+        .queryForList(
+            "SELECT title FROM products WHERE id = ? AND archived_at IS NULL",
+            String.class,
+            productId)
+        .stream()
+        .findFirst();
+  }
+
+  public void updateOwner(long productId, long newOwnerId) {
+    jdbc.update(
+        "UPDATE products SET owner_id = ?, updated_at = NOW() WHERE id = ? AND archived_at IS NULL",
+        newOwnerId,
+        productId);
+  }
+
   public void updateProduct(long productId, UpdateProductRequest request) {
     jdbc.update(
         """
@@ -223,6 +269,13 @@ public class ProductRepository {
             productId,
             imageId)
         > 0;
+  }
+
+  /** 제품·이력·감사 기록은 보존하고 보관 처리해 목록과 판매 대상에서 제외한다. */
+  public void archive(long productId) {
+    jdbc.update(
+        "UPDATE products SET archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND archived_at IS NULL",
+        productId);
   }
 
   public long insertImage(long productId, String storageKey, String contentType, long byteSize) {

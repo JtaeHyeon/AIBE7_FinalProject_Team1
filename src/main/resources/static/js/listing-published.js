@@ -10,6 +10,7 @@
   // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
+    window.PastportProductQuestions?.clear('listings');
     window.PastportListingSummary?.reset();
     window.PastportListingManagement?.reset();
     find('[data-listing-login]').hidden = true;
@@ -38,10 +39,12 @@
       const next = payload.data;
       if (append && data) next.history.items = [...new Map([...data.history.items, ...next.history.items].map(item => [item.eventId,item])).values()];
       data = next; window.PastportListingDetail.render(find('[data-listing-content]'), data);
+      window.PastportProductQuestions?.mount(find('[data-listing-content]'), {scope:'listings', id:data.listingId});
       window.PastportListingManagement?.bind(data);
       window.PastportListingSummary?.bind(data);
       find('[data-listing-status]').textContent = '게시된 판매글이에요. 판매 중·예약 중인 글은 로그인한 회원이 확인할 수 있어요.';
       find('[data-listing-more]').hidden = !data.history.page.hasNext;
+      if (!append && data.canManage && new URL(window.location.href).searchParams.get('listingManage') === '1') window.PastportListingManagement?.open();
     } catch (error) {
       if (error.name !== 'AbortError' && !controller.signal.aborted) {
         data = null; find('[data-listing-content]').replaceChildren(); find('[data-listing-more]').hidden = true;
@@ -52,8 +55,9 @@
   }
 
   // 작성용 제품 주소를 게시글 주소로 바꿔 새로고침해도 같은 상세를 다시 열 수 있게 한다.
-  function open(id) {
+  function open(id, options = {}) {
     const url = new URL(window.location.href); url.searchParams.delete('draftProduct'); url.searchParams.delete('market'); url.searchParams.set('listingId', String(id));
+    options.manage ? url.searchParams.set('listingManage', '1') : url.searchParams.delete('listingManage');
     window.history.replaceState(window.history.state, '', url);
     if (typeof show === 'function') show('detail');
   }
@@ -63,10 +67,21 @@
     find('[data-listing-retry]').addEventListener('click', () => load());
     find('[data-listing-login]').addEventListener('click', () => { if (typeof show === 'function') show('auth'); });
     find('[data-listing-more]').addEventListener('click', () => { if (!loading) load(true); });
-    if (currentId()) open(currentId());
+    if (currentId()) open(currentId(), { manage:new URL(window.location.href).searchParams.get('listingManage') === '1' });
   }
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
-  document.addEventListener('pastport:page-shown', event => { if (event.detail.id === 'detail') load(); });
+  document.addEventListener('pastport:page-shown', event => {
+    if (event.detail.id === 'detail') { load(); return; }
+    // 상세를 떠나면 주소의 판매글 번호를 지워, 새로고침 때 상세로 되돌아오지 않게 한다.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
+  });
+  document.addEventListener('pastport:auth-changed', () => {
+    request?.abort(); data = null;
+    window.PastportListingManagement?.reset(); window.PastportListingSummary?.reset();
+    find('[data-listing-content]')?.replaceChildren();
+    if (document.querySelector('#detail.active') && currentId()) load();
+  });
   window.addEventListener('pageshow', event => { if (event.persisted && document.querySelector('#detail.active') && currentId()) load(); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

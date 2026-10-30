@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.example.springtestci.ai.entity.ListingSummaryState;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.springframework.stereotype.Component;
@@ -40,16 +41,16 @@ public class ListingSummaryTextPolicy {
     this.common = common;
   }
 
-  /** 서로 다른 3~5개의 한 문장인지 검사하고, 통과한 문장을 한 단락으로 합친다. */
+  /** 카드에서 읽을 1~2문장·90자 이내 요약인지 검사하고 날짜 표기와 안전 검사를 함께 적용한다. */
   public String validate(List<String> values, String input) {
-    if (values == null || values.size() < 3 || values.size() > 5) invalid();
+    if (values == null || values.isEmpty() || values.size() > 2) invalid();
     Set<String> dates = registeredDates(input);
     var unique = new HashSet<String>();
     List<String> sentences = new ArrayList<>();
     for (String value : values) {
       if (value == null
           || value.isBlank()
-          || value.length() > 650
+          || value.length() > ListingSummaryState.CARD_MAX_LENGTH
           || value.contains("\n")
           || value.contains("\r")) invalid();
       // 날짜 표기를 먼저 맞춰 같은 내용을 다른 날짜 표기로 반복한 문장도 중복으로 잡는다.
@@ -60,7 +61,9 @@ public class ListingSummaryTextPolicy {
       sentences.add(sentence);
     }
     String text = String.join(" ", sentences);
-    if (containsProcessInstructions(text) || !referencesProductFact(text, input)) invalid();
+    if (text.length() > ListingSummaryState.CARD_MAX_LENGTH
+        || containsProcessInstructions(text)
+        || !referencesProductFact(text, input)) invalid();
     // 제목·본문 제안과 같은 개인정보·금지 표현·미등록 숫자 검사도 요약에 재사용한다.
     return common
         .validate(new ListingSuggestionGateway.Suggestion("제품 상태 요약", text), input)
@@ -70,6 +73,18 @@ public class ListingSummaryTextPolicy {
   // 이전 버전에서 저장된 규칙 설명도 조회 시 숨기되, 이 검사 자체로 AI를 다시 호출하지 않는다.
   boolean containsProcessInstructions(String text) {
     return text != null && PROCESS_INSTRUCTIONS.matcher(text).find();
+  }
+
+  /** 조회 때는 저장된 카드의 형식만 재확인한다. 원문 사실 검증이나 AI 호출을 새로 실행하지 않는다. */
+  public boolean reusableStored(String text) {
+    return text != null
+        && !text.isBlank()
+        && text.length() <= ListingSummaryState.CARD_MAX_LENGTH
+        && !text.contains("\n")
+        && !text.contains("\r")
+        && text.matches("(?s).*[.!?。！？]$")
+        && text.split("(?<=[.!?。！？])\\s+").length <= 2
+        && !containsProcessInstructions(text);
   }
 
   // 허용할 날짜의 근거는 등록된 구매일·보증 만료일·이력 발생일에서만 모은다.

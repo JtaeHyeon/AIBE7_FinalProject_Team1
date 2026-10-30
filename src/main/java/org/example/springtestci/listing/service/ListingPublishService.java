@@ -90,6 +90,15 @@ public class ListingPublishService {
     publisher.publish(productId, listing.getId(), userId);
     drafts.delete(productId, draft.draftId(), userId, draft.version());
     audit.published(productId, userId, listing.getId());
+    // 이력 공개 상태 변경도 게시와 같은 트랜잭션에서 별도 처리 기록으로 남긴다(SEC-08).
+    audit.changed(
+        productId,
+        userId,
+        listing.getId(),
+        "HISTORY_VISIBILITY_CHANGED",
+        "{\"visibility\":\"PRIVATE\"}",
+        "{\"visibility\":\"PUBLIC\"}",
+        null);
     // 요약 처리는 이 이벤트를 받은 별도 수신자가 게시 커밋 이후 접수한다.
     events.publishEvent(new ListingPublished(listing.getId()));
     return new Result(PublishedListingResponse.from(listing), true);

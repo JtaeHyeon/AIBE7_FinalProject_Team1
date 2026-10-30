@@ -149,6 +149,15 @@ public class ProductService {
                 productRepository.findSerialCiphertextOwned(productId, ownerId).orElseThrow()));
   }
 
+  /** 현재 소유자만 삭제(보관)할 수 있다. 판매 중·예약 중인 판매글이 있으면 막고, 기록은 지우지 않는다. */
+  @Transactional
+  public void delete(long ownerId, long productId) {
+    requireOwnedLock(ownerId, productId);
+    if (productRepository.hasOpenListing(productId))
+      throw new CommonException(ErrorCode.PRODUCT_DELETE_BLOCKED);
+    productRepository.archive(productId);
+  }
+
   @Transactional
   public ProductResponse addImage(
       long ownerId, long productId, String filename, String contentType, byte[] content) {

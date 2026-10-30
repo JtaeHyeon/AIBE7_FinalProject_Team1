@@ -100,6 +100,12 @@ public class HistoryRepository {
         productId);
   }
 
+  /** 제품 잠금 안에서 이번 history 쓰기가 반영된 최신 사실 버전을 읽는다. */
+  public long findFactsVersion(long productId) {
+    return jdbc.queryForObject(
+        "SELECT facts_version FROM products WHERE id = ?", Long.class, productId);
+  }
+
   public long insertEvent(
       long productId,
       long authorId,

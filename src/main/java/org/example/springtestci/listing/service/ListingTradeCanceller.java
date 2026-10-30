@@ -1,6 +1,7 @@
 package org.example.springtestci.listing.service;
 
 import org.example.springtestci.listing.entity.ListingStatus;
+import org.example.springtestci.trade.entity.TradeCancellationReason;
 
 /**
  * 판매글 자체를 중지할 때 거래 도메인이 구현할 계약. 호출자의 같은 DB·트랜잭션과 제품 → 판매글 잠금에 참여한다. PENDING 구매 요청을 모두 취소하고
@@ -11,5 +12,15 @@ public interface ListingTradeCanceller {
   void cancel(Command command);
 
   record Command(
-      long productId, long listingId, long sellerId, ListingStatus status, String reason) {}
+      long productId,
+      long listingId,
+      long sellerId,
+      ListingStatus status,
+      String reason,
+      TradeCancellationReason tradeReason) {
+    public Command(
+        long productId, long listingId, long sellerId, ListingStatus status, String reason) {
+      this(productId, listingId, sellerId, status, reason, null);
+    }
+  }
 }

@@ -58,6 +58,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.SessionSubscribeEvent;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
+/** 실제 HTTP·DB·Redis를 사용하되 ownership 포트는 별도 trade_fixture_transfers 대역이다. */
 @EnabledIfEnvironmentVariable(named = "P2_TRADE_TEST_ENABLED", matches = "true")
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -65,6 +66,7 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
       "app.features.trade-purchase-requests.enabled=true",
       "app.features.chat-api.enabled=true",
       "app.jwt.refresh-cookie-secure=false",
+      "server.address=127.0.0.1",
       "spring.flyway.enabled=false",
       "spring.datasource.driver-class-name=org.postgresql.Driver",
       "spring.jpa.hibernate.ddl-auto=validate"
@@ -128,7 +130,7 @@ class PurchaseRequestHttpPostgresTest {
       connection.serverCommands().flushDb();
     }
     jdbcTemplate.execute(
-        "truncate table ownership_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users restart identity cascade");
+        "truncate table trade_fixture_transfers, purchase_requests, chat_read_positions, chat_messages, chat_rooms, listings, products, users restart identity cascade");
     jdbcTemplate.update(
         "insert into users (id, email, password_hash, nickname, role, email_verified, created_at, updated_at) values (1, 'seller@http.test', 'hash', 'seller', 'USER', true, current_timestamp, current_timestamp), (2, 'buyer@http.test', ?, 'buyer', 'USER', true, current_timestamp, current_timestamp), (3, 'other@http.test', 'hash', 'other', 'USER', true, current_timestamp, current_timestamp)",
         passwordEncoder.encode(LOGIN_PASSWORD));
@@ -303,7 +305,7 @@ class PurchaseRequestHttpPostgresTest {
     jdbcTemplate.execute(
         "create function fail_ownership_transfer() returns trigger language plpgsql as $$ begin raise exception 'injected transfer failure'; end $$");
     jdbcTemplate.execute(
-        "create trigger fail_ownership_transfer before insert on ownership_transfers for each row execute function fail_ownership_transfer()");
+        "create trigger fail_ownership_transfer before insert on trade_fixture_transfers for each row execute function fail_ownership_transfer()");
 
     try {
       HttpResponse<String> response =
@@ -326,10 +328,12 @@ class PurchaseRequestHttpPostgresTest {
               jdbcTemplate.queryForObject("select status from listings where id = 1", String.class))
           .isEqualTo("ACTIVE");
       assertThat(
-              jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+              jdbcTemplate.queryForObject(
+                  "select count(*) from trade_fixture_transfers", Long.class))
           .isZero();
     } finally {
-      jdbcTemplate.execute("drop trigger if exists fail_ownership_transfer on ownership_transfers");
+      jdbcTemplate.execute(
+          "drop trigger if exists fail_ownership_transfer on trade_fixture_transfers");
       jdbcTemplate.execute("drop function if exists fail_ownership_transfer()");
     }
   }
@@ -351,7 +355,7 @@ class PurchaseRequestHttpPostgresTest {
             otherRoomId);
     long existingTransferId =
         jdbcTemplate.queryForObject(
-            "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (1, ?, 1, 3, 'INTERNAL', 'PENDING') returning id",
+            "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (1, ?, 1, 3, 'INTERNAL', 'PENDING') returning id",
             Long.class,
             existingRequestId);
 
@@ -377,10 +381,11 @@ class PurchaseRequestHttpPostgresTest {
         .isEqualTo("ACTIVE");
     assertThat(
             jdbcTemplate.queryForObject(
-                "select id from ownership_transfers where product_id = 1 and status = 'PENDING'",
+                "select id from trade_fixture_transfers where product_id = 1 and status = 'PENDING'",
                 Long.class))
         .isEqualTo(existingTransferId);
-    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class))
         .isEqualTo(1L);
   }
 
@@ -411,7 +416,8 @@ class PurchaseRequestHttpPostgresTest {
     assertThat(
             jdbcTemplate.queryForObject("select status from listings where id = 1", String.class))
         .isEqualTo("ACTIVE");
-    assertThat(jdbcTemplate.queryForObject("select count(*) from ownership_transfers", Long.class))
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from trade_fixture_transfers", Long.class))
         .isZero();
   }
 
@@ -563,7 +569,7 @@ class PurchaseRequestHttpPostgresTest {
   private static void createTransferFixtureTable(JdbcTemplate jdbcTemplate) {
     jdbcTemplate.execute(
         """
-        create table ownership_transfers (
+        create table trade_fixture_transfers (
           id bigint generated by default as identity primary key,
           product_id bigint not null references products(id),
           purchase_request_id bigint not null unique references purchase_requests(id),
@@ -578,7 +584,7 @@ class PurchaseRequestHttpPostgresTest {
         )
         """);
     jdbcTemplate.execute(
-        "create unique index uq_ownership_transfers_pending_product on ownership_transfers (product_id) where status = 'PENDING'");
+        "create unique index uq_ownership_transfers_pending_product on trade_fixture_transfers (product_id) where status = 'PENDING'");
   }
 
   private static String requiredEnvironment(String name) {
@@ -618,7 +624,7 @@ class PurchaseRequestHttpPostgresTest {
         try {
           inserted =
               jdbcTemplate.update(
-                  "insert into ownership_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
+                  "insert into trade_fixture_transfers (product_id, purchase_request_id, from_user_id, to_user_id, transfer_type, status) values (?, ?, ?, ?, ?, ?)",
                   command.productId(),
                   command.purchaseRequestId(),
                   command.fromUserId(),

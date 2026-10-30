@@ -105,10 +105,7 @@ class ListingSummaryHttpTest {
           if (DURING.get() != null) DURING.get().run();
           if (ERROR.get() != null) throw new CommonException(ERROR.get());
           if (OUTPUT.get() != null) return OUTPUT.get();
-          return List.of(
-              "등록된 사양은 Apple M3 Pro입니다.",
-              "등록된 메모리는 18GB입니다.",
-              "전체 누적 핵심 이력은 아래 타임라인에서 확인할 수 있습니다.");
+          return List.of("등록된 사양은 Apple M3 Pro입니다.", "등록된 메모리는 18GB입니다.");
         }
       };
     }
@@ -254,11 +251,7 @@ class ListingSummaryHttpTest {
 
   @Test
   void instructionEchoFailsWithoutPublishingItsTextAndKeepsBasicDetail() throws Exception {
-    OUTPUT.set(
-        List.of(
-            "등록된 사양은 Apple M3 Pro입니다.",
-            "등록된 메모리는 18GB입니다.",
-            "정정된 유효 사실을 기준으로 설명하고 VOID는 수리 사실로 단정하지 않는다."));
+    OUTPUT.set(List.of("등록된 사양은 Apple M3 Pro입니다.", "정정된 유효 사실을 기준으로 설명하고 VOID는 수리 사실로 단정하지 않는다."));
     assertEquals(202, post(PATH, "1", "").statusCode());
     processor.process(repository.pending().get(0));
     var result = data(get(PATH, "1"));
@@ -275,14 +268,13 @@ class ListingSummaryHttpTest {
     OUTPUT.set(
         List.of(
             "MacBook Pro 14의 등록된 메모리는 18GB입니다.",
-            "제품 구매일은 2024년 2월 12일이며 보증 만료일은 2027년 2월 12일입니다.",
-            "전체 핵심 이력을 확인해 주세요."));
+            "제품 구매일은 2024년 2월 12일이며 보증 만료일은 2027년 2월 12일입니다."));
     assertEquals(202, post(PATH, "1", "").statusCode());
     processor.process(repository.pending().get(0));
     var result = data(get(PATH, "2"));
     assertEquals("READY", result.get("status").asString());
     String expected =
-        "MacBook Pro 14의 등록된 메모리는 18GB입니다. 제품 구매일은 2024-02-12이며 보증 만료일은 2027-02-12입니다. 전체 핵심 이력을 확인해 주세요.";
+        "MacBook Pro 14의 등록된 메모리는 18GB입니다. 제품 구매일은 2024-02-12이며 보증 만료일은 2027-02-12입니다.";
     assertEquals(expected, result.get("text").asString());
     assertEquals(
         expected,
@@ -314,6 +306,28 @@ class ListingSummaryHttpTest {
     assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
     processor.process(repository.pending().get(0));
     assertEquals("READY", data(get(PATH, "2")).get("status").asString());
+    assertEquals(2, CALLS.get());
+  }
+
+  @Test
+  void legacyDetailTextIsHiddenAndReconciledOnceIntoCardFormat() throws Exception {
+    readySummary();
+    String legacy = "MacBook Pro 14로 등록된 제품입니다. " + "등록된 자료를 확인합니다. ".repeat(8);
+    jdbc.update("UPDATE listings SET summary_format_version=0,summary_text=? WHERE id=1", legacy);
+    var value = data(get(PATH, "1"));
+    assertEquals("NOT_REQUESTED", value.get("status").asString());
+    assertTrue(value.get("text").isNull());
+    assertTrue(value.get("canRequest").asBoolean());
+    assertEquals(1, CALLS.get());
+    assertEquals(
+        legacy, jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    assertEquals(List.of(1L), repository.staleListings());
+    store.refresh(1);
+    assertNull(jdbc.queryForObject("SELECT summary_text FROM listings WHERE id=1", String.class));
+    processor.process(repository.pending().get(0));
+    assertEquals(1, repository.read(1).formatVersion());
+    assertTrue(repository.read(1).text().length() <= 90);
+    assertTrue(repository.staleListings().isEmpty());
     assertEquals(2, CALLS.get());
   }
 
@@ -613,9 +627,7 @@ class ListingSummaryHttpTest {
     processor.process(first);
     assertEquals(1, CALLS.get());
     assertEquals(previous, data(get(PATH, "2")).get("text").asString());
-    OUTPUT.set(
-        List.of(
-            "MacBook Pro 14의 메모리는 18GB입니다.", "판매자가 선택한 상태는 5등급입니다.", "전체 이력은 타임라인에서 확인할 수 있습니다."));
+    OUTPUT.set(List.of("MacBook Pro 14의 메모리는 18GB입니다.", "판매자가 선택한 상태는 5등급입니다."));
     processor.process(newest);
     var value = data(get(PATH, "2"));
     assertEquals("READY", value.get("status").asString());
@@ -723,6 +735,73 @@ class ListingSummaryHttpTest {
     processor.process(repository.pending().get(0));
     assertTrue(INPUT.get().contains("새 공개 점검 기록"));
     assertEquals("READY", repository.read(1).status().name());
+  }
+
+  /** 실제 history 서비스의 커밋은 정식 R10 저장 접수로 이어지고 롤백은 접수·버전·이력을 모두 남기지 않는다. */
+  @Test
+  void actualHistoryServiceQueuesRefreshOnlyAfterCommit() {
+    var history = context.getBean(org.example.springtestci.history.service.HistoryService.class);
+    var transaction =
+        new org.springframework.transaction.support.TransactionTemplate(
+            context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+    long eventCount =
+        jdbc.queryForObject("select count(*) from product_events where product_id=101", Long.class);
+    transaction.executeWithoutResult(
+        status -> {
+          history.create(1, 101, historyRequest());
+          status.setRollbackOnly();
+        });
+    assertEquals(
+        eventCount,
+        jdbc.queryForObject(
+            "select count(*) from product_events where product_id=101", Long.class));
+    assertEquals(
+        7L, jdbc.queryForObject("select facts_version from products where id=101", Long.class));
+    assertEquals("NOT_REQUESTED", repository.read(1).status().name());
+
+    history.create(1, 101, historyRequest());
+
+    assertEquals(
+        eventCount + 1,
+        jdbc.queryForObject(
+            "select count(*) from product_events where product_id=101", Long.class));
+    assertEquals("QUEUED", repository.read(1).status().name());
+    assertEquals(8L, repository.read(1).productVersion());
+    assertEquals(0, CALLS.get());
+  }
+
+  /** 커밋 이후 정식 요약 저장 접수 실패가 이미 저장된 실제 history와 버전을 되돌리지 않는다. */
+  @Test
+  void summaryQueueStorageFailureDoesNotFailCommittedHistory() {
+    var history = context.getBean(org.example.springtestci.history.service.HistoryService.class);
+    jdbc.execute(
+        "alter table listings add constraint h40_reject_summary_queue check (summary_status is null or summary_status <> 'QUEUED')");
+    try {
+      var created = assertDoesNotThrow(() -> history.create(1, 101, historyRequest()));
+      assertEquals(
+          1L,
+          jdbc.queryForObject(
+              "select count(*) from product_events where id=?", Long.class, created.eventId()));
+      assertEquals(
+          8L, jdbc.queryForObject("select facts_version from products where id=101", Long.class));
+      assertEquals("NOT_REQUESTED", repository.read(1).status().name());
+      assertEquals(0, CALLS.get());
+    } finally {
+      jdbc.execute("alter table listings drop constraint h40_reject_summary_queue");
+    }
+  }
+
+  private static org.example.springtestci.history.dto.CreateHistoryEventRequest historyRequest() {
+    return new org.example.springtestci.history.dto.CreateHistoryEventRequest(
+        org.example.springtestci.history.entity.HistoryEventType.REPAIR,
+        LocalDate.of(2025, 5, 20),
+        "PRIVATE_HISTORY_TITLE",
+        "PRIVATE_HISTORY_CONTENT",
+        null,
+        null,
+        null,
+        null,
+        List.of());
   }
 
   @Test

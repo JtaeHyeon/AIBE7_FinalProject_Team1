@@ -1,3 +1,8 @@
+# 카드 표시 변경
+
+자동 갱신 파이프라인은 유지하며, 현재 화면은 회원용 목록 카드의 짧은 요약과 판매자 관리 영역을 사용한다.
+표시 위치·길이·기존 긴 문구의 전환은 [카드 요약 변경](AI_LISTING_CARD_SUMMARY.md)을 따른다. 아래는 R10 구현 기록이다.
+
 # R10 판매글 AI 요약 자동 최신화
 
 R09의 게시 후 요약 생성에 정보 변경 후 자동 갱신을 연결한다. 요구사항 AI-03의 최신화 안내·결과 교체와 ERD의 제품 버전·판매글 버전·시도 ID 검사를 따른다.
@@ -8,7 +13,8 @@ R09의 게시 후 요약 생성에 정보 변경 후 자동 갱신을 연결한�
 |---|---|
 | 판매글 제목·설명·가격·등급·사진 수정 | `ListingManagementService.update` → `ListingContentChanged` |
 | 제품명·구매일·보증 만료일 정정 | `ProductService.update` → `ProductFactsChanged` |
-| 사양·이력 추가·정정·무효·공개 범위 변경 | `ProductFactsChanged` 수신·테스트 완료. 해당 기능의 운영 변경 지점에서 발행하는 연결은 필요 |
+| 사용자 이력·사양 추가·정정·무효 | `HistoryService`의 버전 증가·이벤트 발행을 연결. [실제 이력 통합 검증](AI_HISTORY_REFRESH_INTEGRATION.md) |
+| 문서 확정·소유권 이전·공개 범위 변경 등 별도 저장 경로 | 같은 트랜잭션의 제품 버전 증가·`ProductFactsChanged` 발행 연결 필요 |
 
 수정 트랜잭션의 커밋 뒤 `ListingSummaryRefreshListener`가 별도 트랜잭션으로 최신 버전의 작업을 접수한다. 롤백된 변경은 접수하지 않고 AI 응답을 기다리지 않는다. 접수 장애가 이미 성공한 수정 응답을 오류로 바꾸지 않는다.
 
@@ -50,7 +56,7 @@ events.publishEvent(new ProductFactsChanged(productId));
 
 ## DB 변경
 
-새 `V2026102701__support_listing_summary_refresh.sql`만 추가한다. 기존 마이그레이션은 수정하지 않는다.
+요약 갱신의 원래 버전은 `V2026102701__support_listing_summary_refresh.sql`이다. SQL 본문은 유지한다. 이름만 바뀐 `2706`을 이미 적용한 DB는 [번호 정리 절차](FLYWAY_VERSION_ALIGNMENT.md)를 따른다.
 
 - `summary_requested_at`: 실행 제한 대기와 별개로 유지하는 최초 접수 시각.
 - `summary_available_at`: 짧은 수정 대기·Redis 실행 제한 후 다음 실행이 가능한 시각.
