@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.example.springtestci.history.dto.CorrectHistoryEventRequest;
 import org.example.springtestci.history.dto.CreateHistoryEventRequest;
 import org.example.springtestci.history.entity.HistoryEventType;
 import org.example.springtestci.product.dto.CreateProductRequest;
@@ -107,6 +108,27 @@ class HistoryRepositoryTest {
         2L,
         jdbc.queryForObject(
             "SELECT facts_version FROM products WHERE id = ?", Long.class, productId));
+  }
+
+  @Test
+  void correctingPublicTextRequiresAReviewOfTheReplacementText() {
+    long productId = insertProduct(107L, "history-fingerprint-7");
+    long eventId =
+        historyRepository.insertEvent(
+            productId, 107L, historyRequest(LocalDate.of(2026, 10, 18), "검토된 점검 이력"), null, null);
+    jdbc.update("UPDATE product_events SET public_text_reviewed = TRUE WHERE id = ?", eventId);
+    var correction =
+        new CorrectHistoryEventRequest(
+            LocalDate.of(2026, 10, 19), "교체된 제목", "교체된 내용", "교체된 업체", null, null, null, "내용 오기 정정");
+
+    historyRepository.correctEvent(eventId, correction, null, null);
+
+    assertFalse(
+        jdbc.queryForObject(
+            "SELECT public_text_reviewed FROM product_events WHERE id = ?",
+            Boolean.class,
+            eventId));
+    assertEquals("교체된 제목", historyRepository.findEvent(productId, eventId).orElseThrow().title());
   }
 
   @Test

@@ -173,7 +173,8 @@ public class HistoryRepository {
         UPDATE product_events
            SET occurred_on = ?, title = ?, content = ?, service_provider = ?, cost = ?,
                replaced_part = ?, specs_before = CAST(? AS JSONB),
-               specs_after = CAST(? AS JSONB), updated_at = CURRENT_TIMESTAMP
+               specs_after = CAST(? AS JSONB), public_text_reviewed = FALSE,
+               updated_at = CURRENT_TIMESTAMP
          WHERE id = ?
         """,
         request.occurredOn(),
