@@ -4,12 +4,40 @@
   let data = null;
   let loading = false;
   let initialized = false;
+  let chatList = null;
   const currentId = () => new URL(window.location.href).searchParams.get('listingId');
   const find = selector => document.querySelector('#detail ' + selector);
+
+  function clearChat() {
+    chatList?.dispose(); chatList = null;
+    const section = find('[data-listing-chats]'); if (section) section.hidden = true;
+    const button = find('[data-listing-chat]'); if (button) { button.hidden = true; button.onclick = null; }
+  }
+
+  function bindChat(detail) {
+    clearChat();
+    if (detail.canManage) {
+      find('[data-listing-chats]').hidden = false;
+      chatList = window.PastportChatRoomList.mount(find('[data-listing-chat-rooms]'), {
+        listingId: detail.listingId,
+        onSelect: room => window.PastportDeals.openSummary(room)
+      });
+      chatList.load();
+    } else if (detail.status === 'ACTIVE') {
+      const button = find('[data-listing-chat]'); button.hidden = false;
+      button.onclick = async () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        try { await window.PastportDeals.openRoomForListing(detail.listingId); }
+        finally { button.disabled = false; }
+      };
+    }
+  }
 
   // URL의 listingId로 실제 상세 API를 호출한다. 이력 더 보기는 다음 페이지를 기존 목록에 합친다.
   async function load(append = false) {
     if (!find('[data-listing-content]')) return;
+    clearChat();
     window.PastportProductQuestions?.clear('listings');
     window.PastportListingSummary?.reset();
     window.PastportListingManagement?.reset();
@@ -41,6 +69,7 @@
       data = next; window.PastportListingDetail.render(find('[data-listing-content]'), data);
       window.PastportProductQuestions?.mount(find('[data-listing-content]'), {scope:'listings', id:data.listingId});
       window.PastportListingManagement?.bind(data);
+      bindChat(data);
       window.PastportListingSummary?.bind(data);
       find('[data-listing-status]').textContent = '게시된 판매글이에요. 판매 중·예약 중인 글은 로그인한 회원이 확인할 수 있어요.';
       find('[data-listing-more]').hidden = !data.history.page.hasNext;
@@ -72,12 +101,14 @@
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
   document.addEventListener('pastport:page-shown', event => {
     if (event.detail.id === 'detail') { load(); return; }
+    request?.abort(); clearChat();
     // 상세를 떠나면 주소의 판매글 번호를 지워, 새로고침 때 상세로 되돌아오지 않게 한다.
     const url = new URL(window.location.href);
-    if (url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
+    if (event.detail.id !== 'auth' && url.searchParams.has('listingId')) { url.searchParams.delete('listingId'); window.history.replaceState(window.history.state, '', url); }
   });
   document.addEventListener('pastport:auth-changed', () => {
     request?.abort(); data = null;
+    clearChat();
     window.PastportListingManagement?.reset(); window.PastportListingSummary?.reset();
     find('[data-listing-content]')?.replaceChildren();
     if (document.querySelector('#detail.active') && currentId()) load();

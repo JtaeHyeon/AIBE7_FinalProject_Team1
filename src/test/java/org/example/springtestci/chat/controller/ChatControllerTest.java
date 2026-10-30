@@ -103,6 +103,22 @@ class ChatControllerTest {
   }
 
   @Test
+  void filtersRoomsWithAuthenticatedActorAndListingId() throws Exception {
+    when(chatService.listMyRooms(ACTOR_ID, 7L, 0, 20))
+        .thenReturn(new ChatPageResponse<>(List.of(), new PageMetadata(0, 20, 0, 0, false)));
+    mockMvc
+        .perform(
+            get("/api/v1/chat-rooms")
+                .principal(authenticatedActor())
+                .param("listingId", "7")
+                .param("userId", "999"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.items").isEmpty())
+        .andExpect(jsonPath("$.data.page.totalElements").value(0));
+    verify(chatService).listMyRooms(ACTOR_ID, 7L, 0, 20);
+  }
+
+  @Test
   void sendsContentUsingAuthenticatedActorAsSender() throws Exception {
     ChatMessageResponse response = new ChatMessageResponse(21L, 11L, ACTOR_ID, "hello", NOW);
     when(chatService.sendMessage(11L, ACTOR_ID, "hello")).thenReturn(response);
