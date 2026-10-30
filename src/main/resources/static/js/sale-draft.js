@@ -656,7 +656,12 @@
   }
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'sell') onPageReady(); });
   document.addEventListener('pastport:page-shown', event => {
-    if (event.detail.id !== 'sell') { if (initialized) { clearAi(); status(); } return; }
+    if (event.detail.id !== 'sell') {
+      // 다른 화면으로 나가면 주소의 작성 대상을 지워, 새로고침 때 판매글 작성으로 되돌아오지 않게 한다.
+      setLocation(null);
+      if (initialized) { clearAi(); status(); }
+      return;
+    }
     if (!initialized) init();
     else if (!busy()) refreshDrafts();
   });

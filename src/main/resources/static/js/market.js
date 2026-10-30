@@ -18,7 +18,7 @@ document.addEventListener('click', (event) => {
 
 // R06 공개 목록: 필터·페이지 복원, 실제 게시글 카드와 상세 진입.
 (() => {
-  const fields = ['manufacturer', 'minPrice', 'maxPrice', 'cpu', 'gpu', 'minRamGb', 'minStorageGb', 'storageType', 'os', 'minConditionGrade'];
+  const fields = ['keyword', 'category', 'manufacturer', 'minPrice', 'maxPrice', 'cpu', 'gpu', 'minRamGb', 'minStorageGb', 'storageType', 'os', 'minConditionGrade'];
   const sorts = ['LATEST', 'PRICE_ASC', 'PRICE_DESC'];
   const defaults = () => ({ page: 0, size: 20, sort: 'LATEST', ...Object.fromEntries(fields.map(name => [name, ''])) });
   let state = defaults(), root = null, form = null, request = null, initialized = false, active = false, page = null;
@@ -38,6 +38,15 @@ document.addEventListener('click', (event) => {
     if (/^\d+$/.test(size || '') && Number(size) >= 1 && Number(size) <= 100) state.size = Number(size);
     if (sorts.includes(params.get('sort'))) state.sort = params.get('sort');
   }
+  // 선택한 카테고리의 대표 제조사만 빠른 선택 칩과 자동완성에 보여 준다.
+  function renderMakers() {
+    const names = window.PastportCategories?.makers(state.category) || [];
+    const chip = (name, label) => {
+      const button = element('button', 'chip-btn', label); button.type = 'button'; button.dataset.marketManufacturer = name; return button;
+    };
+    find('[data-market-makers]').replaceChildren(chip('', '전체 제조사'), ...names.map(name => chip(name, name)));
+    root.querySelector('#market-manufacturers')?.replaceChildren(...names.map(name => new Option(name, name)));
+  }
   function fill() {
     fields.forEach(name => { form.elements[name].value = state[name]; });
     find('[data-market-sort]').value = state.sort;
@@ -46,6 +55,11 @@ document.addEventListener('click', (event) => {
     if (![...size.options].some(option => option.value === String(state.size))) size.add(new Option(state.size + '개', state.size));
     size.value = String(state.size);
     const normalize = value => value.replace(/[\s-]+/g, '').toUpperCase();
+    root.querySelectorAll('[data-market-category]').forEach(button => {
+      const selected = button.dataset.marketCategory === state.category;
+      button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected));
+    });
+    renderMakers();
     root.querySelectorAll('[data-market-manufacturer]').forEach(button => {
       const selected = normalize(button.dataset.marketManufacturer) === normalize(state.manufacturer);
       button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected));
@@ -180,7 +194,12 @@ document.addEventListener('click', (event) => {
     find('[data-market-sort]').addEventListener('change', apply); find('[data-market-size]').addEventListener('change', apply);
     find('[data-market-prev]').addEventListener('click', () => { if (page && page.number > 0) { state.page = page.number - 1; load(); } });
     find('[data-market-next]').addEventListener('click', () => { if (page?.hasNext) { state.page = page.number + 1; load(); } });
-    root.querySelectorAll('[data-market-manufacturer]').forEach(button => button.addEventListener('click', () => { form.elements.manufacturer.value = button.dataset.marketManufacturer; apply(); }));
+    // 카테고리를 바꾸면 이전 카테고리의 제조사 선택은 비운다.
+    root.querySelectorAll('[data-market-category]').forEach(button => button.addEventListener('click', () => { form.elements.category.value = button.dataset.marketCategory; form.elements.manufacturer.value = ''; apply(); }));
+    find('[data-market-makers]').addEventListener('click', event => {
+      const button = event.target.closest('[data-market-manufacturer]');
+      if (button) { form.elements.manufacturer.value = button.dataset.marketManufacturer; apply(); }
+    });
     const params = new URL(window.location.href).searchParams;
     if (root.classList.contains('active')) { active = true; load(); }
     else if (params.get('market') === '1' && !params.has('listingId') && !params.has('draftProduct') && typeof show === 'function') show('market');

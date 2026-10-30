@@ -29,7 +29,7 @@ public class ListingQueryRepository {
   private static final String AVAILABLE =
       """
       WHERE l.status = 'ACTIVE' AND l.seller_id = p.owner_id
-        AND p.archived_at IS NULL AND p.category = 'LAPTOP'
+        AND p.archived_at IS NULL
       """;
   private final JdbcTemplate jdbc;
 
@@ -51,6 +51,15 @@ public class ListingQueryRepository {
           values,
           "p.manufacturer_normalized = ?",
           SerialNumberProtector.normalizeManufacturer(filter.manufacturer()));
+    if (filter.category() != null) condition(where, values, "p.category = ?", filter.category());
+    // 검색어는 판매글 제목·제조사·모델명 중 하나라도 포함하면 맞는 것으로 본다.
+    if (filter.keyword() != null) {
+      String like = contains(filter.keyword());
+      where.append(
+          " AND (LOWER(l.title) LIKE ? ESCAPE '!' OR LOWER(p.manufacturer) LIKE ? ESCAPE '!'"
+              + " OR LOWER(p.model_name) LIKE ? ESCAPE '!')");
+      values.addAll(List.of(like, like, like));
+    }
     if (filter.minPrice() != null) condition(where, values, "l.price >= ?", filter.minPrice());
     if (filter.maxPrice() != null) condition(where, values, "l.price <= ?", filter.maxPrice());
     if (filter.cpu() != null)

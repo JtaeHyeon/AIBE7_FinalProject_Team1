@@ -9,12 +9,15 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
+import org.example.springtestci.product.dto.ProductCategory;
 
 /** 공개 목록의 조건. 제공한 조건은 모두 AND로 조합하고, 사양이 없는 제품은 사양 조건에 맞지 않는다. */
 public record ListingSearchRequest(
     @Min(0) Integer page,
     @Min(1) @Max(100) Integer size,
     @Size(max = 100) String manufacturer,
+    @Pattern(regexp = ProductCategory.PATTERN) String category,
+    @Size(max = 100) String keyword,
     @DecimalMin("0") @Digits(integer = 12, fraction = 0) BigDecimal minPrice,
     @DecimalMin("0") @Digits(integer = 12, fraction = 0) BigDecimal maxPrice,
     @Size(max = 100) String cpu,
@@ -31,6 +34,8 @@ public record ListingSearchRequest(
     size = size == null ? 20 : size;
     sort = sort == null ? Sort.LATEST : sort;
     manufacturer = clean(manufacturer);
+    category = clean(category);
+    keyword = clean(keyword);
     cpu = clean(cpu);
     gpu = clean(gpu);
     storageType = clean(storageType);

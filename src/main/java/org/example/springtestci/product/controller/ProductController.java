@@ -70,6 +70,13 @@ public class ProductController {
     return ApiResponse.success(productService.update(userId(jwt), productId, request));
   }
 
+  @DeleteMapping("/{productId}")
+  public ResponseEntity<Void> delete(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable @Positive long productId) {
+    productService.delete(userId(jwt), productId);
+    return ResponseEntity.noContent().build();
+  }
+
   @PostMapping(path = "/{productId}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ResponseEntity<ApiResponse<ProductResponse>> addImage(
       @AuthenticationPrincipal Jwt jwt,
