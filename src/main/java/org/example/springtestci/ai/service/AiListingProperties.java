@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** 제목·본문 제안과 상태 요약이 공유하는 모델·제한 시간·요청 횟수 설정이다. API 키는 서버에서만 사용한다. */
+/** 제목·본문 제안, 상태 요약과 제품 Q&A가 공유하는 모델·기한·요청 횟수 설정이다. API 키는 서버에서만 사용한다. */
 @Validated
 @ConfigurationProperties("app.ai.listing")
 public record AiListingProperties(

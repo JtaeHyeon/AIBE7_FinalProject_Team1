@@ -26,7 +26,7 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Gemini GenerateContent REST 연결. 자동 재시도·도구·문서·검색·채팅은 사용하지 않는다. */
+/** Gemini REST 전송의 전체 기한·응답 크기·오류 처리를 공유한다. 도구 실행은 Q&A의 별도 허용 목록에서만 담당한다. */
 @Component
 @EnableConfigurationProperties(AiListingProperties.class)
 public class GeminiJsonClient {
@@ -88,9 +88,20 @@ public class GeminiJsonClient {
                 2048,
                 "responseFormat",
                 Map.of("text", Map.of("mimeType", "APPLICATION_JSON", "schema", schema))));
+    return result(content(body, Duration.ofSeconds(properties.timeoutSeconds())));
+  }
+
+  /** Q&A의 두 왕복도 하나의 전체 제한 시간 안에서 실행한다. 모델 메시지의 thought signature는 원형대로 보존한다. */
+  JsonNode content(Map<String, Object> body, Duration budget) {
+    if (!configured()) throw new CommonException(ErrorCode.AI_UNAVAILABLE);
+    if (budget.isNegative() || budget.isZero()) throw new CommonException(ErrorCode.AI_TIMEOUT);
+    Duration timeout =
+        budget.compareTo(Duration.ofSeconds(properties.timeoutSeconds())) > 0
+            ? Duration.ofSeconds(properties.timeoutSeconds())
+            : budget;
     var request =
         HttpRequest.newBuilder(api.resolve("./" + properties.model() + ":generateContent"))
-            .timeout(Duration.ofSeconds(properties.timeoutSeconds()))
+            .timeout(timeout)
             .header("x-goog-api-key", properties.apiKey())
             .header("Content-Type", "application/json; charset=utf-8")
             .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
@@ -98,12 +109,12 @@ public class GeminiJsonClient {
     // Future의 전체 기한은 헤더 도착 뒤 본문이 멈추는 경우까지 포함한다.
     var pending = http.sendAsync(request, ignored -> new LimitedBody());
     try {
-      var response = pending.get(properties.timeoutSeconds(), TimeUnit.SECONDS);
+      var response = pending.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
       if (response.statusCode() == 429)
         throw new RateLimitedException(ErrorCode.AI_RATE_LIMITED, Duration.ofSeconds(60));
       if (response.statusCode() < 200 || response.statusCode() >= 300)
         throw new CommonException(ErrorCode.AI_UNAVAILABLE);
-      return parse(response.body());
+      return envelope(response.body());
     } catch (CommonException failure) {
       throw failure;
     } catch (TimeoutException failure) {
@@ -120,8 +131,7 @@ public class GeminiJsonClient {
     }
   }
 
-  /** 정상 종료된 텍스트 응답에서 결과 JSON을 꺼낸다. 차단·미완료·도구 호출 응답은 사용하지 않는다. */
-  private JsonNode parse(byte[] body) {
+  private JsonNode envelope(byte[] body) {
     try {
       JsonNode envelope = JSON.readTree(body);
       var candidates = envelope.path("candidates");
@@ -130,8 +140,21 @@ public class GeminiJsonClient {
           || envelope.path("promptFeedback").has("blockReason")) invalid();
       var candidate = candidates.get(0);
       if (!"STOP".equals(candidate.path("finishReason").asString())) invalid();
-      var parts = candidate.path("content").path("parts");
-      if (!parts.isArray() || parts.isEmpty()) invalid();
+      var content = candidate.path("content");
+      var parts = content.path("parts");
+      if (!parts.isArray() || parts.isEmpty() || parts.size() > 16) invalid();
+      return content;
+    } catch (CommonException failure) {
+      throw failure;
+    } catch (RuntimeException failure) {
+      throw new CommonException(ErrorCode.AI_INVALID_RESULT);
+    }
+  }
+
+  /** 작성 제안·요약과 Q&A의 최종 결과에는 텍스트 JSON만 허용한다. 추가 도구·파일 응답은 거부한다. */
+  JsonNode result(JsonNode content) {
+    try {
+      var parts = content.path("parts");
       var text = new StringBuilder();
       for (var part : parts) {
         if (part.path("thought").asBoolean(false)) continue;
