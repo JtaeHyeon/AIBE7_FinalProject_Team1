@@ -96,7 +96,12 @@ public class ListingManagementService {
     String before = facts(listing);
     var command =
         new ListingTradeCanceller.Command(
-            listing.getProductId(), listingId, userId, listing.getStatus(), request.reason());
+            listing.getProductId(),
+            listingId,
+            userId,
+            listing.getStatus(),
+            request.reason(),
+            request.tradeReason());
     listing.cancel();
     listings.flush();
     trade.cancel(command);

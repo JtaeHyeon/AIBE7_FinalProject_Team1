@@ -62,9 +62,13 @@
     form.elements.price.value = data.content.price;
     form.elements.conditionGrade.value = String(data.content.conditionGrade);
     form.elements.description.value = data.content.description;
-    find('[data-listing-cancel-form]').reset();
+    const cancelForm = find('[data-listing-cancel-form]'); cancelForm.reset();
+    const reserved = data.status === 'RESERVED';
+    find('[data-listing-trade-reason]').hidden = !reserved;
+    cancelForm.elements.tradeReason.disabled = !reserved;
+    cancelForm.elements.tradeReason.required = reserved;
     find('[data-listing-edit-state]').textContent = statuses[data.status] + ' · 내용 버전 ' + data.contentVersion + (data.canEdit ? ' · 저장하면 즉시 공개 내용에 반영돼요.' : ' · 현재 상태에서는 판매 조건을 수정할 수 없어요.');
-    find('[data-listing-edit-close]').textContent = data.canCancel ? '상세로 돌아가기' : '목록으로';
+    find('[data-listing-edit-close]').textContent = new URL(window.location.href).searchParams.get('listingManage') === '1' || !data.canCancel ? '내 판매글로' : '상세로 돌아가기';
     photos(); controls();
   }
   function failure(error) {
@@ -105,17 +109,21 @@
   async function cancel() {
     find('[data-listing-cancel-dialog]').close();
     if (!saved?.canCancel || busy || stale) return;
-    const reason = find('[data-listing-cancel-form]').elements.reason.value.trim();
+    const cancelForm = find('[data-listing-cancel-form]');
+    if (!cancelForm.reportValidity()) return;
+    // 자유문장 사유는 감사 기록에, 선택한 사유는 예약 거래의 정해진 취소 코드에 각각 사용한다.
+    const body = { version:saved.contentVersion, reason:cancelForm.elements.reason.value.trim() };
+    if (saved.status === 'RESERVED') body.tradeReason = cancelForm.elements.tradeReason.value;
     const token = generation, id = current; busy = true; controls(); message('판매 중지를 처리하는 중이에요…');
     try {
-      await api('/api/v1/listings/' + id + '/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({version:saved.contentVersion,reason}) });
+      await api('/api/v1/listings/' + id + '/cancel', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       if (token !== generation) return;
       saved.canEdit = false; saved.canCancel = false; saved.status = 'CANCELLED';
       find('[data-listing-manage]').hidden = true;
       find('[data-listing-content]').replaceChildren();
       find('[data-listing-edit-state]').textContent = '판매 중지 · 기록 보존';
       find('[data-listing-edit-close]').textContent = '목록으로';
-      find('[data-listing-status]').textContent = '판매글 공개가 종료됐어요. 목록으로 돌아가면 중지된 글은 표시되지 않아요.';
+      find('[data-listing-status]').textContent = '판매글 공개가 종료됐어요. 내 판매글에서 판매 중지 기록을 확인할 수 있어요.';
       message('판매를 중지했어요. 제품·누적 이력과 과거 판매글 기록은 보존돼요. 재판매는 새 판매글로 진행해 주세요.');
     } catch (error) { if (token === generation) failure(error); }
     finally { if (token === generation) { busy = false; controls(); } }
@@ -150,7 +158,7 @@
     find('[data-listing-edit-reload]').addEventListener('click', open);
     find('[data-listing-edit-close]').addEventListener('click', () => {
       if (busy || !current) return;
-      if (saved && !saved.canCancel && typeof show === 'function') show('market');
+      if (typeof show === 'function' && (new URL(window.location.href).searchParams.get('listingManage') === '1' || (saved && !saved.canCancel))) show('my-listings');
       else window.PastportPublishedListing.open(current);
     });
     find('[data-listing-edit-form]').addEventListener('submit', save);
@@ -166,5 +174,5 @@
   document.addEventListener('pastport:page-loaded', event => { if (event.detail.id === 'detail') init(); });
   document.addEventListener('pastport:page-shown', event => { if (event.detail.id !== 'detail') reset(); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  window.PastportListingManagement = Object.freeze({ bind, reset });
+  window.PastportListingManagement = Object.freeze({ bind, reset, open });
 })();

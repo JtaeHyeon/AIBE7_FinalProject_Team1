@@ -6,6 +6,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.example.springtestci.common.error.CommonException;
+import org.example.springtestci.common.error.ErrorCode;
+import org.example.springtestci.listing.repository.JdbcListingHistoryPrivatizer;
+import org.example.springtestci.listing.repository.JdbcListingHistoryPublisher;
 import org.example.springtestci.listing.repository.JdbcListingPublishConstraints;
 import org.example.springtestci.listing.service.ListingHistoryPrivatizer;
 import org.example.springtestci.listing.service.ListingHistoryPublisher;
@@ -35,21 +39,26 @@ public class ListingDefaultConfig {
   }
 
   @Bean
+  @Profile("!sale-draft-demo")
   @ConditionalOnMissingBean(ListingHistoryPublisher.class)
-  ListingHistoryPublisher defaultListingHistoryPublisher() {
-    return (productId, listingId, sellerId) -> {};
+  ListingHistoryPublisher defaultListingHistoryPublisher(JdbcTemplate jdbc) {
+    return new JdbcListingHistoryPublisher(jdbc);
   }
 
   @Bean
+  @Profile("!sale-draft-demo")
   @ConditionalOnMissingBean(ListingTradeCanceller.class)
   ListingTradeCanceller defaultListingTradeCanceller() {
-    return command -> {};
+    return command -> {
+      throw new CommonException(ErrorCode.LISTING_CANCEL_UNAVAILABLE);
+    };
   }
 
   @Bean
+  @Profile("!sale-draft-demo")
   @ConditionalOnMissingBean(ListingHistoryPrivatizer.class)
-  ListingHistoryPrivatizer defaultListingHistoryPrivatizer() {
-    return (productId, listingId, sellerId) -> {};
+  ListingHistoryPrivatizer defaultListingHistoryPrivatizer(JdbcTemplate jdbc) {
+    return new JdbcListingHistoryPrivatizer(jdbc);
   }
 
   @Bean
@@ -149,7 +158,8 @@ public class ListingDefaultConfig {
           command.fromUserId(),
           command.toUserId(),
           "internal-" + command.purchaseRequestId(),
-          java.time.Instant.now().plus(24, java.time.temporal.ChronoUnit.HOURS));
+          java.sql.Timestamp.from(
+              java.time.Instant.now().plus(24, java.time.temporal.ChronoUnit.HOURS)));
     };
   }
 }

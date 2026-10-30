@@ -165,6 +165,25 @@ class ListingPublishConstraintsHttpTest {
   }
 
   @Test
+  void disabledTradeIntegrationCannotPretendToHaveCancelledAListing() throws Exception {
+    var created = publish(saveDraft());
+    long id = data(created).get("listingId").asLong();
+    var response =
+        send(
+            "POST",
+            "/api/v1/listings/" + id + "/cancel",
+            "1",
+            "{\"version\":0,\"reason\":\"stop\"}");
+    assertEquals(503, response.statusCode(), response.body());
+    assertEquals(
+        "ACTIVE", jdbc.queryForObject("SELECT status FROM listings WHERE id=?", String.class, id));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM audit_logs WHERE action='LISTING_CANCELLED'", Integer.class));
+  }
+
+  @Test
   void publishingWithoutAnOngoingTradeOrTransferSucceedsAndRetainsIdempotency() throws Exception {
     var draft = saveDraft();
     var first = publish(draft);

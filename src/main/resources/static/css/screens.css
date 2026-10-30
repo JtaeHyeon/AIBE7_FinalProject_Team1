@@ -21,6 +21,7 @@
 .sc-btn.sm{height:32px;padding:0 12px;font-size:12px}
 .sc-btn[disabled]{background:#eaeef2;border-color:#eaeef2;color:#a5a6ab;cursor:not-allowed}
 .sc-field{display:block;margin:0 0 14px}
+[data-listing-trade-reason][hidden]{display:none}
 .sc-field>span{display:block;margin-bottom:6px;font-size:12px;font-weight:700;color:#4f5156}
 .sc-field>span em{font-style:normal;color:var(--accent);margin-left:2px}
 .sc-field input,.sc-field textarea,.sc-field select{width:100%;padding:0 12px;height:42px;border:1px solid var(--line);border-radius:4px;background:#fff;font:inherit;font-size:14px;color:var(--ink)}
