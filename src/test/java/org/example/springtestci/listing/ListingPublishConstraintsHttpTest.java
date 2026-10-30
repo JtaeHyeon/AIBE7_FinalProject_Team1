@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.example.springtestci.SpringTestCiApplication;
+import org.example.springtestci.common.security.RequestRateLimiter;
 import org.example.springtestci.listing.service.ListingPublishConstraints;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -31,7 +32,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -53,7 +57,16 @@ class ListingPublishConstraintsHttpTest {
   private static String base, schema;
   private static boolean postgres;
 
-  /** 일반 환경의 기본 Bean을 그대로 사용한다. PostgreSQL만 승인 대기 P2 DDL을 격리 스키마에 적용한다. */
+  @TestConfiguration(proxyBeanMethods = false)
+  static class RequestLimits {
+    @Bean
+    @Primary
+    RequestRateLimiter limits() {
+      return org.mockito.Mockito.mock(RequestRateLimiter.class);
+    }
+  }
+
+  /** 업무 Bean은 기본 구현이며 Redis 요청 제한만 대역이다. PostgreSQL은 P2 DDL도 격리 스키마에 적용한다. */
   @BeforeAll
   static void start() throws Exception {
     String url = System.getenv("SALE_DRAFT_TEST_DB_URL");
@@ -72,6 +85,7 @@ class ListingPublishConstraintsHttpTest {
       Files.copy(image, storage.resolve("draft-demo-front.png"));
     }
     var app = new SpringApplication(SpringTestCiApplication.class);
+    app.addPrimarySources(List.of(RequestLimits.class));
     app.setDefaultProperties(
         Map.of("spring.main.banner-mode", "off", "logging.level.root", "WARN"));
     context =
@@ -278,7 +292,7 @@ class ListingPublishConstraintsHttpTest {
   }
 
   @Test
-  void acceptingATransferChangesTheOwnerAndAnOldDraftCannotBePublished() throws Exception {
+  void acceptingATransferRemovesTheOldDraftAndPreventsPublishingIt() throws Exception {
     var draft = saveDraft();
     var created = createTransfer();
     var accepted =
@@ -290,7 +304,8 @@ class ListingPublishConstraintsHttpTest {
     assertEquals(200, accepted.statusCode(), accepted.body());
     assertEquals(404, publish(draft).statusCode());
     assertEquals(0, count("listings"));
-    assertEquals(1, count("listing_drafts"));
+    assertEquals(0, count("listing_drafts"));
+    assertEquals(0, count("draft_images"));
   }
 
   /** 실제 PostgreSQL의 서로 다른 HTTP 트랜잭션에서 두 쓰기를 동시에 시작해 한쪽만 성공해야 한다. */

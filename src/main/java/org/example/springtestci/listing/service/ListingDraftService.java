@@ -12,10 +12,13 @@ import org.example.springtestci.listing.dto.SaveListingDraftRequest;
 import org.example.springtestci.listing.entity.ListingDraft;
 import org.example.springtestci.listing.repository.ListingDraftQueryRepository;
 import org.example.springtestci.listing.repository.ListingDraftRepository;
+import org.example.springtestci.ownership.event.OwnershipTransferred;
 import org.example.springtestci.product.service.ProductService;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 제품 소유권·초안 작성자·버전·사진 소속을 확인한 뒤 비공개 초안을 저장하거나 불러온다. */
@@ -90,6 +93,22 @@ public class ListingDraftService {
     requireCurrentVersion(draft, draftId, version);
     drafts.delete(draft);
     drafts.flush();
+  }
+
+  /** 이전 트랜잭션의 제품 잠금 안에서 예전 작성자의 초안과 사진 선택만 삭제한다. 제품 사진은 유지한다. */
+  @EventListener
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void ownershipTransferred(OwnershipTransferred event) {
+    // AFTER_COMMIT으로 미루면 새 소유자의 저장과 경합한다. 현재 소유권을 다시 확인하고 동기 처리한다.
+    products.lockOwnedForListing(event.newOwnerId(), event.productId());
+    drafts
+        .findByProductId(event.productId())
+        .filter(draft -> draft.getAuthorId() != event.newOwnerId())
+        .ifPresent(
+            draft -> {
+              drafts.delete(draft);
+              drafts.flush();
+            });
   }
 
   private ListingDraft ownedDraft(long productId, long userId) {

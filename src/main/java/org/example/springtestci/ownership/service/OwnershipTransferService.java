@@ -19,9 +19,11 @@ import org.example.springtestci.ownership.dto.VerifyTransferResponse;
 import org.example.springtestci.ownership.entity.OwnershipTransfer;
 import org.example.springtestci.ownership.entity.TransferStatus;
 import org.example.springtestci.ownership.entity.TransferType;
+import org.example.springtestci.ownership.event.OwnershipTransferred;
 import org.example.springtestci.ownership.repository.OwnershipTransferRepository;
 import org.example.springtestci.product.repository.ProductRepository;
 import org.example.springtestci.trade.repository.TradeAuditRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,16 +39,19 @@ public class OwnershipTransferService {
   private final ProductRepository productRepository;
   private final UserRepository userRepository;
   private final TradeAuditRepository tradeAuditRepository;
+  private final ApplicationEventPublisher events;
 
   public OwnershipTransferService(
       OwnershipTransferRepository transferRepository,
       ProductRepository productRepository,
       UserRepository userRepository,
-      TradeAuditRepository tradeAuditRepository) {
+      TradeAuditRepository tradeAuditRepository,
+      ApplicationEventPublisher events) {
     this.transferRepository = transferRepository;
     this.productRepository = productRepository;
     this.userRepository = userRepository;
     this.tradeAuditRepository = tradeAuditRepository;
+    this.events = events;
   }
 
   /** 현재 소유자의 제품을 먼저 잠그고 판매 중·예약 중이 아닌 제품에만 외부 이전 요청을 만든다. */
@@ -186,6 +191,10 @@ public class OwnershipTransferService {
     // 소유자 변경 및 이전 완료
     productRepository.updateOwner(transfer.getProductId(), actorId);
     transfer.complete(actorId, now);
+
+    // 초안 삭제처럼 필수인 후처리는 커밋 전에 실행한다. 실패하면 소유자·이전 상태도 함께 되돌린다.
+    events.publishEvent(
+        new OwnershipTransferred(transfer.getProductId(), transfer.getFromUserId(), actorId));
 
     tradeAuditRepository.log(
         transfer.getProductId(),

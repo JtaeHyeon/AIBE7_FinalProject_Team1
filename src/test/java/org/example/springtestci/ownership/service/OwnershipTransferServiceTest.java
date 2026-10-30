@@ -25,6 +25,7 @@ import org.example.springtestci.ownership.dto.VerifyTransferResponse;
 import org.example.springtestci.ownership.entity.OwnershipTransfer;
 import org.example.springtestci.ownership.entity.TransferStatus;
 import org.example.springtestci.ownership.entity.TransferType;
+import org.example.springtestci.ownership.event.OwnershipTransferred;
 import org.example.springtestci.ownership.repository.OwnershipTransferRepository;
 import org.example.springtestci.product.repository.ProductRepository;
 import org.example.springtestci.trade.repository.TradeAuditRepository;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -45,6 +47,7 @@ class OwnershipTransferServiceTest {
   @Mock private ProductRepository productRepository;
   @Mock private UserRepository userRepository;
   @Mock private TradeAuditRepository tradeAuditRepository;
+  @Mock private ApplicationEventPublisher events;
 
   private OwnershipTransferService service;
 
@@ -52,7 +55,7 @@ class OwnershipTransferServiceTest {
   void setUp() {
     service =
         new OwnershipTransferService(
-            transferRepository, productRepository, userRepository, tradeAuditRepository);
+            transferRepository, productRepository, userRepository, tradeAuditRepository, events);
   }
 
   @Test
@@ -320,7 +323,13 @@ class OwnershipTransferServiceTest {
     assertThat(accepted.newOwnerId()).isEqualTo(buyerId);
     assertThat(transfer.getStatus()).isEqualTo(TransferStatus.COMPLETED);
 
-    verify(productRepository).updateOwner(productId, buyerId);
+    var order = inOrder(productRepository, events, tradeAuditRepository);
+    order.verify(productRepository).updateOwner(productId, buyerId);
+    order.verify(events).publishEvent(new OwnershipTransferred(productId, fromUserId, buyerId));
+    order
+        .verify(tradeAuditRepository)
+        .log(
+            eq(productId), eq(buyerId), eq(200L), eq("OWNERSHIP_TRANSFERRED"), any(), any(), any());
     verify(tradeAuditRepository)
         .log(
             eq(productId),
