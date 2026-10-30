@@ -83,6 +83,7 @@ public class ListingPublishService {
       throw new CommonException(ErrorCode.LISTING_PUBLISH_BLOCKED);
     // 같은 잠금 아래 사진 소속·존재와 전체 이력 원천의 유효성을 다시 검증한다.
     var preview = previews.get(productId, draft.draftId(), draft.version(), userId, 0, 1);
+    // 자유 입력의 공개 검토 상태는 게시 조건이 아니다. READY이면 미검토 상세를 숨긴 공개 사본으로 게시한다.
     if (preview.history().status() != ListingHistoryReader.State.READY)
       throw new CommonException(ErrorCode.LISTING_HISTORY_UNAVAILABLE);
     var listing = listings.saveAndFlush(new Listing(draft, userId));

@@ -5,15 +5,21 @@ import static org.mockito.Mockito.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import org.example.springtestci.common.error.CommonException;
 import org.example.springtestci.common.error.ErrorCode;
 import org.example.springtestci.listing.dto.ListingDraftResponse;
+import org.example.springtestci.listing.dto.ListingPreviewResponse;
+import org.example.springtestci.listing.dto.ListingPublicationResponse;
 import org.example.springtestci.listing.dto.PublishListingRequest;
+import org.example.springtestci.listing.entity.Listing;
+import org.example.springtestci.listing.entity.ListingStatus;
 import org.example.springtestci.listing.repository.ListingAuditRepository;
 import org.example.springtestci.listing.repository.ListingRepository;
 import org.example.springtestci.listing.service.ListingDraftService;
 import org.example.springtestci.listing.service.ListingHistoryPublisher;
+import org.example.springtestci.listing.service.ListingHistoryReader;
 import org.example.springtestci.listing.service.ListingPreviewService;
 import org.example.springtestci.listing.service.ListingPublishConstraints;
 import org.example.springtestci.listing.service.ListingPublishService;
@@ -22,6 +28,79 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
 class ListingPublishServiceTest {
+  @Test
+  @SuppressWarnings("unchecked")
+  void pendingPublicTextReviewDoesNotBlockPublishing() {
+    var products = mock(ProductService.class);
+    var drafts = mock(ListingDraftService.class);
+    var previews = mock(ListingPreviewService.class);
+    var listings = mock(ListingRepository.class);
+    var audit = mock(ListingAuditRepository.class);
+    ObjectProvider<ListingPublishConstraints> constraints = mock(ObjectProvider.class);
+    ObjectProvider<ListingHistoryPublisher> publishers = mock(ObjectProvider.class);
+    var historyPublisher = mock(ListingHistoryPublisher.class);
+    var applicationEvents = mock(org.springframework.context.ApplicationEventPublisher.class);
+    var draft =
+        new ListingDraftResponse(
+            10, 101, "제목", "설명", BigDecimal.ONE, 4, List.of(301L), 0, Instant.now());
+    var pendingEvent =
+        new ListingPublicationResponse.Event(
+            701,
+            ListingHistoryReader.EventType.REPAIR,
+            LocalDate.of(2026, 10, 20),
+            Instant.parse("2026-10-20T00:00:00Z"),
+            ListingHistoryReader.EventStatus.VALID,
+            "제품 수리",
+            null,
+            null,
+            null,
+            false,
+            false,
+            ListingPublicationResponse.DetailsStatus.REVIEW_PENDING,
+            List.of());
+    var pendingHistory =
+        new ListingPublicationResponse.History(
+            ListingHistoryReader.State.READY,
+            false,
+            List.of(pendingEvent),
+            new ListingPublicationResponse.Page(0, 1, 1, 1, false),
+            1,
+            0);
+    var preview =
+        new ListingPreviewResponse(10, 0, Instant.now(), null, List.of(), null, pendingHistory);
+    var saved = mock(Listing.class);
+
+    when(drafts.get(101, 1)).thenReturn(draft);
+    when(constraints.getIfAvailable())
+        .thenReturn(productId -> new ListingPublishConstraints.Snapshot(true, false, false));
+    when(publishers.getIfAvailable()).thenReturn(historyPublisher);
+    when(previews.get(101, 10, 0, 1, 0, 1)).thenReturn(preview);
+    when(listings.saveAndFlush(any(Listing.class))).thenReturn(saved);
+    when(saved.getId()).thenReturn(501L);
+    when(saved.getProductId()).thenReturn(101L);
+    when(saved.getSellerId()).thenReturn(1L);
+    when(saved.getStatus()).thenReturn(ListingStatus.ACTIVE);
+    when(saved.getPublishedAt()).thenReturn(Instant.parse("2026-10-30T00:00:00Z"));
+
+    var result =
+        new ListingPublishService(
+                products,
+                drafts,
+                previews,
+                listings,
+                audit,
+                constraints,
+                publishers,
+                applicationEvents)
+            .publish(101, 1, new PublishListingRequest(10L, 0L));
+
+    assertTrue(result.created());
+    assertEquals(501L, result.response().listingId());
+    verify(historyPublisher).publish(101, 501, 1);
+    verify(drafts).delete(101, 10, 1, 0);
+    verify(audit).published(101, 1, 501);
+  }
+
   @Test
   void missingIntegrationAdaptersNeverAssumeThatPublishingIsSafe() {
     missingAdapter(false);
