@@ -1,7 +1,9 @@
 package org.example.springtestci.admin.controller;
 
 import org.example.springtestci.admin.dto.AdminDtos.*;
+import org.example.springtestci.admin.service.AdminProgressService;
 import org.example.springtestci.admin.service.AdminReadService;
+import org.example.springtestci.admin.service.AdminTimelineService;
 import org.example.springtestci.common.response.ApiResponse;
 import org.example.springtestci.common.security.CurrentUserIdResolver;
 import org.springframework.core.io.ClassPathResource;
@@ -17,10 +19,18 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 public class AdminController {
   private final AdminReadService service;
+  private final AdminTimelineService timelines;
+  private final AdminProgressService progress;
   private final CurrentUserIdResolver userIds;
 
-  public AdminController(AdminReadService service, CurrentUserIdResolver userIds) {
+  public AdminController(
+      AdminReadService service,
+      AdminTimelineService timelines,
+      AdminProgressService progress,
+      CurrentUserIdResolver userIds) {
     this.service = service;
+    this.timelines = timelines;
+    this.progress = progress;
     this.userIds = userIds;
   }
 
@@ -42,6 +52,23 @@ public class AdminController {
   @GetMapping("/api/v1/admin/trades/{id}")
   public ApiResponse<Trade> trade(@AuthenticationPrincipal Jwt jwt, @PathVariable long id) {
     return ApiResponse.success(service.trade(userIds.resolve(jwt), id));
+  }
+
+  /** 구매 요청 ID에 실제로 연결된 사건의 시간순 페이지를 관리자에게만 제공한다. */
+  @GetMapping("/api/v1/admin/trades/{id}/timeline")
+  public ApiResponse<TradeTimeline> timeline(
+      @AuthenticationPrincipal Jwt jwt,
+      @PathVariable long id,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size) {
+    return ApiResponse.success(timelines.timeline(userIds.resolve(jwt), id, page, size));
+  }
+
+  /** 구매 요청 ID의 현재 확인 대기 단계를 읽는다. 거래를 완료하거나 확인 버전을 저장하지 않는다. */
+  @GetMapping("/api/v1/admin/trades/{id}/progress")
+  public ApiResponse<TradeProgress> progress(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable long id) {
+    return ApiResponse.success(progress.progress(userIds.resolve(jwt), id));
   }
 
   @GetMapping("/api/v1/admin/audit-logs")

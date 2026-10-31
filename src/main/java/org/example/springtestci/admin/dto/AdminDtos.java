@@ -97,4 +97,52 @@ public final class AdminDtos {
   public record Facts(Map<String, Object> values, boolean available) {}
 
   public record AuditDetail(Audit record, String reason, Facts before, Facts after) {}
+
+  /** 저장된 시각과 연결 식별자로 확인한 사건이다. 처리 주체가 미기록이면 시스템으로 추측하지 않는다. */
+  public record TimelineEntry(
+      String key,
+      String action,
+      String source,
+      OffsetDateTime occurredAt,
+      String actorType,
+      MemberSummary actor,
+      String reason,
+      Long eventId,
+      Long auditId) {}
+
+  public record TradeTimeline(
+      long tradeId, Page<TimelineEntry> events, boolean reviewHistoryAvailable) {}
+
+  public enum ProgressState {
+    WAITING_SELLER_ACCEPTANCE,
+    WAITING_BUYER_CHANGE_REVIEW,
+    WAITING_BOTH_CONFIRMATIONS,
+    WAITING_SELLER_CONFIRMATION,
+    WAITING_BUYER_CONFIRMATION,
+    CONFIRMATIONS_RECEIVED,
+    COMPLETED,
+    CANCELLED,
+    REJECTED,
+    CONFIRMATION_UNAVAILABLE,
+    CONNECTION_CHECK_REQUIRED
+  }
+
+  public enum ConfirmationState {
+    NOT_CONFIRMED,
+    CURRENT,
+    RECONFIRM_REQUIRED,
+    NOT_APPLICABLE,
+    UNAVAILABLE
+  }
+
+  /** 현재 스냅샷의 확인 상태다. 거래 완료 허가나 확인 시각을 의미하지 않는다. */
+  public record TradeProgress(
+      long tradeId,
+      ProgressState state,
+      ConfirmationState sellerConfirmation,
+      ConfirmationState buyerConfirmation,
+      Long unreviewedChangeCount,
+      Long factsVersion,
+      Long sellerConfirmedVersion,
+      Long buyerConfirmedVersion) {}
 }

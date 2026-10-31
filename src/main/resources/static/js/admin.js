@@ -2,13 +2,15 @@
 (() => {
   const $ = id => document.getElementById(id);
   const form = $('filters');
-  let tab = 'trades', page = 0, version = 0, controller, filters = new URLSearchParams(), opener;
+  let tab = 'trades', page = 0, version = 0, controller, filters = new URLSearchParams(), opener, relatedProduct;
   const labels = {
     PENDING: '구매 요청', ACCEPTED: '수락', REJECTED: '요청 거절', RESERVED: '예약', COMPLETED: '완료', CANCELLED: '취소',
     SUCCESS: '성공', SELF_CIRCUMSTANCES: '개인 사정', MUTUAL_AGREEMENT: '상호 합의', COUNTERPART_UNREACHABLE: '상대방 연락 두절', CONDITION_MISMATCH: '제품 상태 불일치',
     HISTORY_CORRECTED: '이력 정정', HISTORY_VOIDED: '이력 무효', HISTORY_VISIBILITY_CHANGED: '이력 공개 범위 변경',
     PURCHASE_REQUEST_ACCEPTED: '구매 요청 수락', PURCHASE_REQUEST_CANCELLED: '구매 요청 취소', PURCHASE_REQUEST_REJECTED: '구매 요청 거절',
     TRADE_COMPLETED: '거래 완료', TRADE_RESERVATION_CANCELLED: '예약 취소',
+    RESERVATION_CHANGE_RECORDED: '예약 중 제품 이력 변경', RESERVATION_CHANGE_KEPT: '구매자 변경 확인 · 예약 유지', RESERVATION_CHANGE_CANCELLED: '구매자 변경 확인 · 예약 취소',
+    BUYER_CANCELLED: '구매자 요청 취소', SELLER_REJECTED: '판매자 요청 거절',
     OWNERSHIP_TRANSFER_CREATED: '소유권 이전 요청', OWNERSHIP_TRANSFERRED: '소유권 이전 완료', OWNERSHIP_TRANSFER_CANCELLED: '소유권 이전 취소',
     LISTING_PUBLISHED: '판매글 게시', LISTING_UPDATED: '판매글 수정', LISTING_CANCELLED: '판매글 판매 종료', PRODUCT_INFO_CORRECTED: '제품 기본 정보 정정',
     VALID: '유효', VOID: '무효', PUBLIC: '공개', PRIVATE: '비공개', ACTIVE: '판매 중', SOLD: '판매 완료',
@@ -50,7 +52,7 @@
     const response = await window.fetch('/api/v1/admin/' + path, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
     if (current !== version) return null;
     if (response.status === 401 || response.status === 403) {
-      invalidate(); clear(); $('message').textContent = '관리자 권한을 확인할 수 없어요. 홈에서 로그인한 계정을 확인해 주세요.';
+      invalidate(); clear(); setRelated(); $('message').textContent = '관리자 권한을 확인할 수 없어요. 홈에서 로그인한 계정을 확인해 주세요.';
       return null;
     }
     const payload = await response.json().catch(() => null);
@@ -65,6 +67,105 @@
   const auditFields = a => [['제품', productName(a.product)], ['제조사·모델', productModel(a.product)], ['처리 주체', a.actorId == null ? '시스템' : memberText(a.actor)], ['행위', text(a.action)], ['결과', text(a.result)], ['처리 시각', time(a.createdAt)]];
   const section = (title, entries) => { const n = node('section'); n.className = 'detail-section'; n.append(node('h3', title), fields(entries)); return n; };
   const identifiers = entries => { const n = node('details'); n.className = 'identifiers'; n.append(node('summary', '기록 식별 정보'), fields(entries)); return n; };
+  const setRelated = product => {
+    relatedProduct = product; filters.delete('productId');
+    if (product) filters.set('productId', product.id);
+    $('related-scope').hidden = !product; $('related-product').textContent = product ? productName(product) : '';
+  };
+  const relatedLink = (productId, product) => {
+    const block = node('div'), button = node('button', '이 제품의 업무 기록 보기 →');
+    block.className = 'related-link'; button.type = 'button';
+    button.addEventListener('click', () => changeTab('audit-logs', { ...product, id: productId })); block.append(button);
+    return block;
+  };
+  /** 현재 확인 상태만 안내한다. 확인 시각을 추정하거나 관리자 화면에서 거래를 완료하지 않는다. */
+  const progressCard = (id, current) => {
+    const block = node('section'), body = node('div'), message = node('p'), retry = node('button', '확인 상태 다시 불러오기');
+    block.className = 'trade-progress'; block.setAttribute('aria-label', '거래 확인 상태');
+    body.setAttribute('aria-live', 'polite'); message.setAttribute('role', 'status'); message.className = 'progress-note'; retry.type = 'button'; retry.hidden = true;
+    block.append(node('h3', '현재 확인 상태'), message, body, retry);
+    const states = {
+      WAITING_SELLER_ACCEPTANCE: ['판매자의 구매 요청 검토 대기', '구매 요청을 보낸 단계예요. 판매자의 수락 여부를 기다리고 있어요.'],
+      WAITING_BUYER_CHANGE_REVIEW: ['구매자의 변경 이력 확인 대기', '구매자가 변경된 이력을 확인하고 예약 유지·취소를 선택해야 해요.'],
+      WAITING_BOTH_CONFIRMATIONS: ['판매자·구매자의 완료 확인 대기', '양측이 최신 제품 내용을 확인하고 완료 확인을 진행해야 해요.'],
+      WAITING_SELLER_CONFIRMATION: ['판매자의 완료 확인 대기', '구매자는 최신 내용을 확인했어요. 판매자의 완료 확인을 기다리고 있어요.'],
+      WAITING_BUYER_CONFIRMATION: ['구매자의 완료 확인 대기', '판매자는 최신 내용을 확인했어요. 구매자의 완료 확인을 기다리고 있어요.'],
+      CONFIRMATIONS_RECEIVED: ['양측 확인 저장됨 · 처리 상태 확인 필요', '양측이 최신 내용을 확인했지만 거래는 아직 예약 상태예요. 거래 처리 기록을 확인해 주세요.'],
+      COMPLETED: ['거래 완료됨', '완료 처리 내역은 아래 거래 기록에서 확인할 수 있어요.'],
+      CANCELLED: ['취소 처리됨', '취소된 요청·거래예요. 저장된 취소 사유와 처리 내역을 확인해 주세요.'],
+      REJECTED: ['구매 요청 거절됨', '구매 요청이 거절 상태로 종료됐어요.'],
+      CONFIRMATION_UNAVAILABLE: ['확인 상태 제공 준비 중', '이 환경에서는 거래 완료 확인 기능이 활성화되지 않아 확인 대기 단계를 표시할 수 없어요.'],
+      CONNECTION_CHECK_REQUIRED: ['거래 연결 상태 확인 필요', '예약 정보와 현재 제품·판매글 상태를 함께 확인해 주세요.']
+    };
+    const confirmations = { NOT_CONFIRMED: '확인 전', CURRENT: '최신 내용 확인함', RECONFIRM_REQUIRED: '내용 변경 · 재확인 필요' };
+    let generation = 0;
+    const load = async () => {
+      const run = ++generation; const active = () => current === version && run === generation && block.isConnected;
+      block.setAttribute('aria-busy', 'true'); retry.hidden = true; message.textContent = '현재 확인 상태를 불러오는 중이에요.'; body.replaceChildren();
+      try {
+        const data = await request(`trades/${id}/progress`, current);
+        if (!data || !active()) return;
+        if (!Object.hasOwn(states, data.state)) throw new Error('현재 확인 상태를 불러오지 못했어요. 다시 시도해 주세요.');
+        block.dataset.state = data.state;
+        const [title, description] = states[data.state], heading = node('strong', title), note = node('p', description);
+        heading.className = 'progress-state'; note.className = 'progress-note'; body.append(heading, note);
+        if (Object.hasOwn(confirmations, data.sellerConfirmation) && Object.hasOwn(confirmations, data.buyerConfirmation)) {
+          const checks = node('div'); checks.className = 'progress-checks';
+          checks.append(pair('판매자 완료 확인', confirmations[data.sellerConfirmation]), pair('구매자 완료 확인', confirmations[data.buyerConfirmation])); body.append(checks);
+          const changes = node('p', `구매자가 확인하지 않은 변경 이력 ${data.unreviewedChangeCount.toLocaleString()}건`); changes.className = 'progress-note'; body.append(changes);
+          const scope = node('p', '현재 확인 상태 기준의 안내예요. 실제 거래 완료 시 제품·소유권 등 완료 조건을 다시 검사해요.'); scope.className = 'progress-note'; body.append(scope);
+        }
+        message.textContent = '';
+      } catch (error) {
+        if (active() && error.name !== 'AbortError') { message.textContent = error.message; retry.hidden = false; }
+      } finally { if (active()) block.setAttribute('aria-busy', 'false'); }
+    };
+    retry.addEventListener('click', load);
+    return { block, load };
+  };
+  /** 별도 조회가 늦거나 실패해도 기본 거래 상세는 유지한다. 닫힌 패널·이전 페이지의 응답은 버린다. */
+  const timeline = (id, current) => {
+    const block = node('section'), title = node('h3', '거래 타임라인'), note = node('p', '시각이 저장된 처리 내역을 오래된 순서로 표시해요. 구매 요청·완료 확인 시각은 별도로 저장되지 않아 표시하지 않아요.');
+    block.className = 'timeline'; note.className = 'timeline-note'; block.append(title, note);
+    const availability = node('p'), message = node('p'), list = node('ol'), paging = node('div'), range = node('span'), previous = node('button', '‹ 이전 기록'), next = node('button', '다음 기록 ›'), retry = node('button', '타임라인 다시 불러오기');
+    availability.className = 'timeline-note'; availability.hidden = true; message.setAttribute('role', 'status'); message.className = 'timeline-message';
+    paging.className = 'timeline-paging'; previous.type = next.type = retry.type = 'button'; retry.hidden = true; previous.disabled = next.disabled = true;
+    paging.append(range, previous, next); block.append(availability, message, retry, list, paging);
+    let currentPage = 0, total = 0, size = 20, generation = 0, retryPage = 0;
+    const active = run => current === version && run === generation && block.isConnected;
+    const loadPage = async requested => {
+      const run = ++generation; retryPage = requested; previous.disabled = next.disabled = true; retry.hidden = true;
+      block.setAttribute('aria-busy', 'true'); message.textContent = '타임라인을 불러오는 중이에요.';
+      try {
+        const data = await request(`trades/${id}/timeline?page=${requested}&size=20`, current);
+        if (!data || !active(run)) return;
+        const events = data.events; currentPage = events.page; total = events.total; size = events.size;
+        availability.hidden = data.reviewHistoryAvailable;
+        availability.textContent = '이 환경에서는 예약 중 이력 변경 확인 기능이 활성화되지 않아 해당 기록은 제공하지 않아요.';
+        list.replaceChildren();
+        const sources = { LISTING: '판매글 저장 기록', AUDIT: '업무 처리 기록', TRANSACTION: '거래 저장 기록', OWNERSHIP: '소유권 이전 저장 기록', CHANGE_REVIEW: '변경 확인 기록' };
+        for (const item of events.items) {
+          const event = node('li'), heading = node('strong', text(item.action)), timestamp = node('time', time(item.occurredAt));
+          timestamp.setAttribute('datetime', item.occurredAt); timestamp.title = item.occurredAt;
+          const actor = item.actorType === 'SYSTEM' ? '시스템' : item.actorType === 'UNRECORDED' ? '처리 주체 미기록' : memberText(item.actor);
+          const meta = node('p', `${sources[item.source] || '저장 기록'} · ${actor}`); meta.className = 'timeline-meta';
+          event.append(heading, timestamp, meta);
+          if (item.reason) { const reason = node('p', text(item.reason)); reason.className = 'reason'; event.append(reason); }
+          list.append(event);
+        }
+        message.textContent = events.items.length ? '' : '시각이 저장된 처리 내역이 없어요.';
+        const first = events.items.length ? currentPage * size + 1 : 0;
+        range.textContent = `${first}–${first ? currentPage * size + events.items.length : 0} / ${total}건`;
+      } catch (error) {
+        if (!active(run) || error.name === 'AbortError') return;
+        message.textContent = error.message; retry.hidden = false;
+      } finally {
+        if (active(run)) { block.setAttribute('aria-busy', 'false'); previous.disabled = currentPage === 0; next.disabled = (currentPage + 1) * size >= total; }
+      }
+    };
+    previous.addEventListener('click', () => loadPage(currentPage - 1)); next.addEventListener('click', () => loadPage(currentPage + 1)); retry.addEventListener('click', () => loadPage(retryPage));
+    return { block, load: () => loadPage(0) };
+  };
   const flatten = data => Object.fromEntries(Object.entries(data.values).flatMap(([key, value]) => value && typeof value === 'object' ? Object.entries(value).map(([part, detail]) => [`${fieldLabels[key] || key} · ${fieldLabels[part] || part}`, detail]) : [[fieldLabels[key] || key, value]]));
   /** 두 사본에서 실제 달라진 값을 같은 행에 놓아 정정·무효의 변경 경위를 비교한다. */
   const comparison = (before, after) => {
@@ -88,17 +189,21 @@
       const data = await request(`${tab}/${id}`, current);
       if (!data || current !== version) return;
       if (tab === 'trades') {
+        const progress = progressCard(data.id, current);
+        const history = timeline(data.id, current);
         const summary = node('div'); summary.className = 'detail-summary'; summary.append(status(data.transactionStatus || data.requestStatus), node('p', productName(data.product)));
-        const content = [summary,
+        const content = [summary, progress.block,
           section('제품 및 당사자', [['제품', productName(data.product)], ['제조사·모델', productModel(data.product)], ['판매글', data.listingTitle || '판매글 정보 없음'], ['판매자', memberText(data.seller)], ['구매자', memberText(data.buyer)]]),
           section('거래 진행', [['요청 상태', text(data.requestStatus)], ['거래 상태', text(data.transactionStatus)], ['예약 시각', time(data.reservedAt)], ['완료 시각', time(data.completedAt)]])];
         if (data.cancelledAt || data.cancelReason) content.push(section('취소 내역', [['취소 시각', time(data.cancelledAt)], ['취소 수행자', memberText(data.cancelledBy)], ['취소 사유', text(data.cancelReason)]]));
-        content.push(identifiers([['거래 ID', data.id], ['제품 ID', data.productId], ['판매글 ID', data.listingId], ['판매자 회원 ID', data.sellerId], ['구매자 회원 ID', data.buyerId], ['취소 수행자 회원 ID', data.cancelledById ?? '—']]));
+        content.push(relatedLink(data.productId, data.product), history.block, identifiers([['거래 ID', data.id], ['제품 ID', data.productId], ['판매글 ID', data.listingId], ['판매자 회원 ID', data.sellerId], ['구매자 회원 ID', data.buyerId], ['취소 수행자 회원 ID', data.cancelledById ?? '—']]));
         $('detail-body').replaceChildren(...content);
+        progress.load();
+        history.load();
       } else {
         const content = [section('처리 정보', auditFields(data.record))];
         if (data.reason) { const reason = node('section'); reason.className = 'detail-section'; const p = node('p', data.reason); p.className = 'reason'; reason.append(node('h3', '처리 사유'), p); content.push(reason); }
-        content.push(comparison(data.before, data.after), identifiers([['기록 ID', data.record.id], ['제품 ID', data.record.productId], ['대상 ID', data.record.targetId], ['이력 ID', data.record.eventId ?? '—'], ['처리 주체 회원 ID', data.record.actorId ?? '시스템']])); $('detail-body').replaceChildren(...content);
+        content.push(comparison(data.before, data.after), relatedLink(data.record.productId, data.record.product), identifiers([['기록 ID', data.record.id], ['제품 ID', data.record.productId], ['대상 ID', data.record.targetId], ['이력 ID', data.record.eventId ?? '—'], ['처리 주체 회원 ID', data.record.actorId ?? '시스템']])); $('detail-body').replaceChildren(...content);
       }
       $('detail').focus();
     } catch (error) { if (current === version && error.name !== 'AbortError') $('detail-body').replaceChildren(node('p', error.message)); }
@@ -135,8 +240,9 @@
     } catch (error) { if (current === version && error.name !== 'AbortError') { $('message').textContent = error.message; $('message').dataset.kind = 'error'; } }
     finally { if (current === version) $('results').setAttribute('aria-busy', 'false'); }
   };
-  const changeTab = value => {
+  const changeTab = (value, product) => {
     tab = value; page = 0; form.reset(); filters = new URLSearchParams();
+    setRelated(product);
     for (const [id, active] of [['trades-tab', tab === 'trades'], ['audits-tab', tab !== 'trades']]) {
       if (active) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current');
     }
@@ -151,20 +257,22 @@
   };
   form.addEventListener('submit', event => {
     event.preventDefault(); filters = new URLSearchParams();
-    for (const [key, value] of new FormData(form)) if (value && (key !== 'status' || tab === 'trades') && (key !== 'action' || tab !== 'trades')) filters.set(key, String(value).trim());
+    for (const [key, value] of new window.FormData(form)) if (value && (key !== 'status' || tab === 'trades') && (key !== 'action' || tab !== 'trades')) filters.set(key, String(value).trim());
+    if (relatedProduct) filters.set('productId', relatedProduct.id);
     page = 0; load();
   });
   $('reset-filters').addEventListener('click', () => changeTab(tab));
   $('trades-tab').addEventListener('click', () => changeTab('trades'));
   $('audits-tab').addEventListener('click', () => changeTab('audit-logs'));
+  $('clear-related').addEventListener('click', () => changeTab(tab));
   $('refresh').addEventListener('click', load);
   $('previous').addEventListener('click', () => { if (page > 0) { page--; load(); } });
   $('next').addEventListener('click', () => { if (!$('next').disabled) { page++; load(); } });
   const closeDetail = () => { invalidate(); hideDetail(true); };
   $('close-detail').addEventListener('click', closeDetail);
   $('detail').addEventListener('cancel', event => { event.preventDefault(); closeDetail(); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { invalidate(); clear(); } else load(); });
-  window.addEventListener('pagehide', () => { invalidate(); clear(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { invalidate(); clear(); setRelated(); } else load(); });
+  window.addEventListener('pagehide', () => { invalidate(); clear(); setRelated(); });
   window.addEventListener('pageshow', event => { if (event.persisted) load(); });
   window.addEventListener('focus', load);
   load();
