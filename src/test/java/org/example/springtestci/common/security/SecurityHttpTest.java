@@ -51,7 +51,9 @@ class SecurityHttpTest {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-      return new SecurityConfig().securityFilterChain(http);
+      return new SecurityConfig()
+          .securityFilterChain(
+              http, mock(org.example.springtestci.admin.service.AdminAccessService.class));
     }
 
     @Bean

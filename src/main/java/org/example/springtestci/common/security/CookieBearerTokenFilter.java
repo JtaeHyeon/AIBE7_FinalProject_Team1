@@ -30,13 +30,18 @@ class CookieBearerTokenFilter extends OncePerRequestFilter {
     chain.doFilter(token == null ? request : new BearerRequest(request, token), response);
   }
 
-  /** 쿠키 토큰을 쓸 요청이면 그 값을, 아니면 null을 돌려준다. API 요청에만 쓴다. */
+  /** API와 보호된 관리자 HTML에만 쿠키 인증을 적용한다. 일반 공개 화면은 만료된 쿠키로 막지 않는다. */
   private static String cookieToken(HttpServletRequest request) {
     if (request.getHeader(HttpHeaders.AUTHORIZATION) != null) {
       return null;
     }
-    // 화면과 정적 파일은 인증이 필요 없으므로, 잘못된 쿠키가 남아 있어도 막히지 않게 API 요청에만 쓴다.
-    if (!request.getRequestURI().startsWith("/api/")) {
+    String uri = request.getRequestURI();
+    boolean adminPage =
+        uri.equals("/admin")
+            || uri.startsWith("/admin/")
+            || uri.equals("/admin.html")
+            || uri.equals("/pages/admin.html");
+    if (!uri.startsWith("/api/") && !adminPage) {
       return null;
     }
     // 공개 목록은 만료된 로그인 쿠키가 있어도 비회원으로 이용할 수 있다. 명시적 Bearer 헤더는 유지한다.
