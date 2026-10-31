@@ -8,7 +8,7 @@
   <link rel="icon" href="/favicon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/spoqa/spoqa-han-sans@latest/css/SpoqaHanSansNeo.css">
   <link rel="stylesheet" href="/css/admin.css">
-  <script defer src="/js/admin.js"></script>
+  <script defer src="/js/admin.js?v=20261031-kst"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">본문으로 이동</a>
@@ -30,14 +30,24 @@
         <form id="filters">
           <label>제품 검색<input name="productQuery" type="search" maxlength="200" placeholder="제품명·제조사·모델명"></label>
           <label><span id="actor-label">거래 회원 검색</span><input name="memberQuery" type="search" maxlength="254" placeholder="닉네임·이메일"></label>
-          <label id="status-field">거래 상태<select name="status"><option value="">전체 상태</option><option value="PENDING">구매 요청</option><option value="REJECTED">요청 거절</option><option value="RESERVED">예약</option><option value="COMPLETED">완료</option><option value="CANCELLED">취소</option></select></label>
+          <label id="status-field">거래 상태<select id="trade-status" name="status"><option value="">전체 상태</option><option value="PENDING">구매 요청</option><option value="REJECTED">요청 거절</option><option value="RESERVED">예약</option><option value="COMPLETED">완료</option><option value="CANCELLED">취소</option></select></label>
           <label id="action-field" hidden>업무 유형<select name="action"><option value="">전체 업무</option><optgroup label="제품·이력"><option value="PRODUCT_INFO_CORRECTED">제품 기본 정보 정정</option><option value="HISTORY_CORRECTED">이력 정정</option><option value="HISTORY_VOIDED">이력 무효</option><option value="HISTORY_VISIBILITY_CHANGED">이력 공개 범위 변경</option><option value="LISTING_PUBLISHED">판매글 게시</option><option value="LISTING_UPDATED">판매글 수정</option><option value="LISTING_CANCELLED">판매글 판매 종료</option></optgroup><optgroup label="거래"><option value="PURCHASE_REQUEST_ACCEPTED">구매 요청 수락</option><option value="PURCHASE_REQUEST_CANCELLED">구매 요청 취소</option><option value="PURCHASE_REQUEST_REJECTED">구매 요청 거절</option><option value="TRADE_RESERVATION_CANCELLED">예약 취소</option><option value="TRADE_COMPLETED">거래 완료</option></optgroup><optgroup label="소유권"><option value="OWNERSHIP_TRANSFER_CREATED">소유권 이전 요청</option><option value="OWNERSHIP_TRANSFERRED">소유권 이전 완료</option><option value="OWNERSHIP_TRANSFER_CANCELLED">소유권 이전 취소</option></optgroup></select></label>
-          <div class="date-range"><label><span id="date-label">예약일 시작 (UTC)</span><input name="from" type="date"></label><span class="date-divider" aria-hidden="true">~</span><label>종료일 (UTC)<input name="to" type="date"></label></div>
+          <div class="date-range"><label><span id="date-label">예약일 시작 (KST)</span><input name="from" type="date"></label><span class="date-divider" aria-hidden="true">~</span><label>종료일 (KST)<input name="to" type="date"></label></div>
           <div class="filter-actions"><button id="reset-filters" type="button">초기화</button><button class="primary" type="submit">조회하기</button></div>
         </form>
       </section>
-      <section class="results" aria-label="조회 결과" aria-busy="true" id="results">
+      <section id="trade-overview" class="trade-overview" aria-labelledby="overview-title" hidden>
+        <h2 id="overview-title">검색 범위 현황</h2>
+        <p id="overview-message" class="overview-note" role="status"></p>
+        <div id="overview-statuses" class="overview-statuses"></div>
+        <div id="overview-requests" class="overview-requests"></div>
+        <div class="overview-reasons"><h3>취소 유형별</h3><div id="overview-cancellations"></div></div>
+        <p class="overview-note">제품·회원·예약일 검색 범위의 전체 상태를 집계해요. 건수 버튼을 누르면 해당 목록으로 이동해요.</p>
+        <p id="overview-dates" class="overview-note" hidden>예약일(KST) 기준이에요. 날짜 조건이 있으면 예약 시각이 없는 요청은 제외돼요.</p>
+      </section>
+      <section class="results" aria-label="조회 결과" aria-busy="true" id="results" tabindex="-1">
         <div id="related-scope" class="related-scope" hidden><div><strong id="related-product"></strong><p>이 제품 전체의 업무 기록을 보고 있어요. 다른 거래의 기록도 포함될 수 있어요.</p></div><button id="clear-related" type="button">전체 제품 보기</button></div>
+        <div id="cancel-scope" class="cancel-scope" hidden><span id="cancel-scope-label"></span><button id="clear-cancel" type="button">취소 유형 해제</button></div>
         <div class="result-head"><div class="result-heading"><h2 id="result-title">거래 목록</h2><span id="count"></span></div><span id="updated" class="updated" aria-live="polite"></span></div>
         <p class="scope-note" id="scope-note">예약·완료 시각은 처리 기록 기준이에요. 저장된 시각이 없으면 ‘—’로 표시해요.</p>
         <p id="message" class="message" role="status" aria-live="polite">기록을 불러오는 중이에요.</p>

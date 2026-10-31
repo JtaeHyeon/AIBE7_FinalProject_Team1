@@ -45,6 +45,7 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http, AdminAccessService adminAccess)
       throws Exception {
+    var entryPoint = new AdminPageAuthenticationEntryPoint();
     http.csrf(
             csrf ->
                 csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -56,7 +57,11 @@ public class SecurityConfig {
         // 쿠키 요청이 CSRF 검사를 받은 뒤에 쿠키를 Authorization 헤더로 바꿔 넘긴다.
         .addFilterBefore(new CookieBearerTokenFilter(), BearerTokenAuthenticationFilter.class)
         // CSRF 검사에 실패하면 인증 문제(401)가 아니라 요청 거부(403)로 응답한다.
-        .exceptionHandling(handling -> handling.accessDeniedHandler(new AccessDeniedHandlerImpl()))
+        .exceptionHandling(
+            handling ->
+                handling
+                    .authenticationEntryPoint(entryPoint)
+                    .accessDeniedHandler(new AccessDeniedHandlerImpl()))
         .headers(
             headers ->
                 headers
@@ -128,7 +133,8 @@ public class SecurityConfig {
                     .permitAll()
                     .anyRequest()
                     .authenticated())
-        .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+        .oauth2ResourceServer(
+            oauth2 -> oauth2.authenticationEntryPoint(entryPoint).jwt(Customizer.withDefaults()));
     return http.build();
   }
 

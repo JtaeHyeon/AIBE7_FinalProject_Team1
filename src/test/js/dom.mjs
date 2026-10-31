@@ -131,7 +131,7 @@ export function environment(handler = () => ({})) {
       }
       parent.append(node); return node;
     },
-    run(file) { vm.runInContext(fs.readFileSync('src/main/resources/static/js/' + file, 'utf8'), context, { filename: file }); }
+    run(file, globals = {}) { Object.assign(context, globals); vm.runInContext(fs.readFileSync('src/main/resources/static/js/' + file, 'utf8'), context, { filename: file }); }
   };
 }
 
