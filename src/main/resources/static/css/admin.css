@@ -129,6 +129,36 @@ dd { white-space: pre-wrap; }
 .comparison-row.changed > span:last-child { color: #146252; font-weight: 500; }
 .detail-footer { padding: 18px 28px 28px; color: var(--muted); font-size: 12px; }
 body.detail-open { overflow: hidden; }
+.trade-progress { margin: 20px 0 24px; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: #f5f7f9; overflow-wrap: anywhere; }
+.trade-progress h3 { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.progress-state { display: block; font-size: 15px; line-height: 1.7; }
+.progress-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); line-height: 1.8; }
+.progress-note:empty { display: none; }
+.progress-checks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin: 16px 0; }
+.progress-checks .cell-primary { font-size: 12px; font-weight: 400; color: var(--muted); }
+.progress-checks .cell-secondary { font-size: 13px; color: var(--ink); }
+.trade-progress[data-state=COMPLETED] .progress-state { color: #146252; }
+.trade-progress[data-state=CONNECTION_CHECK_REQUIRED] .progress-state, .trade-progress[data-state=CONFIRMATIONS_RECEIVED] .progress-state { color: #8b4c0c; }
+.trade-progress button { margin-top: 12px; font-size: 12px; }
+.related-scope { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 20px; padding: 16px; border: 1px solid var(--line); border-left: 3px solid var(--brand); border-radius: 6px; }
+.related-scope strong { overflow-wrap: anywhere; }
+.related-scope p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.related-link { margin: 20px 0; }
+.related-link button { color: var(--brand); white-space: normal; text-align: left; }
+.timeline { margin: 28px 0; border-top: 1px solid var(--line); padding-top: 24px; }
+.timeline h3 { margin: 0 0 8px; font-size: 14px; }
+.timeline-note, .timeline-message { color: var(--muted); font-size: 12px; line-height: 1.8; }
+.timeline ol { margin: 20px 0; padding: 0; list-style: none; }
+.timeline li { position: relative; margin-left: 5px; padding: 0 0 24px 22px; border-left: 1px solid var(--line); overflow-wrap: anywhere; }
+.timeline li::before { content: ''; position: absolute; left: -4px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
+.timeline li:last-child { padding-bottom: 0; border-left-color: transparent; }
+.timeline strong { font-size: 13px; }
+.timeline time { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.timeline-meta { margin: 8px 0; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+.timeline .reason { margin-top: 10px; padding: 10px 12px; font-size: 12px; }
+.timeline-paging { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.timeline-paging span { margin-right: auto; color: var(--muted); font-size: 12px; }
+.timeline-paging button { font-size: 12px; }
 @media (min-width: 1280px) {
   form { grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) minmax(140px, 1.1fr) minmax(300px, 2.2fr) auto; align-items: end; }
   .filter-actions { grid-column: auto; }
@@ -150,6 +180,7 @@ body.detail-open { overflow: hidden; }
   .date-range { grid-column: auto; }
 }
 @media (max-width: 600px) {
+  .related-scope { align-items: stretch; flex-direction: column; gap: 12px; }
   .sidebar { padding: 16px 20px 0; }
   nav { gap: 24px; margin-top: 12px; }
   nav button { font-size: 13px; min-height: 44px; }

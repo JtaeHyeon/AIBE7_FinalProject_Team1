@@ -35,11 +35,12 @@ class AdminHttpTest {
   private static JdbcTemplate jdbc;
   private static String base, schema;
   private static DriverManagerDataSource schemaSource;
+  private static boolean postgres;
 
   @BeforeAll
   static void start() {
     String url = System.getenv("SALE_DRAFT_TEST_DB_URL");
-    boolean postgres = url != null && !url.isBlank();
+    postgres = url != null && !url.isBlank();
     if (postgres && (!url.startsWith("jdbc:postgresql:") || !url.contains("sale_ai_test")))
       throw new IllegalStateException("Dedicated sale_ai_test DB required");
     schema = postgres ? "admin_http_" + Long.toUnsignedString(System.nanoTime()) : "public";
@@ -88,8 +89,8 @@ class AdminHttpTest {
             "--spring.jpa.hibernate.ddl-auto=validate",
             "--spring.jpa.properties.hibernate.default_schema=" + schema,
             "--app.features.trade-purchase-requests.enabled=true",
-            "--app.features.trade-p3.enabled=false",
-            "--app.features.trade-p4.enabled=false",
+            "--app.features.trade-p3.enabled=" + postgres,
+            "--app.features.trade-p4.enabled=" + postgres,
             "--app.features.listing-history.enabled=false",
             "--app.ai.summary.enabled=false",
             "--app.ai.listing.api-key=",
@@ -126,9 +127,17 @@ class AdminHttpTest {
   void fixture() {
     jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = 9");
     jdbc.update("UPDATE users SET nickname = 'a-seller' WHERE id = 1");
+    jdbc.update("UPDATE products SET owner_id=1, facts_version=1, archived_at=NULL WHERE id=101");
+    if (postgres) jdbc.update("DELETE FROM transaction_change_reviews");
     for (String table :
-        List.of("audit_logs", "purchase_requests", "chat_messages", "chat_rooms", "listings"))
-      jdbc.update("DELETE FROM " + table);
+        List.of(
+            "audit_logs",
+            "ownership_transfers",
+            "purchase_requests",
+            "chat_messages",
+            "chat_rooms",
+            "listings")) jdbc.update("DELETE FROM " + table);
+    jdbc.update("DELETE FROM product_events WHERE id >= 9000");
     jdbc.update(
         """
         INSERT INTO listings(id,product_id,seller_id,title,price,condition_grade,description,status,published_at,source_draft_id,source_draft_version,active_slot)
@@ -208,6 +217,8 @@ class AdminHttpTest {
         "/pages/admin.html",
         "/api/v1/admin/trades",
         "/api/v1/admin/trades/41",
+        "/api/v1/admin/trades/41/timeline",
+        "/api/v1/admin/trades/41/progress",
         "/api/v1/admin/audit-logs",
         "/api/v1/admin/audit-logs/104"
       })
@@ -222,6 +233,8 @@ class AdminHttpTest {
     assertEquals(200, send("/admin", token, "GET").statusCode());
     jdbc.update("UPDATE users SET role = 'USER' WHERE id = 9");
     assertEquals(403, send("/api/v1/admin/audit-logs", token, "GET").statusCode());
+    assertEquals(403, send("/api/v1/admin/trades/41/timeline", token, "GET").statusCode());
+    assertEquals(403, send("/api/v1/admin/trades/41/progress", token, "GET").statusCode());
     assertEquals(403, send("/admin.html", token, "GET").statusCode());
     assertEquals(403, send("/api/v1/admin/trades", jwt("99999", "ADMIN"), "GET").statusCode());
     assertEquals(
@@ -307,6 +320,10 @@ class AdminHttpTest {
   @Test
   void detailNotFoundAndEmptyPagesAreHonest() throws Exception {
     assertEquals(404, send("/api/v1/admin/trades/999", jwt("9", "ADMIN"), "GET").statusCode());
+    assertEquals(
+        404, send("/api/v1/admin/trades/999/timeline", jwt("9", "ADMIN"), "GET").statusCode());
+    assertEquals(
+        404, send("/api/v1/admin/trades/999/progress", jwt("9", "ADMIN"), "GET").statusCode());
     assertEquals(404, send("/api/v1/admin/audit-logs/999", jwt("9", "ADMIN"), "GET").statusCode());
     assertEquals(0, data("/api/v1/admin/trades?productId=999").path("total").asInt());
     var page = data("/api/v1/admin/audit-logs?page=100");
@@ -321,6 +338,8 @@ class AdminHttpTest {
       assertEquals(405, send("/api/v1/admin/trades/41", jwt("9", "ADMIN"), method).statusCode());
     data("/api/v1/admin/trades");
     data("/api/v1/admin/trades/41");
+    data("/api/v1/admin/trades/41/timeline");
+    data("/api/v1/admin/trades/41/progress");
     data("/api/v1/admin/audit-logs");
     data("/api/v1/admin/audit-logs/104");
     assertEquals(
@@ -403,6 +422,249 @@ class AdminHttpTest {
     assertTrue(record.path("actor").path("nickname").isNull());
     assertTrue(data("/api/v1/admin/audit-logs/105").path("record").path("actor").isNull());
     assertEquals(5, data("/api/v1/admin/audit-logs").path("total").asInt());
+  }
+
+  @Test
+  void timelineUsesActionAndRealTransferConnectionRatherThanCollidingTargetIds() throws Exception {
+    jdbc.update(
+        "UPDATE listings SET published_at = TIMESTAMP WITH TIME ZONE '2026-10-25 09:00:00+00' WHERE id=501");
+    transfer(71, 101, 41, "INTERNAL");
+    transfer(41, 101, 42, "INTERNAL");
+    transfer(72, 101, 41, "DIRECT");
+    transfer(73, 102, 41, "INTERNAL");
+    audit(
+        201,
+        101,
+        1L,
+        41,
+        "HISTORY_CORRECTED",
+        null,
+        null,
+        "UNRELATED_HISTORY",
+        "2026-10-28T09:01:00Z");
+    audit(
+        202,
+        102,
+        1L,
+        41,
+        "TRADE_COMPLETED",
+        null,
+        null,
+        "UNRELATED_PRODUCT",
+        "2026-10-28T09:01:00Z");
+    audit(
+        203,
+        101,
+        1L,
+        41,
+        "OWNERSHIP_TRANSFERRED",
+        null,
+        null,
+        "UNRELATED_REQUEST",
+        "2026-10-28T09:01:00Z");
+    audit(
+        204,
+        101,
+        1L,
+        72,
+        "OWNERSHIP_TRANSFERRED",
+        null,
+        null,
+        "UNRELATED_DIRECT",
+        "2026-10-28T09:01:00Z");
+    audit(
+        205,
+        101,
+        1L,
+        71,
+        "OWNERSHIP_TRANSFER_CREATED",
+        "PRIVATE_TRANSFER_TOKEN",
+        "PRIVATE_OCR",
+        "내부 이전 준비",
+        "2026-10-28T09:02:00Z");
+    var timeline = data("/api/v1/admin/trades/41/timeline");
+    var events = timeline.path("events");
+    assertEquals(4, events.path("total").asInt());
+    assertEquals("LISTING_PUBLISHED", events.path("items").get(0).path("action").asText());
+    assertEquals(101, events.path("items").get(1).path("auditId").asInt());
+    assertEquals(205, events.path("items").get(2).path("auditId").asInt());
+    assertEquals("OWNERSHIP_TRANSFERRED", events.path("items").get(3).path("action").asText());
+    assertEquals("UNRECORDED", events.path("items").get(3).path("actorType").asText());
+    assertFalse(timeline.toString().contains("PRIVATE_"));
+    assertFalse(timeline.toString().contains("UNRELATED_"));
+    assertFalse(timeline.toString().contains("tokenHash"));
+    assertEquals(postgres, timeline.path("reviewHistoryAvailable").asBoolean());
+    var productRecords = data("/api/v1/admin/audit-logs?productId=101");
+    assertTrue(productRecords.toString().contains("HISTORY_CORRECTED"));
+    assertFalse(productRecords.toString().contains("ThinkPad"));
+  }
+
+  @Test
+  void timelinePagesStableTiesAndKeepsUnknownMembersSeparateFromSystem() throws Exception {
+    jdbc.update(
+        "UPDATE listings SET published_at = TIMESTAMP WITH TIME ZONE '2026-10-25 09:00:00+00' WHERE id=501");
+    audit(210, 101, null, 41, "TRADE_COMPLETED", null, null, null, "2026-10-28T09:00:00Z");
+    audit(211, 101, 99999L, 41, "TRADE_COMPLETED", null, null, null, "2026-10-28T09:00:00Z");
+    var first = data("/api/v1/admin/trades/41/timeline?size=2").path("events");
+    var next = data("/api/v1/admin/trades/41/timeline?size=2&page=1").path("events");
+    assertEquals(4, first.path("total").asInt());
+    assertEquals(101, first.path("items").get(1).path("auditId").asInt());
+    assertEquals(210, next.path("items").get(0).path("auditId").asInt());
+    assertEquals("SYSTEM", next.path("items").get(0).path("actorType").asText());
+    var missing = next.path("items").get(1);
+    assertEquals("MEMBER", missing.path("actorType").asText());
+    assertEquals(99999, missing.path("actor").path("id").asLong());
+    assertTrue(missing.path("actor").path("nickname").isNull());
+    assertEquals(next, data("/api/v1/admin/trades/41/timeline?size=2&page=1").path("events"));
+    assertTrue(
+        data("/api/v1/admin/trades/41/timeline?page=99").path("events").path("items").isEmpty());
+  }
+
+  @Test
+  void timelineCancellationFallbackDoesNotDuplicateAuditAndDoesNotInventRequestTime()
+      throws Exception {
+    var before = data("/api/v1/admin/trades/42/timeline").path("events");
+    assertEquals(3, before.path("total").asInt());
+    assertTrue(before.toString().contains("TRANSACTION:42:TRADE_RESERVATION_CANCELLED"));
+    audit(
+        212,
+        102,
+        2L,
+        42,
+        "TRADE_RESERVATION_CANCELLED",
+        null,
+        null,
+        "MUTUAL_AGREEMENT",
+        "2026-10-29T13:00:00Z");
+    var after = data("/api/v1/admin/trades/42/timeline").path("events");
+    assertEquals(3, after.path("total").asInt());
+    assertFalse(after.toString().contains("TRANSACTION:42:"));
+    assertTrue(after.toString().contains("AUDIT:212:"));
+    jdbc.update("DELETE FROM audit_logs WHERE product_id=101");
+    var pending = data("/api/v1/admin/trades/41/timeline").path("events");
+    assertEquals(1, pending.path("total").asInt());
+    assertEquals("LISTING_PUBLISHED", pending.path("items").get(0).path("action").asText());
+  }
+
+  @Test
+  void timelineP3ShowsSavedReviewTimesAndBuyerDecisionWithoutChangeFacts() throws Exception {
+    Assumptions.assumeTrue(postgres, "P3 정식 DDL은 PostgreSQL에서 검증");
+    jdbc.update(
+        "INSERT INTO product_events(id,product_id,author_id,title) VALUES(9001,101,1,'비공개 점검'),(9002,102,1,'다른 제품 점검')");
+    jdbc.update(
+        """
+        INSERT INTO transaction_change_reviews(purchase_request_id,event_id,facts_version,change_facts,decision,created_at,reviewed_at)
+        VALUES(41,9001,1,'{"content":"PRIVATE_CHANGE_FACTS"}','KEEP',TIMESTAMP WITH TIME ZONE '2026-10-28 11:00:00+00',TIMESTAMP WITH TIME ZONE '2026-10-28 12:00:00+00'),
+        (42,9002,1,'{}','CANCEL',TIMESTAMP WITH TIME ZONE '2026-10-28 11:00:00+00',TIMESTAMP WITH TIME ZONE '2026-10-28 12:00:00+00')
+        """);
+    var response = data("/api/v1/admin/trades/41/timeline");
+    var items = response.path("events").path("items");
+    var recorded =
+        java.util.stream.StreamSupport.stream(items.spliterator(), false)
+            .filter(item -> item.path("action").asText().equals("RESERVATION_CHANGE_RECORDED"))
+            .findFirst()
+            .orElseThrow();
+    var reviewed =
+        java.util.stream.StreamSupport.stream(items.spliterator(), false)
+            .filter(item -> item.path("action").asText().equals("RESERVATION_CHANGE_KEPT"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("SYSTEM", recorded.path("actorType").asText());
+    assertEquals("2026-10-28T11:00:00Z", recorded.path("occurredAt").asText());
+    assertEquals(2, reviewed.path("actor").path("id").asInt());
+    assertEquals("2026-10-28T12:00:00Z", reviewed.path("occurredAt").asText());
+    assertFalse(response.toString().contains("PRIVATE_"));
+    assertFalse(response.toString().contains("9002"));
+    assertFalse(response.toString().contains("changeFacts"));
+    assertTrue(response.path("reviewHistoryAvailable").asBoolean());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"page=-1", "page=100001", "size=0", "size=101", "size=no"})
+  void timelineRejectsInvalidPage(String query) throws Exception {
+    assertEquals(
+        400,
+        send("/api/v1/admin/trades/41/timeline?" + query, jwt("9", "ADMIN"), "GET").statusCode());
+  }
+
+  @Test
+  void progressDoesNotReopenEndedTransactionsAndMissingFeatureIsNotZeroPending() throws Exception {
+    for (var entry : Map.of(42, "CANCELLED", 43, "COMPLETED").entrySet()) {
+      var result = data("/api/v1/admin/trades/" + entry.getKey() + "/progress");
+      assertEquals(entry.getValue(), result.path("state").asText());
+      assertEquals("NOT_APPLICABLE", result.path("sellerConfirmation").asText());
+      assertTrue(result.path("factsVersion").isNull());
+      assertTrue(result.path("unreviewedChangeCount").isNull());
+    }
+    if (!postgres) {
+      // 이 환경에는 확인 열·P3 테이블이 없다. 제공되지 않는 상태를 미확인 0건으로 추정하지 않는다.
+      var result = data("/api/v1/admin/trades/41/progress");
+      assertEquals("CONFIRMATION_UNAVAILABLE", result.path("state").asText());
+      assertTrue(result.path("unreviewedChangeCount").isNull());
+    }
+  }
+
+  @Test
+  void progressUsesCurrentConfirmationVersionAndOnlyThisRequestsUnreviewedCount() throws Exception {
+    Assumptions.assumeTrue(postgres, "확인 상태와 P3 정식 DDL은 PostgreSQL에서 검증");
+    String path = "/api/v1/admin/trades/41/progress";
+    assertEquals("WAITING_BOTH_CONFIRMATIONS", data(path).path("state").asText());
+    jdbc.update("UPDATE purchase_requests SET seller_confirmed_version=1 WHERE id=41");
+    assertEquals("WAITING_BUYER_CONFIRMATION", data(path).path("state").asText());
+    jdbc.update(
+        "UPDATE purchase_requests SET seller_confirmed_version=NULL, buyer_confirmed_version=1 WHERE id=41");
+    assertEquals("WAITING_SELLER_CONFIRMATION", data(path).path("state").asText());
+    jdbc.update("UPDATE purchase_requests SET seller_confirmed_version=1 WHERE id=41");
+    assertEquals("CONFIRMATIONS_RECEIVED", data(path).path("state").asText());
+    jdbc.update(
+        "INSERT INTO product_events(id,product_id,author_id,title) VALUES(9001,101,1,'점검'),(9002,102,1,'다른 제품 점검')");
+    jdbc.update(
+        """
+        INSERT INTO transaction_change_reviews(purchase_request_id,event_id,facts_version,change_facts)
+        VALUES(41,9001,1,'{"content":"PRIVATE_CHANGE_FACTS"}'),(42,9002,1,'{}')
+        """);
+    var pending = data(path);
+    assertEquals("WAITING_BUYER_CHANGE_REVIEW", pending.path("state").asText());
+    assertEquals(1, pending.path("unreviewedChangeCount").asLong());
+    assertEquals("CURRENT", pending.path("sellerConfirmation").asText());
+    assertFalse(pending.toString().contains("PRIVATE_"));
+    assertFalse(pending.has("changeFacts"));
+    jdbc.update(
+        "UPDATE transaction_change_reviews SET decision='KEEP',reviewed_at=CURRENT_TIMESTAMP WHERE purchase_request_id=41");
+    assertEquals(0, data(path).path("unreviewedChangeCount").asLong());
+    assertEquals("CONFIRMATIONS_RECEIVED", data(path).path("state").asText());
+    jdbc.update("UPDATE products SET facts_version=2 WHERE id=101");
+    var changed = data(path);
+    assertEquals("WAITING_BOTH_CONFIRMATIONS", changed.path("state").asText());
+    assertEquals("RECONFIRM_REQUIRED", changed.path("sellerConfirmation").asText());
+    assertEquals("RECONFIRM_REQUIRED", changed.path("buyerConfirmation").asText());
+    assertEquals(2, changed.path("factsVersion").asLong());
+    assertEquals(1, changed.path("sellerConfirmedVersion").asLong());
+    assertFalse(changed.has("completedAt"));
+    assertFalse(changed.has("completionAllowed"));
+  }
+
+  @Test
+  void inconsistentReservedConnectionIsNotBlamedOnMissingPartyConfirmation() throws Exception {
+    Assumptions.assumeTrue(postgres, "확인 상태 투영 SQL은 PostgreSQL에서 검증");
+    jdbc.update("UPDATE products SET owner_id=2 WHERE id=101");
+    var result = data("/api/v1/admin/trades/41/progress");
+    assertEquals("CONNECTION_CHECK_REQUIRED", result.path("state").asText());
+    assertEquals("UNAVAILABLE", result.path("sellerConfirmation").asText());
+    assertTrue(result.path("unreviewedChangeCount").isNull());
+  }
+
+  private void transfer(long id, long product, long request, String type) {
+    jdbc.update(
+        """
+        INSERT INTO ownership_transfers(id,product_id,from_user_id,to_user_id,token_hash,status,transfer_type,purchase_request_id,expires_at,created_at,completed_at)
+        VALUES(?,?,1,2,?,'COMPLETED',?,?,TIMESTAMP WITH TIME ZONE '2026-10-29 09:00:00+00',TIMESTAMP WITH TIME ZONE '2026-10-28 09:01:00+00',TIMESTAMP WITH TIME ZONE '2026-10-28 10:00:00+00')
+        """,
+        id,
+        product,
+        "PRIVATE_TOKEN_HASH_" + id,
+        type,
+        request);
   }
 
   private void audit(
