@@ -47,6 +47,12 @@ const auth = (() => {
       logout.dataset.authLogout = '';
       logout.textContent = '로그아웃';
       box.append(name, document.createTextNode(' '), logout);
+      if (user.role === 'ADMIN') {
+        const admin = document.createElement('a');
+        admin.href = '/admin';
+        admin.textContent = '관리자';
+        box.append(admin);
+      }
     } else {
       const login = document.createElement('button');
       login.dataset.page = 'auth';

@@ -4,10 +4,12 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import org.example.springtestci.admin.service.AdminAccessService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -41,7 +43,8 @@ public class SecurityConfig {
 
   /** CSRF 검증, 쿠키 인증, 접근 규칙을 설정한다. */
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http, AdminAccessService adminAccess)
+      throws Exception {
     http.csrf(
             csrf ->
                 csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -72,6 +75,16 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             authorize ->
                 authorize
+                    // 공개 정적 파일·일반 GET 규칙보다 먼저 검사해야 직접 URL 접근도 차단된다.
+                    .requestMatchers(
+                        "/admin",
+                        "/admin/**",
+                        "/admin.html",
+                        "/pages/admin.html",
+                        "/api/v1/admin/**")
+                    .access(
+                        (authentication, context) ->
+                            new AuthorizationDecision(adminAccess.allowed(authentication.get())))
                     .requestMatchers(
                         "/",
                         "/index.html",
