@@ -12,8 +12,10 @@ function setup(handler) {
     node.closest = selector => { for (let n = node; n; n = n.parent) if (n.matches(selector)) return n; return null; };
     return node;
   };
-  for (const id of ['filters', 'filter-panel', 'refresh', 'trades-tab', 'audits-tab', 'actor-label', 'date-label', 'status-field', 'action-field', 'scope-note', 'result-title', 'message', 'count', 'range', 'previous', 'next', 'detail', 'detail-title', 'detail-body', 'rows', 'columns', 'close-detail', 'reset-filters', 'updated', 'results', 'page-title', 'page-description', 'breadcrumb', 'records-table', 'related-scope', 'related-product', 'clear-related']) env.add('div', { id });
+  for (const id of ['filters', 'filter-panel', 'refresh', 'trades-tab', 'audits-tab', 'actor-label', 'date-label', 'status-field', 'action-field', 'scope-note', 'result-title', 'message', 'count', 'range', 'previous', 'next', 'detail', 'detail-title', 'detail-body', 'rows', 'columns', 'close-detail', 'reset-filters', 'updated', 'results', 'page-title', 'page-description', 'breadcrumb', 'records-table', 'related-scope', 'related-product', 'clear-related', 'trade-overview', 'overview-statuses', 'overview-requests', 'overview-cancellations', 'overview-message', 'overview-dates', 'cancel-scope', 'cancel-scope-label', 'clear-cancel', 'trade-status']) env.add('div', { id });
   env.document.body = env.document.root;
+  env.document.cookie = 'XSRF-TOKEN=csrf-test';
+  env.window.location.replace = path => env.navigations.push(path);
   const detail = env.document.getElementById('detail');
   detail.showModal = () => { detail.open = true; };
   detail.close = () => { detail.open = false; };
@@ -30,6 +32,7 @@ const page = (items, total = items.length) => ({ items, total, page: 0, size: 20
 const event = (overrides = {}) => ({ key: 'AUDIT:1:PURCHASE_REQUEST_ACCEPTED', action: 'PURCHASE_REQUEST_ACCEPTED', source: 'AUDIT', actorType: 'MEMBER', actor: { nickname: '판매회원', email: 'seller@fixture.invalid' }, occurredAt: '2026-10-28T09:00:00Z', ...overrides });
 const timeline = (items = [event()], total = items.length, number = 0, available = true) => ({ tradeId: 41, events: { ...page(items, total), page: number }, reviewHistoryAvailable: available });
 const progress = (overrides = {}) => ({ tradeId: 41, state: 'WAITING_BOTH_CONFIRMATIONS', sellerConfirmation: 'NOT_CONFIRMED', buyerConfirmation: 'NOT_CONFIRMED', unreviewedChangeCount: 0, factsVersion: 2, sellerConfirmedVersion: null, buyerConfirmedVersion: null, ...overrides });
+const overview = (overrides = {}) => ({ total: 10, pending: 1, rejected: 1, reserved: 3, completed: 2, cancelled: 3, other: 0, cancellations: [{ category: 'MUTUAL_AGREEMENT', count: 2 }, { category: 'BEFORE_RESERVATION', count: 1 }, { category: 'UNRECORDED', count: 0 }], ...overrides });
 
 test('목록·페이지 이동은 조회 요청만 보내고 실제 전체 건수를 표시한다', async () => {
   const env = setup(path => page([trade(path.includes('page=1') ? 42 : 41)], 21));
@@ -233,4 +236,141 @@ test('확인 상태 요청에서 권한 회수가 확인되면 기본 상세·�
   await flush(); await env.$('rows').querySelector('button').emit('click'); await flush();
   assert.equal(env.$('detail-body').textContent, ''); assert.equal(env.$('rows').textContent, '');
   assert.equal(env.$('detail').hidden, true); assert.match(env.$('message').textContent, /관리자 권한/);
+});
+
+test('현황 숫자에서 상태 목록으로 이동하고 결과 영역에 포커스를 옮긴다', async () => {
+  const env = setup(path => ({ ...page([trade()], path.includes('status=RESERVED') ? 3 : 10), overview: overview() }));
+  await flush();
+  assert.equal(env.$('trade-overview').hidden, false);
+  assert.deepEqual(env.$('overview-statuses').children.map(button => button.textContent), ['전체 요청10', '예약3', '완료2', '취소3']);
+  await env.$('overview-statuses').children[1].emit('click'); await flush();
+  const params = new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams;
+  assert.equal(params.get('status'), 'RESERVED'); assert.equal(params.get('page'), '0');
+  assert.equal(env.$('trade-status').value, 'RESERVED'); assert.match(env.$('count').textContent, /3건/);
+  assert.equal(env.$('overview-statuses').children[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(env.$('overview-statuses').children[0].textContent, '전체 요청10');
+  assert.equal(env.document.activeElement, env.$('results'));
+});
+
+test('취소 유형은 다른 검색 조건과 함께 유지되고 상태 변경이나 유형 해제로 제거된다', async () => {
+  const env = setup(() => ({ ...page([trade()], 2), overview: overview() }));
+  await flush();
+  env.$('filters').formEntries = [['productQuery', '노트북'], ['memberQuery', 'buyer'], ['from', '2026-10-29'], ['to', '2026-10-30'], ['status', 'CANCELLED']];
+  await env.$('filters').emit('submit'); await flush();
+  await env.$('overview-cancellations').children[0].emit('click'); await flush();
+  let params = new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams;
+  assert.equal(params.get('cancelReason'), 'MUTUAL_AGREEMENT'); assert.equal(params.get('productQuery'), '노트북');
+  assert.equal(params.get('memberQuery'), 'buyer'); assert.equal(params.get('from'), '2026-10-29');
+  assert.equal(env.$('cancel-scope').hidden, false); assert.match(env.$('cancel-scope-label').textContent, /상호 합의/);
+  assert.equal(env.$('overview-dates').hidden, false);
+  await env.$('filters').emit('submit'); await flush();
+  assert.equal(new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams.get('cancelReason'), 'MUTUAL_AGREEMENT');
+  await env.$('clear-cancel').emit('click'); await flush();
+  params = new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams;
+  assert.equal(params.has('cancelReason'), false); assert.equal(params.get('status'), 'CANCELLED');
+  assert.equal(params.get('memberQuery'), 'buyer'); assert.equal(env.$('cancel-scope').hidden, true);
+  await env.$('overview-cancellations').children[0].emit('click'); await flush();
+  env.$('filters').formEntries = [['productQuery', '노트북'], ['status', 'RESERVED']];
+  await env.$('filters').emit('submit'); await flush();
+  assert.equal(new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams.has('cancelReason'), false);
+});
+
+test('집계 오류는 0건으로 표시하지 않고 실제 0건 응답만 숫자 0으로 표시한다', async () => {
+  let fail = true;
+  const zero = overview({ total: 0, pending: 0, rejected: 0, reserved: 0, completed: 0, cancelled: 0, cancellations: [] });
+  const env = setup(() => fail ? { response: { ok: false, status: 503, json: async () => ({ message: '조회 준비 중' }) } } : { ...page([]), overview: zero });
+  await flush(); assert.equal(env.$('overview-statuses').children.length, 0); assert.match(env.$('overview-message').textContent, /집계하지 못했어요/);
+  fail = false; await env.$('refresh').emit('click'); await flush();
+  assert.deepEqual(env.$('overview-statuses').children.map(button => button.textContent), ['전체 요청0', '예약0', '완료0', '취소0']);
+  assert.match(env.$('overview-cancellations').textContent, /취소된 요청·거래가 없어요/);
+  assert.equal(env.$('overview-statuses').children[1].disabled, false);
+});
+
+test('이전 현황 버튼과 늦은 집계 응답은 업무 탭을 거래 목록으로 되돌리지 않는다', async () => {
+  const slow = deferred(); let delay = false;
+  const env = setup(path => path.includes('/audit-logs') ? page([audit()]) : delay ? slow.promise : { ...page([trade()]), overview: overview() });
+  await flush(); const old = env.$('overview-statuses').children[1];
+  delay = true; const refresh = env.$('refresh').emit('click');
+  await env.$('audits-tab').emit('click'); await flush();
+  slow.resolve({ ...page([trade()]), overview: overview({ total: 999 }) }); await refresh; await flush();
+  const count = env.calls.length; await old.emit('click'); await flush();
+  assert.equal(env.calls.length, count); assert.equal(env.$('trade-overview').hidden, true);
+  assert.equal(env.$('overview-statuses').textContent, ''); assert.match(env.$('rows').textContent, /검증 제품 104/);
+});
+
+test('권한 회수 뒤에는 운영 집계와 선택한 취소 유형도 지운다', async () => {
+  let revoke = false;
+  const env = setup(() => revoke ? { response: { ok: false, status: 403 } } : { ...page([trade()]), overview: overview() });
+  await flush(); await env.$('overview-cancellations').children[0].emit('click'); await flush();
+  assert.equal(env.$('cancel-scope').hidden, false); revoke = true;
+  await env.$('refresh').emit('click'); await flush();
+  assert.equal(env.$('trade-overview').hidden, true); assert.equal(env.$('overview-statuses').textContent, '');
+  assert.equal(env.$('cancel-scope-label').textContent, ''); assert.equal(env.$('cancel-scope').hidden, true);
+});
+
+test('관리자 API의 401은 CSRF 보호 갱신 후 한 번 재시도하고 목록을 유지한다', async () => {
+  let expired = true;
+  const env = setup(path => {
+    if (path === '/') return {};
+    if (path === '/api/auth/refresh') { expired = false; return {}; }
+    return expired ? { response: { ok: false, status: 401 } } : { ...page([trade()]), overview: overview() };
+  });
+  await flush(); assert.match(env.$('rows').textContent, /검증 노트북/);
+  const renewals = env.calls.filter(call => call.path === '/api/auth/refresh');
+  assert.equal(renewals.length, 1); assert.equal(renewals[0].options.method, 'POST');
+  assert.equal(renewals[0].options.headers['X-XSRF-TOKEN'], 'csrf-test');
+  assert.equal(env.navigations.length, 0);
+});
+
+test('동시에 만료된 타임라인과 확인 상태 조회는 갱신 쿠키를 한 번만 사용한다', async () => {
+  const renewal = deferred(); let expired = true;
+  const env = setup(path => {
+    if (path === '/') return {};
+    if (path === '/api/auth/refresh') return renewal.promise;
+    if (path.includes('/progress')) return expired ? { response: { ok: false, status: 401 } } : progress();
+    if (path.includes('/timeline')) return expired ? { response: { ok: false, status: 401 } } : timeline();
+    return path.endsWith('/trades/41') ? trade() : page([trade()]);
+  });
+  await flush(); await env.$('rows').querySelector('button').emit('click'); await flush();
+  assert.equal(env.calls.filter(call => call.path === '/api/auth/refresh').length, 1);
+  expired = false; renewal.resolve({}); await flush();
+  assert.match(env.$('detail-body').querySelector('.trade-progress').textContent, /완료 확인 대기/);
+  assert.match(env.$('detail-body').querySelector('.timeline').textContent, /구매 요청 수락/);
+});
+
+test('세션 갱신도 실패하면 업무 내용을 지우고 로그인 복구로 이동하며 403은 재갱신하지 않는다', async () => {
+  const env = setup(path => path === '/' ? {} : { response: { ok: false, status: 401 } });
+  await flush(); assert.equal(env.$('rows').textContent, '');
+  assert.deepEqual(env.navigations, ['/?returnTo=admin']);
+  assert.equal(env.calls.filter(call => call.path === '/api/auth/refresh').length, 1);
+  const forbidden = setup(() => ({ response: { ok: false, status: 403 } }));
+  await flush(); assert.equal(forbidden.calls.filter(call => call.path === '/api/auth/refresh').length, 0);
+  assert.equal(forbidden.navigations.length, 0);
+});
+
+test('화면을 떠나도 진행 중 갱신은 취소하지 않고 이전 업무 응답만 폐기한다', async () => {
+  const renewal = deferred(); let expired = false;
+  const env = setup(path => path === '/' ? {} : path === '/api/auth/refresh' ? renewal.promise : expired ? { response: { ok: false, status: 401 } } : page([trade()]));
+  await flush(); expired = true;
+  const reload = env.$('refresh').emit('click'); await flush();
+  const request = env.calls.find(call => call.path === '/api/auth/refresh');
+  assert.equal(request.options.signal, undefined);
+  env.document.hidden = true; await env.document.emit('visibilitychange');
+  expired = false; renewal.resolve({}); await reload; await flush();
+  assert.equal(env.$('rows').textContent, ''); assert.equal(env.navigations.length, 0);
+});
+
+test('거래·업무 검색은 한국 시간 기준을 표시하고 날짜 문자열을 그대로 서버에 보낸다', async () => {
+  const env = setup(() => ({ ...page([trade()]), overview: overview() }));
+  await env.$('trades-tab').emit('click'); await flush();
+  assert.equal(env.$('date-label').textContent, '예약일 시작 (KST)');
+  env.$('filters').formEntries = [['from', '2026-10-30'], ['to', '2026-10-30']];
+  await env.$('filters').emit('submit'); await flush();
+  let query = new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams;
+  assert.equal(query.get('from'), '2026-10-30'); assert.equal(query.get('to'), '2026-10-30');
+  await env.$('audits-tab').emit('click'); await flush();
+  assert.equal(env.$('date-label').textContent, '처리일 시작 (KST)');
+  await env.$('filters').emit('submit'); await flush();
+  query = new URL(env.calls.at(-1).path, 'http://test.invalid').searchParams;
+  assert.equal(query.get('from'), '2026-10-30'); assert.equal(query.get('to'), '2026-10-30');
 });

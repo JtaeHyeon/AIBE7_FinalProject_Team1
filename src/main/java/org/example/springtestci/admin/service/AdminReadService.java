@@ -29,7 +29,8 @@ public class AdminReadService {
     this.tradeEnabled = tradeEnabled;
   }
 
-  public Page<Trade> trades(long adminId, Filter filter) {
+  /** 관리자와 검색 조건을 검증하고 같은 읽기 트랜잭션에서 목록 및 전체 상태 요약을 반환한다. */
+  public TradePage trades(long adminId, Filter filter) {
     requireTrade(adminId);
     filter.validate();
     return repository.trades(filter);

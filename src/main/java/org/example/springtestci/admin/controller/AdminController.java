@@ -43,8 +43,9 @@ public class AdminController {
         .body(new ClassPathResource("static/admin.html"));
   }
 
+  /** 상태·취소 유형으로 좁힌 목록과, 그 선택 전의 제품·회원·예약일 범위 요약을 함께 제공한다. */
   @GetMapping("/api/v1/admin/trades")
-  public ApiResponse<Page<Trade>> trades(
+  public ApiResponse<TradePage> trades(
       @AuthenticationPrincipal Jwt jwt, @ModelAttribute Filter filter) {
     return ApiResponse.success(service.trades(userIds.resolve(jwt), filter));
   }

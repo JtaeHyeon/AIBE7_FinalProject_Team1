@@ -27,7 +27,7 @@ const restorePage=(()=>{
   let saved=null;
   try{saved=sessionStorage.getItem('pastport.page');}catch{}
   const params=new URL(window.location.href).searchParams;
-  const deepLink=['listingId','draftProduct','market'].some(key=>params.has(key));
+  const deepLink=['listingId','draftProduct','market'].some(key=>params.has(key))||params.get('returnTo')==='admin';
   if(!saved||deepLink||saved==='landing'||pendingPages.has(saved)||!pageNames[saved])return null;
   return saved;
 })();

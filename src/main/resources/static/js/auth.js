@@ -13,6 +13,13 @@ const auth = (() => {
   /** 화면 이동 버튼(data-page)을 눌러 해당 화면으로 이동한다. */
   const goto = (page) => document.querySelector(`[data-page="${page}"]`)?.click();
 
+  // 복귀 목적지는 고정된 관리자 화면만 허용한다. 다른 URL로의 이동이나 권한 판정을 대신하지 않는다.
+  const adminReturn = new URL(window.location.href).searchParams.get('returnTo') === 'admin';
+  const returnToAdmin = () => {
+    if (!adminReturn || user?.role !== 'ADMIN') return false;
+    window.location.replace('/admin'); return true;
+  };
+
   /** 인증 API를 JSON으로 호출한다. 실패하면 상태·코드·항목별 오류를 담은 Error를 던진다. */
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
@@ -122,7 +129,7 @@ const auth = (() => {
     special: /[^A-Za-z\d]/.test(value) && /^[\x21-\x7E]+$/.test(value),
   });
 
-  /** 로그인 폼을 검증하고 로그인한 뒤 홈으로 이동한다. 미인증이면 메일 재발송을 안내한다. */
+  /** 로그인 후 관리자·판매글 등 원래 진입 화면으로 돌아간다. 미인증이면 메일 재발송을 안내한다. */
   const handleLogin = async (form) => {
     const email = form.elements.email.value.trim();
     const password = form.elements.password.value;
@@ -135,6 +142,7 @@ const auth = (() => {
       form.elements.password.value = '';
       message(form, '');
       setSession(data);
+      if (returnToAdmin()) return;
       const listingId = new URL(window.location.href).searchParams.get('listingId');
       if (/^[1-9]\d*$/.test(listingId || '') && window.PastportPublishedListing) window.PastportPublishedListing.open(listingId);
       else if (new URL(window.location.href).searchParams.get('myListings') === '1') goto('my-listings');
@@ -279,7 +287,9 @@ const auth = (() => {
   });
 
   // 새로고침 후 HttpOnly refresh 쿠키가 남아 있으면 세션을 복구한다.
-  refresh().catch(() => {});
+  refresh().then(() => { returnToAdmin(); }).catch(() => {
+    if (adminReturn) { clearSession(); goto('auth'); }
+  });
 
   return { get user() { return user; } };
 })();

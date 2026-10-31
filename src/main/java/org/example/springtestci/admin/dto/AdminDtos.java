@@ -12,6 +12,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 public final class AdminDtos {
   private AdminDtos() {}
 
+  /** from/to는 한국 시간의 달력 날짜이며 종료일을 포함한다. 저장된 timestamp의 시간대는 바꾸지 않는다. */
   public record Filter(
       Integer page,
       Integer size,
@@ -22,7 +23,8 @@ public final class AdminDtos {
       @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
       @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
       String productQuery,
-      String memberQuery) {
+      String memberQuery,
+      String cancelReason) {
     public Filter {
       page = page == null ? 0 : page;
       size = size == null ? 20 : size;
@@ -30,6 +32,7 @@ public final class AdminDtos {
       status = status == null || status.isBlank() ? null : status.trim();
       productQuery = productQuery == null || productQuery.isBlank() ? null : productQuery.trim();
       memberQuery = memberQuery == null || memberQuery.isBlank() ? null : memberQuery.trim();
+      cancelReason = cancelReason == null || cancelReason.isBlank() ? null : cancelReason.trim();
     }
 
     public void validate() {
@@ -46,8 +49,16 @@ public final class AdminDtos {
           || (from != null && to != null && from.isAfter(to))
           || (to != null && to.getYear() >= 9999)
           || (productQuery != null && productQuery.length() > 200)
-          || (memberQuery != null && memberQuery.length() > 254)) {
+          || (memberQuery != null && memberQuery.length() > 254)
+          || (cancelReason != null && status != null && !status.equals("CANCELLED"))) {
         throw new CommonException(ErrorCode.INVALID_INPUT);
+      }
+      if (cancelReason != null) {
+        try {
+          CancellationCategory.valueOf(cancelReason);
+        } catch (IllegalArgumentException invalid) {
+          throw new CommonException(ErrorCode.INVALID_INPUT);
+        }
       }
     }
 
@@ -57,6 +68,32 @@ public final class AdminDtos {
   }
 
   public record Page<T>(List<T> items, int page, int size, long total) {}
+
+  /** 목록과 요약은 한 읽기 트랜잭션의 같은 검색 범위에서 계산한다. 기존 페이지 필드는 유지한다. */
+  public record TradePage(
+      List<Trade> items, int page, int size, long total, TradeOverview overview) {}
+
+  public enum CancellationCategory {
+    SELF_CIRCUMSTANCES,
+    MUTUAL_AGREEMENT,
+    COUNTERPART_UNREACHABLE,
+    CONDITION_MISMATCH,
+    BEFORE_RESERVATION,
+    UNRECORDED
+  }
+
+  public record CancellationCount(CancellationCategory category, long count) {}
+
+  /** 상태·취소 유형 선택 전의 전체 검색 범위다. total에는 예약 전 요청·거절도 포함한다. */
+  public record TradeOverview(
+      long total,
+      long pending,
+      long rejected,
+      long reserved,
+      long completed,
+      long cancelled,
+      long other,
+      List<CancellationCount> cancellations) {}
 
   /** 현재 등록 정보다. 거래 당시의 명칭·이메일 사본을 의미하지 않는다. */
   public record ProductSummary(long id, String title, String manufacturer, String modelName) {}

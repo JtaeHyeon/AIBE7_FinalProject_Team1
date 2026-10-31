@@ -13,6 +13,8 @@ import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -160,6 +162,47 @@ class SecurityHttpTest {
             get("/api/v1/probe")
                 .cookie(accessCookie(token("jti-3", Instant.now().minusSeconds(60)))))
         .andExpect(status().isUnauthorized());
+  }
+
+  /** 관리자 HTML 탐색은 인증 전 공개 복구 화면으로 이동하며, 관리자 콘텐츠를 직접 제공하지 않는다. */
+  @ParameterizedTest
+  @ValueSource(strings = {"/admin", "/admin/", "/admin.html", "/pages/admin.html"})
+  void sendsUnauthenticatedAdminHtmlNavigationToSessionRecovery(String path) throws Exception {
+    mvc.perform(get(path).header(HttpHeaders.ACCEPT, "text/html"))
+        .andExpect(status().isFound())
+        .andExpect(header().string(HttpHeaders.LOCATION, "/?returnTo=admin"))
+        .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"));
+  }
+
+  /** JWT 인증 필터에서 먼저 실패한 만료 쿠키도 HTML 복구로 안내한다. */
+  @Test
+  void sendsAnExpiredAdminHtmlCookieToRecoveryWithoutUsingAReturnUrlFromTheRequest()
+      throws Exception {
+    mvc.perform(
+            get("/admin?returnTo=https://untrusted.invalid")
+                .header(HttpHeaders.ACCEPT, "text/html")
+                .cookie(accessCookie(token("jti-expired-admin", Instant.now().minusSeconds(120)))))
+        .andExpect(status().isFound())
+        .andExpect(header().string(HttpHeaders.LOCATION, "/?returnTo=admin"));
+  }
+
+  /** API의 401과 인증된 일반 회원의 403은 로그인 복구 리다이렉트로 바꾸지 않는다. */
+  @Test
+  void preservesAdminApiUnauthorizedAndNonAdminHtmlForbidden() throws Exception {
+    mvc.perform(get("/api/v1/admin/trades").header(HttpHeaders.ACCEPT, "text/html"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
+    mvc.perform(
+            get("/admin")
+                .header(HttpHeaders.ACCEPT, "application/json")
+                .cookie(new Cookie(SecurityConfig.ACCESS_TOKEN_COOKIE, "forged")))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(
+            get("/admin")
+                .header(HttpHeaders.ACCEPT, "text/html")
+                .cookie(accessCookie("jti-non-admin")))
+        .andExpect(status().isForbidden())
+        .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
   }
 
   /** 로그아웃한 토큰은 유효 기간이 남아 있어도 401이다. */
