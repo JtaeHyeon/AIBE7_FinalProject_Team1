@@ -3,7 +3,9 @@ package org.example.springtestci.admin.repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Locale;
 import org.example.springtestci.admin.dto.AdminDtos.*;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Repository;
 /** 관리 조회 전용 투영이다. 채팅에서는 당사자 ID만 읽으며 문서·메시지 테이블은 조회하지 않는다. */
 @Repository
 public class AdminReadRepository {
+  private static final ZoneId SEARCH_ZONE = ZoneId.of("Asia/Seoul");
   private final NamedParameterJdbcTemplate jdbc;
 
   public AdminReadRepository(NamedParameterJdbcTemplate jdbc) {
@@ -55,7 +58,34 @@ public class AdminReadRepository {
       """;
   private static final String AUDITS = "SELECT " + AUDIT_COLUMNS + AUDIT_FROM;
 
-  public Page<Trade> trades(Filter filter) {
+  /** 상태/유형 필터와 같은 분류식을 사용해 목록·요약을 일관된 읽기 스냅샷에서 조합한다. */
+  public TradePage trades(Filter filter) {
+    var query = tradeScope(filter);
+    if (filter.status() != null) {
+      query.sql.append(" AND COALESCE(transaction_status, request_status) = :status");
+      query.params.put("status", filter.status());
+    }
+    if (filter.cancelReason() != null) {
+      query.sql.append(" AND COALESCE(transaction_status, request_status) = 'CANCELLED'");
+      query.sql.append(" AND (").append(CANCELLATION_CATEGORY).append(") = :cancelReason");
+      query.params.put("cancelReason", filter.cancelReason());
+    }
+    long total = count(query);
+    query.page(filter, "id DESC");
+    var items = jdbc.query(query.sql.toString(), query.params, this::mapTrade);
+    return new TradePage(items, filter.page(), filter.size(), total, overview(filter));
+  }
+
+  // 원래 저장값이 없는 취소를 임의 사유로 바꾸지 않는다. 목록 필터와 집계에 이 분류식을 공통 사용한다.
+  private static final String CANCELLATION_CATEGORY =
+      """
+      CASE WHEN transaction_status IS NULL THEN 'BEFORE_RESERVATION'
+        WHEN cancel_reason IN ('SELF_CIRCUMSTANCES', 'MUTUAL_AGREEMENT',
+          'COUNTERPART_UNREACHABLE', 'CONDITION_MISMATCH') THEN cancel_reason
+        ELSE 'UNRECORDED' END
+      """;
+
+  private Query tradeScope(Filter filter) {
     var query = new Query("SELECT * FROM (" + TRADES + ") t WHERE 1=1");
     query.equal("product_id", "product", filter.productId());
     query.productSearch(filter.productQuery());
@@ -73,18 +103,54 @@ public class AdminReadRepository {
           " AND (seller_id = :actor OR buyer_id = :actor OR cancelled_by_id = :actor)");
       query.params.put("actor", filter.actorId());
     }
-    if (filter.status() != null) {
-      query.sql.append(" AND COALESCE(transaction_status, request_status) = :status");
-      query.params.put("status", filter.status());
-    }
     query.dates("reserved_at", filter);
-    long total = count(query);
-    query.page(filter, "id DESC");
-    return new Page<>(
-        jdbc.query(query.sql.toString(), query.params, this::mapTrade),
-        filter.page(),
-        filter.size(),
-        total);
+    return query;
+  }
+
+  /** 페이지·상태·취소 유형과 무관하게 제품/회원/예약일 범위만 집계한다. 원본 취소 사유는 응답하지 않는다. */
+  private TradeOverview overview(Filter filter) {
+    var scope = tradeScope(filter);
+    var states = new HashMap<String, Long>();
+    var cancellations = new EnumMap<CancellationCategory, Long>(CancellationCategory.class);
+    String sql =
+        "SELECT state, category, COUNT(*) AS amount FROM (SELECT "
+            + "COALESCE(transaction_status, request_status) AS state, "
+            + CANCELLATION_CATEGORY
+            + " AS category FROM ("
+            + scope.sql
+            + ") scoped) classified GROUP BY state, category";
+    jdbc.query(
+        sql,
+        scope.params,
+        (org.springframework.jdbc.core.RowCallbackHandler)
+            r -> {
+              String state = r.getString("state");
+              long amount = r.getLong("amount");
+              states.merge(state, amount, Long::sum);
+              if ("CANCELLED".equals(state)) {
+                cancellations.merge(
+                    CancellationCategory.valueOf(r.getString("category")), amount, Long::sum);
+              }
+            });
+    long total = states.values().stream().mapToLong(Long::longValue).sum();
+    long pending = states.getOrDefault("PENDING", 0L),
+        rejected = states.getOrDefault("REJECTED", 0L),
+        reserved = states.getOrDefault("RESERVED", 0L),
+        completed = states.getOrDefault("COMPLETED", 0L),
+        cancelled = states.getOrDefault("CANCELLED", 0L);
+    return new TradeOverview(
+        total,
+        pending,
+        rejected,
+        reserved,
+        completed,
+        cancelled,
+        total - pending - rejected - reserved - completed - cancelled,
+        Arrays.stream(CancellationCategory.values())
+            .map(
+                category ->
+                    new CancellationCount(category, cancellations.getOrDefault(category, 0L)))
+            .toList());
   }
 
   public Trade trade(long id) {
@@ -215,14 +281,15 @@ public class AdminReadRepository {
       }
     }
 
+    /** 화면과 같은 한국 날짜를 사용한다. 종료일 다음 날 0시 미만으로 비교해 소수 초까지 포함한다. */
     private void dates(String column, Filter filter) {
       if (filter.from() != null) {
         sql.append(" AND ").append(column).append(" >= :from");
-        params.put("from", filter.from().atStartOfDay().atOffset(ZoneOffset.UTC));
+        params.put("from", filter.from().atStartOfDay(SEARCH_ZONE).toOffsetDateTime());
       }
       if (filter.to() != null) {
         sql.append(" AND ").append(column).append(" < :until");
-        params.put("until", filter.to().plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC));
+        params.put("until", filter.to().plusDays(1).atStartOfDay(SEARCH_ZONE).toOffsetDateTime());
       }
     }
 

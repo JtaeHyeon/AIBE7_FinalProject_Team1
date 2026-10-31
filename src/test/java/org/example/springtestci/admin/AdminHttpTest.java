@@ -16,6 +16,7 @@ import org.example.springtestci.common.error.CommonException;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -273,6 +274,167 @@ class AdminHttpTest {
         "2026-10-29T14:00:00Z", data("/api/v1/admin/trades/43").path("completedAt").asText());
     assertFalse(detail.toString().contains("PRIVATE_"));
     assertFalse(detail.has("chatMessages"));
+  }
+
+  @Test
+  void overviewUsesWholeSearchScopeWhileListUsesSelectedStatusAndReason() throws Exception {
+    var all = data("/api/v1/admin/trades?size=1");
+    var overview = all.path("overview");
+    assertEquals(3, overview.path("total").asLong());
+    assertEquals(1, overview.path("reserved").asLong());
+    assertEquals(1, overview.path("completed").asLong());
+    assertEquals(1, overview.path("cancelled").asLong());
+    assertEquals(0, overview.path("pending").asLong());
+    assertEquals(6, overview.path("cancellations").size());
+    assertEquals(1, cancellationCount(overview, "MUTUAL_AGREEMENT"));
+    for (String query :
+        List.of(
+            "status=RESERVED",
+            "status=CANCELLED",
+            "cancelReason=MUTUAL_AGREEMENT",
+            "status=CANCELLED&cancelReason=MUTUAL_AGREEMENT")) {
+      var selected = data("/api/v1/admin/trades?" + query);
+      assertEquals(1, selected.path("total").asLong());
+      assertEquals(overview, selected.path("overview"));
+    }
+    assertEquals(overview, data("/api/v1/admin/trades?page=99").path("overview"));
+    var noMatchingReason = data("/api/v1/admin/trades?cancelReason=SELF_CIRCUMSTANCES");
+    assertEquals(0, noMatchingReason.path("total").asLong());
+    assertEquals(overview, noMatchingReason.path("overview"));
+  }
+
+  @Test
+  void overviewSharesProductMemberAndReservationDateConditionsWithTheList() throws Exception {
+    var product = data("/api/v1/admin/trades?productQuery=macbook&memberQuery=A-BUYER");
+    assertEquals(1, product.path("overview").path("total").asLong());
+    assertEquals(1, product.path("overview").path("reserved").asLong());
+    var period = data("/api/v1/admin/trades?from=2026-10-29&to=2026-10-29");
+    assertEquals(1, period.path("overview").path("total").asLong());
+    assertEquals(1, period.path("overview").path("cancelled").asLong());
+    // 같은 날 완료한 43도 예약 감사 시각이 없으므로 예약일을 지정한 범위에는 포함하지 않는다.
+    assertEquals(0, period.path("overview").path("completed").asLong());
+    var missing = data("/api/v1/admin/trades?productId=999").path("overview");
+    assertEquals(0, missing.path("total").asLong());
+    assertEquals(0, missing.path("reserved").asLong());
+    assertTrue(
+        java.util.stream.StreamSupport.stream(missing.path("cancellations").spliterator(), false)
+            .allMatch(item -> item.path("count").asLong() == 0));
+  }
+
+  @Test
+  void overviewSeparatesPreReservationWithdrawalAndCountsEveryCancellationExactlyOnce()
+      throws Exception {
+    jdbc.update(
+        """
+        INSERT INTO purchase_requests(id,room_id,listing_id,request_status,transaction_status)
+        VALUES(44,11,501,'CANCELLED',NULL),(45,11,501,'REJECTED',NULL),(46,12,502,'PENDING',NULL)
+        """);
+    var result = data("/api/v1/admin/trades");
+    var overview = result.path("overview");
+    assertEquals(6, overview.path("total").asLong());
+    assertEquals(1, overview.path("pending").asLong());
+    assertEquals(1, overview.path("rejected").asLong());
+    assertEquals(2, overview.path("cancelled").asLong());
+    assertEquals(1, cancellationCount(overview, "BEFORE_RESERVATION"));
+    long sum =
+        java.util.stream.StreamSupport.stream(overview.path("cancellations").spliterator(), false)
+            .mapToLong(item -> item.path("count").asLong())
+            .sum();
+    assertEquals(overview.path("cancelled").asLong(), sum);
+    long stateSum = 0;
+    for (String key : List.of("pending", "rejected", "reserved", "completed", "cancelled", "other"))
+      stateSum += overview.path(key).asLong();
+    assertEquals(overview.path("total").asLong(), stateSum);
+    var selected = data("/api/v1/admin/trades?cancelReason=BEFORE_RESERVATION");
+    assertEquals(1, selected.path("total").asLong());
+    assertEquals(44, selected.path("items").get(0).path("id").asLong());
+    assertEquals(overview, selected.path("overview"));
+  }
+
+  @Test
+  void overviewKeepsLegacyUnknownStatusAndCancellationReasonWithoutInventingTheirMeaning()
+      throws Exception {
+    Assumptions.assumeFalse(postgres, "정식 P3 제약 전의 레거시 입력은 H2 조회 fixture에서 검증");
+    jdbc.update("UPDATE purchase_requests SET cancel_reason='PRIVATE_LEGACY_REASON' WHERE id=42");
+    jdbc.update(
+        "INSERT INTO purchase_requests(id,room_id,listing_id,request_status) VALUES(47,11,501,'ACCEPTED')");
+    var result = data("/api/v1/admin/trades?cancelReason=UNRECORDED");
+    assertEquals(1, result.path("total").asLong());
+    assertEquals(1, result.path("overview").path("other").asLong());
+    assertEquals(1, cancellationCount(result.path("overview"), "UNRECORDED"));
+    assertFalse(result.path("overview").toString().contains("PRIVATE_"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "cancelReason=unknown",
+        "cancelReason=MUTUAL_AGREEMENT%27",
+        "status=RESERVED&cancelReason=MUTUAL_AGREEMENT"
+      })
+  void rejectsUnsupportedCancellationFilters(String query) throws Exception {
+    assertEquals(400, send("/api/v1/admin/trades?" + query, jwt("9", "ADMIN"), "GET").statusCode());
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "2026-10-29T14:59:59.999999Z,false",
+    "2026-10-29T15:00:00Z,true",
+    "2026-10-30T14:59:59.999999Z,true",
+    "2026-10-30T15:00:00Z,false"
+  })
+  void koreanCalendarBoundariesMatchTradeListOverviewAndAuditList(String at, boolean included)
+      throws Exception {
+    jdbc.update(
+        "UPDATE audit_logs SET created_at=? WHERE id=101", java.time.OffsetDateTime.parse(at));
+    audit(610, 101, 1L, 101, "PRODUCT_INFO_CORRECTED", null, null, "검색 경계 시험", at);
+    String dates = "productId=101&from=2026-10-30&to=2026-10-30";
+    var trades = data("/api/v1/admin/trades?" + dates);
+    var audits = data("/api/v1/admin/audit-logs?action=PRODUCT_INFO_CORRECTED&" + dates);
+    long expected = included ? 1 : 0;
+    assertEquals(expected, trades.path("total").asLong());
+    assertEquals(expected, trades.path("overview").path("total").asLong());
+    assertEquals(expected, trades.path("overview").path("reserved").asLong());
+    assertEquals(expected, audits.path("total").asLong());
+    if (included) {
+      assertEquals(
+          java.time.Instant.parse(at),
+          java.time.Instant.parse(trades.path("items").get(0).path("reservedAt").asText()));
+      assertEquals(
+          java.time.Instant.parse(at),
+          java.time.Instant.parse(audits.path("items").get(0).path("createdAt").asText()));
+    }
+  }
+
+  @Test
+  void koreanDateSearchSupportsSingleSidedRangesAndPagesWithoutChangingStoredTimestamps()
+      throws Exception {
+    String[] times = {
+      "2026-10-29T14:59:59.999999Z",
+      "2026-10-29T15:00:00Z",
+      "2026-10-30T14:59:59.999999Z",
+      "2026-10-30T15:00:00Z"
+    };
+    for (int i = 0; i < times.length; i++)
+      audit(610 + i, 101, 1L, 101, "PRODUCT_INFO_CORRECTED", null, null, null, times[i]);
+    String query = "/api/v1/admin/audit-logs?action=PRODUCT_INFO_CORRECTED&productId=101";
+    assertEquals(3, data(query + "&from=2026-10-30").path("total").asLong());
+    assertEquals(3, data(query + "&to=2026-10-30").path("total").asLong());
+    assertEquals(1, data(query + "&from=2026-10-29&to=2026-10-29").path("total").asLong());
+    var page = data(query + "&from=2026-10-30&to=2026-10-30&size=1&page=1");
+    assertEquals(2, page.path("total").asLong());
+    assertEquals(611, page.path("items").get(0).path("id").asLong());
+    assertEquals("2026-10-29T15:00:00Z", page.path("items").get(0).path("createdAt").asText());
+  }
+
+  private long cancellationCount(JsonNode overview, String category) {
+    return java.util.stream.StreamSupport.stream(
+            overview.path("cancellations").spliterator(), false)
+        .filter(item -> item.path("category").asText().equals(category))
+        .findFirst()
+        .orElseThrow()
+        .path("count")
+        .asLong();
   }
 
   @Test

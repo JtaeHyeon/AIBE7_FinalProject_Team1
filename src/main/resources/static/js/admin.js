@@ -3,6 +3,7 @@
   const $ = id => document.getElementById(id);
   const form = $('filters');
   let tab = 'trades', page = 0, version = 0, controller, filters = new URLSearchParams(), opener, relatedProduct;
+  let refreshing = null;
   const labels = {
     PENDING: '구매 요청', ACCEPTED: '수락', REJECTED: '요청 거절', RESERVED: '예약', COMPLETED: '완료', CANCELLED: '취소',
     SUCCESS: '성공', SELF_CIRCUMSTANCES: '개인 사정', MUTUAL_AGREEMENT: '상호 합의', COUNTERPART_UNREACHABLE: '상대방 연락 두절', CONDITION_MISMATCH: '제품 상태 불일치',
@@ -11,6 +12,7 @@
     TRADE_COMPLETED: '거래 완료', TRADE_RESERVATION_CANCELLED: '예약 취소',
     RESERVATION_CHANGE_RECORDED: '예약 중 제품 이력 변경', RESERVATION_CHANGE_KEPT: '구매자 변경 확인 · 예약 유지', RESERVATION_CHANGE_CANCELLED: '구매자 변경 확인 · 예약 취소',
     BUYER_CANCELLED: '구매자 요청 취소', SELLER_REJECTED: '판매자 요청 거절',
+    BEFORE_RESERVATION: '예약 전 요청 취소', UNRECORDED: '기타·사유 미기록',
     OWNERSHIP_TRANSFER_CREATED: '소유권 이전 요청', OWNERSHIP_TRANSFERRED: '소유권 이전 완료', OWNERSHIP_TRANSFER_CANCELLED: '소유권 이전 취소',
     LISTING_PUBLISHED: '판매글 게시', LISTING_UPDATED: '판매글 수정', LISTING_CANCELLED: '판매글 판매 종료', PRODUCT_INFO_CORRECTED: '제품 기본 정보 정정',
     VALID: '유효', VOID: '무효', PUBLIC: '공개', PRIVATE: '비공개', ACTIVE: '판매 중', SOLD: '판매 완료',
@@ -47,12 +49,33 @@
 
   /** 취소된 요청이 늦게 완료돼도 다른 탭·계정의 화면을 다시 채우지 못하게 세대를 함께 확인한다. */
   const invalidate = () => { version++; controller?.abort(); controller = new AbortController(); return version; };
-  const clear = () => { hideDetail(); $('rows').replaceChildren(); $('count').textContent = ''; $('range').textContent = ''; $('updated').textContent = ''; $('previous').disabled = true; $('next').disabled = true; $('results').setAttribute('aria-busy', 'false'); };
+  const clear = () => { hideDetail(); $('rows').replaceChildren(); $('count').textContent = ''; $('range').textContent = ''; $('updated').textContent = ''; $('previous').disabled = true; $('next').disabled = true; $('results').setAttribute('aria-busy', 'false'); $('trade-overview').hidden = true; for (const id of ['overview-statuses', 'overview-requests', 'overview-cancellations']) $(id).replaceChildren(); $('overview-message').textContent = ''; $('cancel-scope').hidden = true; $('cancel-scope-label').textContent = ''; };
+  /** 1회용 refresh 쿠키는 동시에 한 번만 사용한다. 화면 전환으로 갱신 응답을 취소해 새 쿠키를 잃지 않게 한다. */
+  const refreshSession = () => {
+    refreshing ??= (async () => {
+      const seed = await window.fetch('/', { credentials: 'same-origin', cache: 'no-store' });
+      if (!seed.ok) return false;
+      const token = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+      if (!token) return false;
+      const response = await window.fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'X-XSRF-TOKEN': decodeURIComponent(token[1]) } });
+      return response.ok;
+    })().catch(() => false).finally(() => { refreshing = null; });
+    return refreshing;
+  };
   const request = async (path, current) => {
-    const response = await window.fetch('/api/v1/admin/' + path, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+    const signal = controller.signal;
+    const send = () => window.fetch('/api/v1/admin/' + path, { credentials: 'same-origin', cache: 'no-store', signal });
+    let response = await send();
+    if (current !== version) return null;
+    if (response.status === 401) {
+      const restored = await refreshSession();
+      if (current !== version) return null;
+      if (restored) response = await send();
+    }
     if (current !== version) return null;
     if (response.status === 401 || response.status === 403) {
       invalidate(); clear(); setRelated(); $('message').textContent = '관리자 권한을 확인할 수 없어요. 홈에서 로그인한 계정을 확인해 주세요.';
+      if (response.status === 401) window.location.replace('/?returnTo=admin');
       return null;
     }
     const payload = await response.json().catch(() => null);
@@ -67,6 +90,36 @@
   const auditFields = a => [['제품', productName(a.product)], ['제조사·모델', productModel(a.product)], ['처리 주체', a.actorId == null ? '시스템' : memberText(a.actor)], ['행위', text(a.action)], ['결과', text(a.result)], ['처리 시각', time(a.createdAt)]];
   const section = (title, entries) => { const n = node('section'); n.className = 'detail-section'; n.append(node('h3', title), fields(entries)); return n; };
   const identifiers = entries => { const n = node('details'); n.className = 'identifiers'; n.append(node('summary', '기록 식별 정보'), fields(entries)); return n; };
+  /** 요약에서 목록으로 이동해도 제품·회원·예약일 조건을 보존한다. 종료된 화면의 버튼은 동작하지 않는다. */
+  const overviewButton = (label, count, selectedStatus, category, compact = false) => {
+    const button = node('button'); button.type = 'button'; button.className = compact ? 'overview-link' : 'overview-stat';
+    button.dataset.status = selectedStatus || ''; if (category) button.dataset.category = category;
+    button.setAttribute('aria-pressed', String((filters.get('status') || '') === (selectedStatus || '') && (filters.get('cancelReason') || '') === (category || '')));
+    button.setAttribute('aria-label', `${label} ${count.toLocaleString()}건 목록 보기`);
+    button.append(node('span', label), node('strong', count.toLocaleString()));
+    button.addEventListener('click', async () => {
+      if (!button.isConnected || tab !== 'trades') return;
+      if (selectedStatus) filters.set('status', selectedStatus); else filters.delete('status');
+      if (category) filters.set('cancelReason', category); else filters.delete('cancelReason');
+      $('trade-status').value = selectedStatus || ''; page = 0;
+      const loading = load(), current = version; await loading;
+      if (current === version) { $('results').scrollIntoView?.({ block: 'start' }); $('results').focus({ preventScroll: true }); }
+    });
+    return button;
+  };
+  const renderOverview = overview => {
+    $('overview-dates').hidden = !filters.has('from') && !filters.has('to');
+    if (!overview) { $('overview-message').textContent = '운영 현황을 불러오지 못했어요. 새로고침으로 다시 시도해 주세요.'; return; }
+    $('overview-message').textContent = '';
+    $('overview-statuses').append(overviewButton('전체 요청', overview.total), overviewButton('예약', overview.reserved, 'RESERVED'), overviewButton('완료', overview.completed, 'COMPLETED'), overviewButton('취소', overview.cancelled, 'CANCELLED'));
+    $('overview-requests').append(overviewButton('구매 요청', overview.pending, 'PENDING', null, true), overviewButton('요청 거절', overview.rejected, 'REJECTED', null, true));
+    if (overview.other) $('overview-requests').append(node('span', `기타 상태 ${overview.other.toLocaleString()}건`));
+    const categories = overview.cancellations.filter(item => item.count > 0);
+    if (categories.length) for (const item of categories) $('overview-cancellations').append(overviewButton(text(item.category), item.count, 'CANCELLED', item.category, true));
+    else $('overview-cancellations').append(node('p', '이 검색 범위에는 취소된 요청·거래가 없어요.'));
+    const reason = filters.get('cancelReason'); $('cancel-scope').hidden = !reason;
+    $('cancel-scope-label').textContent = reason ? `선택한 취소 유형: ${text(reason)}` : '';
+  };
   const setRelated = product => {
     relatedProduct = product; filters.delete('productId');
     if (product) filters.set('productId', product.id);
@@ -210,6 +263,8 @@
   };
   const load = async () => {
     const current = invalidate(); clear(); $('message').textContent = '기록을 불러오는 중이에요.'; $('message').dataset.kind = 'loading'; $('results').setAttribute('aria-busy', 'true');
+    $('trade-overview').hidden = tab !== 'trades';
+    if (tab === 'trades') $('overview-message').textContent = '검색 범위의 현황을 집계하는 중이에요.';
     const headings = tab === 'trades' ? ['번호', '제품', '거래 당사자', '상태', '예약 시각 (KST)'] : ['번호', '업무', '제품', '처리 주체', '결과', '처리 시각 (KST)'];
     $('records-table').dataset.kind = tab;
     const header = node('tr'); headings.forEach(value => { const th = node('th', value); th.setAttribute('scope', 'col'); header.append(th); }); $('columns').replaceChildren(header);
@@ -217,6 +272,7 @@
     try {
       const data = await request(`${tab}?${query}`, current);
       if (!data || current !== version) return;
+      if (tab === 'trades') renderOverview(data.overview);
       $('message').textContent = data.items.length ? '' : '조건에 맞는 기록이 없어요.';
       $('message').dataset.kind = data.items.length ? '' : 'empty';
       $('count').textContent = `총 ${data.total.toLocaleString()}건`;
@@ -237,7 +293,7 @@
       const first = data.total && data.items.length ? page * 20 + 1 : 0;
       $('range').textContent = `${first}–${first ? page * 20 + data.items.length : 0} / ${data.total.toLocaleString()}건`;
       $('previous').disabled = page === 0; $('next').disabled = (page + 1) * 20 >= data.total;
-    } catch (error) { if (current === version && error.name !== 'AbortError') { $('message').textContent = error.message; $('message').dataset.kind = 'error'; } }
+    } catch (error) { if (current === version && error.name !== 'AbortError') { $('message').textContent = error.message; $('message').dataset.kind = 'error'; $('overview-message').textContent = '현황을 집계하지 못했어요. 새로고침으로 다시 시도해 주세요.'; } }
     finally { if (current === version) $('results').setAttribute('aria-busy', 'false'); }
   };
   const changeTab = (value, product) => {
@@ -248,7 +304,7 @@
     }
     $('status-field').hidden = tab !== 'trades'; $('action-field').hidden = tab === 'trades';
     $('actor-label').textContent = tab === 'trades' ? '거래 회원 검색' : '처리 회원 검색';
-    $('date-label').textContent = tab === 'trades' ? '예약일 시작 (UTC)' : '처리일 시작 (UTC)';
+    $('date-label').textContent = tab === 'trades' ? '예약일 시작 (KST)' : '처리일 시작 (KST)';
     $('scope-note').textContent = tab === 'trades' ? '예약·완료 시각은 처리 기록을 기준으로 해요. 시각이 남아 있지 않은 기록은 ‘—’로 표시해요.' : '정정·무효 기록은 상세에서 변경 전후 내용과 사유를 확인할 수 있어요.';
     const title = tab === 'trades' ? '거래·취소 기록' : '업무 변경 기록';
     $('page-title').textContent = title; $('breadcrumb').textContent = title; document.title = `${title} · PastPort 관리자`;
@@ -256,15 +312,17 @@
     $('result-title').textContent = tab === 'trades' ? '거래 목록' : '업무 기록 목록'; load();
   };
   form.addEventListener('submit', event => {
-    event.preventDefault(); filters = new URLSearchParams();
+    event.preventDefault(); const cancelReason = filters.get('cancelReason'); filters = new URLSearchParams();
     for (const [key, value] of new window.FormData(form)) if (value && (key !== 'status' || tab === 'trades') && (key !== 'action' || tab !== 'trades')) filters.set(key, String(value).trim());
     if (relatedProduct) filters.set('productId', relatedProduct.id);
+    if (tab === 'trades' && filters.get('status') === 'CANCELLED' && cancelReason) filters.set('cancelReason', cancelReason);
     page = 0; load();
   });
   $('reset-filters').addEventListener('click', () => changeTab(tab));
   $('trades-tab').addEventListener('click', () => changeTab('trades'));
   $('audits-tab').addEventListener('click', () => changeTab('audit-logs'));
   $('clear-related').addEventListener('click', () => changeTab(tab));
+  $('clear-cancel').addEventListener('click', () => { filters.delete('cancelReason'); page = 0; load(); });
   $('refresh').addEventListener('click', load);
   $('previous').addEventListener('click', () => { if (page > 0) { page--; load(); } });
   $('next').addEventListener('click', () => { if (!$('next').disabled) { page++; load(); } });
